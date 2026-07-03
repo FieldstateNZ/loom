@@ -1,0 +1,13 @@
+[package]
+name = "loom-provider"
+description = "Loom provider plugin trait, capability model and streaming envelope."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+loom-core = { workspace = true }
+serde = { workspace = true }

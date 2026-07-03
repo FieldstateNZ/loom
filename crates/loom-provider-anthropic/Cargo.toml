@@ -1,0 +1,15 @@
+[package]
+name = "loom-provider-anthropic"
+description = "Anthropic provider for Loom: Messages API translation, streaming, caching, server tools, MCP, batches."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+loom-core = { workspace = true }
+loom-provider = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

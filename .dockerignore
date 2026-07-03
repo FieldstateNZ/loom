@@ -1,0 +1,13 @@
+target/
+.git/
+.github/
+node_modules/
+clients/*/node_modules/
+clients/*/dist/
+**/*.md
+!README.md
+.env
+.env.*
+deploy/
+docs/
+*.log

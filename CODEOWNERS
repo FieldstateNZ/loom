@@ -1,0 +1,10 @@
+# Loom code owners.
+# Default owner for everything in the repo.
+*                           @fieldstatenz
+
+# Provider translation is fidelity-critical.
+/crates/loom-provider-anthropic/  @fieldstatenz
+/crates/loom-core/                @fieldstatenz
+
+# Deployment
+/deploy/                    @fieldstatenz

@@ -1,0 +1,23 @@
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Node (clients/typescript)
+node_modules/
+dist/
+*.tgz
+
+# Local scratch
+/tmp/
+*.log

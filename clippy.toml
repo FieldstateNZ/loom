@@ -1,0 +1,3 @@
+# Loom clippy configuration.
+# Keep the default lint set; CI runs `cargo clippy --all-targets -- -D warnings`.
+avoid-breaking-exported-api = false
