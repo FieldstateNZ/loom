@@ -198,7 +198,11 @@ fn conversation_options_roundtrips() {
         McpServerRef {
             name: "inline".to_owned(),
             url: Some("https://mcp.example.com/mcp".to_owned()),
-            authorization: Some("tok".to_owned()),
+            // `authorization` is deserialize-only (never serialized), so it is
+            // deliberately absent here — the round-trip helper asserts equality,
+            // and a serialized token would not survive by design. Its
+            // never-serialized guarantee is covered by the dedicated test below.
+            authorization: None,
             tool_configuration: Some(json!({ "enabled": true })),
         },
     ];
@@ -231,6 +235,37 @@ fn mcp_server_ref_debug_redacts_the_authorization_token() {
     // A named reference carries no token and shows None.
     let named = format!("{:?}", McpServerRef::named("github"));
     assert!(named.contains("authorization: None"));
+}
+
+#[test]
+fn mcp_authorization_token_is_never_serialized() {
+    // The bearer token is deserialize-only: an inbound inline reference may
+    // carry it, but serializing a McpServerRef must never emit it — so a
+    // decrypted token cannot leak through anything that renders options to JSON
+    // (e.g. request telemetry).
+    let server = McpServerRef {
+        name: "inline".to_owned(),
+        url: Some("https://mcp.example.com/mcp".to_owned()),
+        authorization: Some("super-secret-token".to_owned()),
+        tool_configuration: None,
+    };
+    let value = serde_json::to_value(&server).expect("serialize");
+    assert!(
+        value.get("authorization").is_none(),
+        "authorization must never serialize"
+    );
+    assert!(!serde_json::to_string(&server)
+        .unwrap()
+        .contains("super-secret-token"));
+
+    // ...but it still deserializes inbound, so inline callers can supply it.
+    let parsed: McpServerRef = serde_json::from_value(json!({
+        "name": "inline",
+        "url": "https://mcp.example.com/mcp",
+        "authorization": "tok",
+    }))
+    .expect("deserialize");
+    assert_eq!(parsed.authorization.as_deref(), Some("tok"));
 }
 
 #[test]

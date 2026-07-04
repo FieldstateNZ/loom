@@ -145,7 +145,13 @@ pub struct McpServerRef {
     /// is left unset by the caller and injected server-side after decryption;
     /// for an inline server the caller supplies it directly. Redacted from
     /// [`Debug`]; never persisted or returned.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// The field is **deserialize-only**: it is read from an inbound request but
+    /// [`skipped on serialization`](serde), so a decrypted token can never leak
+    /// out of a serialized [`ConversationOptions`] (e.g. request telemetry that
+    /// renders the options to JSON). The guarantee is structural, not by
+    /// convention.
+    #[serde(default, skip_serializing)]
     pub authorization: Option<String>,
 
     /// Optional provider-native tool-configuration for this server (e.g. an
