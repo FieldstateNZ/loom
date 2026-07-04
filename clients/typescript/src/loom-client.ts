@@ -14,6 +14,7 @@ import type { ConversationInit } from "./conversation-init.types.js";
 import type { LoomError } from "./loom-error.types.js";
 import { conversationSchema } from "./models/conversation.js";
 import type { Conversation } from "./models/conversation.js";
+import { mcpServerListResponseSchema } from "./models/mcp-server-list.js";
 import type { Message } from "./models/message.js";
 import type { TurnEvent } from "./models/turn-event.js";
 import { usageRollupResponseSchema } from "./models/usage-rollup.js";
@@ -22,6 +23,7 @@ import { whoAmISchema } from "./models/whoami.js";
 import type { WhoAmI } from "./models/whoami.js";
 import { pageQuery } from "./page-query.js";
 import type { PageParams } from "./page-query.types.js";
+import { ok } from "./result.js";
 import type { Result } from "./result.types.js";
 import { runStatelessTurn, streamStatelessTurn } from "./stateless-turn.js";
 import type { StatelessTurnInit } from "./stateless-turn.types.js";
@@ -92,5 +94,21 @@ export class LoomClient {
   /** Echoes the authenticated identity (`GET /v1/whoami`). */
   async whoami(): Promise<Result<WhoAmI, LoomError>> {
     return this.transport.requestJson(whoAmISchema, "GET", "/v1/whoami");
+  }
+
+  /**
+   * Lists the names of MCP servers registered for the caller's tenant
+   * (`GET /v1/mcp-servers`), so a `withMcp(name)` reference can be validated
+   * before use. Never carries a URL or authorization token — those stay
+   * server-side.
+   */
+  async mcpServers(): Promise<Result<readonly string[], LoomError>> {
+    const result = await this.transport.requestJson(
+      mcpServerListResponseSchema,
+      "GET",
+      "/v1/mcp-servers",
+    );
+    if (!result.ok) return result;
+    return ok(result.value.servers);
   }
 }

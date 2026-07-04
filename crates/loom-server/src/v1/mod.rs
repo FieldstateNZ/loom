@@ -19,8 +19,10 @@
 //!   [`turns::enforce_limits`] (shared with the batch API).
 //! - [`runner`] — the turn runner and SSE reassembly.
 //! - [`usage`] — `GET /v1/usage`.
+//! - [`mcp`] — `GET /v1/mcp-servers`.
 
 mod conversations;
+mod mcp;
 mod requests;
 mod runner;
 mod turns;
@@ -54,6 +56,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/conversations/{id}/turns", post(turns::create_turn))
         .route("/v1/turns", post(turns::stateless_turn))
         .route("/v1/usage", get(usage::usage_rollup))
+        .route("/v1/mcp-servers", get(mcp::list_mcp_servers))
 }
 
 /// Registers the `virtual_key` and `admin_token` security schemes referenced by
@@ -110,6 +113,7 @@ impl Modify for SecurityAddon {
         turns::create_turn,
         turns::stateless_turn,
         usage::usage_rollup,
+        mcp::list_mcp_servers,
         crate::batch::create_batch,
         crate::batch::get_batch,
         crate::batch::get_batch_results,
@@ -153,6 +157,7 @@ impl Modify for SecurityAddon {
         whoami::WhoAmI,
         usage::UsageRollupResponse,
         usage::UsageRollupRowDto,
+        mcp::McpServerList,
         crate::admin::AdminUsageResponse,
         crate::admin::AdminUsageRow,
     )),

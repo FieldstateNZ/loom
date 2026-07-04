@@ -17,6 +17,7 @@ export type * from "./conversation.js";
 export type * from "./usage-rollup.js";
 export type * from "./whoami.js";
 export type * from "./mcp-server-ref.js";
+export type * from "./mcp-server-list.js";
 export type * from "./server-tool.js";
 export type * from "./tool-definition.js";
 export type * from "./conversation-options.js";

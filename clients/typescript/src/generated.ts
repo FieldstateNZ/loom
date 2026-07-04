@@ -164,6 +164,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/mcp-servers` — lists the names of MCP servers registered for the
+         *     caller's tenant. Never exposes the URL or authorization token of a
+         *     registration; those remain internal to the gateway's MCP resolver.
+         */
+        get: operations["list_mcp_servers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/turns": {
         parameters: {
             query?: never;
@@ -729,6 +750,18 @@ export interface components {
             provider: string;
             /** @description An optional system prompt applied to the whole conversation. */
             system?: string | null;
+        };
+        /**
+         * @description The `/v1/mcp-servers` response: the tenant's registered MCP server names.
+         *
+         *     Only names are ever included — never the URL or authorization token, both
+         *     of which stay server-side so a virtual key can discover which
+         *     [`withMcp`](loom_core::McpServerRef) references are valid without learning
+         *     anything it could use to reach the server directly.
+         */
+        McpServerList: {
+            /** @description The tenant's registered MCP server names, in store order (by name). */
+            servers: string[];
         };
         /**
          * @description A reference to an external MCP server the model may use via a provider
@@ -1505,6 +1538,35 @@ export interface operations {
             };
             /** @description Capability unsupported or provider not configured */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    list_mcp_servers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's registered MCP server names */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpServerList"];
+                };
+            };
+            /** @description Missing or invalid virtual key */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

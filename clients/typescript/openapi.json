@@ -556,6 +556,42 @@
         ]
       }
     },
+    "/v1/mcp-servers": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`GET /v1/mcp-servers` — lists the names of MCP servers registered for the\ncaller's tenant. Never exposes the URL or authorization token of a\nregistration; those remain internal to the gateway's MCP resolver.",
+        "operationId": "list_mcp_servers",
+        "responses": {
+          "200": {
+            "description": "The tenant's registered MCP server names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpServerList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid virtual key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
     "/v1/turns": {
       "post": {
         "tags": [
@@ -1621,6 +1657,22 @@
               "null"
             ],
             "description": "An optional system prompt applied to the whole conversation."
+          }
+        }
+      },
+      "McpServerList": {
+        "type": "object",
+        "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nOnly names are ever included — never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
+        "required": [
+          "servers"
+        ],
+        "properties": {
+          "servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The tenant's registered MCP server names, in store order (by name)."
           }
         }
       },
