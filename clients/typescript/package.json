@@ -21,13 +21,22 @@
   "scripts": {
     "gen": "openapi-typescript openapi.json -o src/generated.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
     "test": "node --import tsx --test test/*.test.ts",
     "spike": "tsx scripts/spike.mts"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.20.0",
+    "eslint": "^9.39.4",
+    "globals": "^15.15.0",
     "openapi-typescript": "^7.4.4",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.62.1"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
   }
 }

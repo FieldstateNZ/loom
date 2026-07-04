@@ -2,14 +2,15 @@
  * Unit tests for request-shaping — the pure logic of the fluent builder, with
  * no network. A fake transport captures the exact JSON bodies the client would
  * send so we can assert the wire shape (`withMcp` + `cached` → the right
- * `options`, content normalisation, stateless turn body, …).
+ * `options`, content normalisation, stateless turn body, …). Every network call
+ * now returns a `Result`, so the tests assert `.ok` before inspecting.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createLoomClient, toContent } from "../src/client.ts";
-import type { ContentPart, Message } from "../src/types.ts";
+import { createLoomClient, toContent } from "../src/index.ts";
+import type { ContentPart, Message } from "../src/index.ts";
 
 /** A recorded outbound request. */
 interface Recorded {
@@ -39,12 +40,13 @@ function fakeClient(respond: Record<string, unknown>) {
       headers: { "content-type": "application/json" },
     });
   };
-  const loom = createLoomClient({
+  const created = createLoomClient({
     baseUrl: "http://loom.test",
     apiKey: "loom_test_key",
     fetch: fetchImpl,
   });
-  return { loom, calls };
+  assert.ok(created.ok, "client config is valid");
+  return { loom: created.value, calls };
 }
 
 const assistant: Message = {
@@ -52,9 +54,17 @@ const assistant: Message = {
   content: [{ type: "text", text: "ok" }],
 };
 
+/** A schema-valid create-conversation response for the fake transport. */
+const conversation = (id: string) => ({
+  id,
+  tenant_id: "t1",
+  binding: { provider: "anthropic", model: "m" },
+  messages: [],
+});
+
 test("withMcp('lucidbrain') + cached() produce the right options JSON", async () => {
   const { loom, calls } = fakeClient({
-    "POST /v1/conversations": { id: "conv-1" },
+    "POST /v1/conversations": conversation("conv-1"),
     "POST /v1/conversations/conv-1/turns": assistant,
   });
 
@@ -67,7 +77,8 @@ test("withMcp('lucidbrain') + cached() produce the right options JSON", async ()
     auto_cache: true,
   });
 
-  await convo.send("recall Titan");
+  const sent = await convo.send("recall Titan");
+  assert.ok(sent.ok, "the turn succeeded");
 
   const turn = calls.find((c) => c.url.endsWith("/turns"));
   assert.ok(turn, "a turn request was sent");
@@ -82,12 +93,12 @@ test("withMcp('lucidbrain') + cached() produce the right options JSON", async ()
 
 test("conversation is created lazily and reused across turns", async () => {
   const { loom, calls } = fakeClient({
-    "POST /v1/conversations": { id: "conv-9" },
+    "POST /v1/conversations": conversation("conv-9"),
     "POST /v1/conversations/conv-9/turns": assistant,
   });
   const convo = loom.conversation({ model: "m", system: "you are Loom" });
-  await convo.send("first");
-  await convo.send("second");
+  assert.ok((await convo.send("first")).ok);
+  assert.ok((await convo.send("second")).ok);
 
   const creates = calls.filter((c) => c.url.endsWith("/v1/conversations"));
   assert.equal(creates.length, 1, "conversation created exactly once");
@@ -127,7 +138,13 @@ test("stateless turn helper shapes the /v1/turns body", async () => {
   const messages: Message[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },
   ];
-  await loom.turn({ model: "m", system: "sys", messages, options: { auto_cache: true } });
+  const result = await loom.turn({
+    model: "m",
+    system: "sys",
+    messages,
+    options: { auto_cache: true },
+  });
+  assert.ok(result.ok, "the stateless turn succeeded");
 
   const call = calls.find((c) => c.url.endsWith("/v1/turns"));
   assert.ok(call);

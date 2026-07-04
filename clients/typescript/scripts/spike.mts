@@ -37,7 +37,7 @@ async function admin<T>(method: string, path: string, body?: unknown): Promise<T
       authorization: `Bearer ${ROOT_TOKEN}`,
       "content-type": "application/json",
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!res.ok) throw new Error(`admin ${method} ${path} -> ${res.status}: ${await res.text()}`);
   const text = await res.text();
@@ -86,10 +86,13 @@ async function main() {
   report.tenant_id = tenant.id;
   report.key_prefix = keyResp.key_prefix;
 
-  const loom = createLoomClient({ baseUrl: LOOM_URL, apiKey: keyResp.key });
+  const created = createLoomClient({ baseUrl: LOOM_URL, apiKey: keyResp.key });
+  assert(created.ok, "client config is valid");
+  const loom = created.value;
 
   const who = await loom.whoami();
-  assert(who.tenant_id === tenant.id, "whoami resolves the minted key to the tenant");
+  assert(who.ok, "whoami succeeded");
+  assert(who.value.tenant_id === tenant.id, "whoami resolves the minted key to the tenant");
 
   // 2. Representative flow --------------------------------------------------
   // Multi-turn, memory-recall-shaped conversation referencing the lucidbrain
@@ -103,22 +106,26 @@ async function main() {
     .cached();
 
   const turn1 = await convo.send("What did we decide about the Titan project?");
-  assert(turn1.role === "assistant", "turn 1 returns an assistant message");
-  const turn1Text = turn1.content.find((p) => p.type === "text");
+  assert(turn1.ok, "turn 1 succeeded");
+  assert(turn1.value.role === "assistant", "turn 1 returns an assistant message");
+  const turn1Text = turn1.value.content.find((p) => p.type === "text");
   report.turn1_text = turn1Text && "text" in turn1Text ? turn1Text.text : null;
-  report.turn1_usage = turn1.usage ?? null;
+  report.turn1_usage = turn1.value.usage ?? null;
 
   const turn2 = await convo.send("And who owned the follow-up?");
-  assert(turn2.role === "assistant", "turn 2 returns an assistant message");
-  report.turn2_usage = turn2.usage ?? null;
+  assert(turn2.ok, "turn 2 succeeded");
+  assert(turn2.value.role === "assistant", "turn 2 returns an assistant message");
+  report.turn2_usage = turn2.value.usage ?? null;
 
   // Streaming turn: consume the async iterator of TurnEvents.
   const events: TurnEvent[] = [];
   let streamedText = "";
   for await (const ev of convo.stream("Summarise that for the standup.")) {
-    events.push(ev);
-    if (ev.kind.type === "content_part_delta" && ev.kind.delta.type === "text") {
-      streamedText += ev.kind.delta.text;
+    assert(ev.ok, "stream frame decoded without error");
+    const event = ev.value;
+    events.push(event);
+    if (event.kind.type === "content_part_delta" && event.kind.delta.type === "text") {
+      streamedText += event.kind.delta.text;
     }
   }
   assert(events.length > 0, "streaming yielded TurnEvents");
@@ -135,7 +142,8 @@ async function main() {
 
   // Fetch the persisted conversation history (user + assistant turns).
   const history = await convo.fetch();
-  report.persisted_message_count = history.messages.length;
+  assert(history.ok, "history fetch succeeded");
+  report.persisted_message_count = history.value.messages.length;
 
   // 3. Assert the MCP ref reached the provider (via the mock's recorder). ----
   const mockReceived = (await (await fetch(`${MOCK_URL}/__mock/received`)).json()) as Array<{
@@ -151,16 +159,17 @@ async function main() {
 
   // 3b. Usage rollup shows the priced cache read/write split. ---------------
   const usage = await loom.usage({ group_by: "model" });
-  report.usage_rollup = usage;
-  const modelRow = usage.rows.find((r) => r.group === MODEL);
+  assert(usage.ok, "usage rollup succeeded");
+  report.usage_rollup = usage.value;
+  const modelRow = usage.value.rows.find((r) => r.group === MODEL);
   assert(modelRow, "usage rollup has a row for the model");
-  assert(modelRow!.event_count >= 3, "usage rollup counted the turns");
+  assert(modelRow.event_count >= 3, "usage rollup counted the turns");
   assert(
-    modelRow!.cache_write_tokens > 0,
+    modelRow.cache_write_tokens > 0,
     "usage rollup shows cache-write (creation) tokens",
   );
   assert(
-    modelRow!.cache_read_tokens > 0,
+    modelRow.cache_read_tokens > 0,
     "usage rollup shows cache-read tokens (cache was hit on a later turn)",
   );
 
