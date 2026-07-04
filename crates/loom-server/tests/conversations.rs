@@ -118,6 +118,19 @@ fn request(method: &str, uri: &str, bearer: Option<&str>, body: Option<Value>) -
     builder.body(body).unwrap()
 }
 
+/// Builds a request with a raw (possibly malformed) body and a JSON content
+/// type — used to exercise the request-body extractor's error mapping.
+fn raw_request(method: &str, uri: &str, bearer: Option<&str>, body: &'static str) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(http::header::CONTENT_TYPE, "application/json");
+    if let Some(token) = bearer {
+        builder = builder.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    builder.body(Body::from(body)).unwrap()
+}
+
 async fn create_tenant(app: &Router, slug: &str) -> Uuid {
     let resp = send(
         app,
@@ -446,6 +459,23 @@ async fn openapi_document_is_valid() {
     assert!(paths.contains_key("/v1/conversations"));
     assert!(paths.contains_key("/v1/conversations/{id}/turns"));
     assert!(paths.contains_key("/v1/turns"));
+    // The full tenant surface, including whoami, is documented.
+    assert!(paths.contains_key("/v1/whoami"));
+
+    // The `virtual_key` security scheme referenced by the guarded operations is
+    // defined in components — no dangling reference.
+    let schemes = doc["components"]["securitySchemes"]
+        .as_object()
+        .expect("security schemes present");
+    assert!(schemes.contains_key("virtual_key"));
+    assert_eq!(
+        doc["components"]["securitySchemes"]["virtual_key"]["type"],
+        "http"
+    );
+    assert_eq!(
+        doc["components"]["securitySchemes"]["virtual_key"]["scheme"],
+        "bearer"
+    );
 }
 
 #[tokio::test]
@@ -548,4 +578,124 @@ async fn provider_not_configured_returns_422() {
         json_body(resp).await["error"]["code"],
         "provider_not_configured"
     );
+}
+
+#[tokio::test]
+async fn malformed_json_body_returns_enveloped_400() {
+    let (_pg, app) = setup(None).await;
+    let tenant = create_tenant(&app, "acme").await;
+    let key = create_key(&app, tenant).await;
+
+    // A truncated body is not valid JSON: the custom extractor renders it as a
+    // 400 with the shared error envelope, not axum's default text/plain body.
+    let resp = send(
+        &app,
+        raw_request("POST", "/v1/conversations", Some(&key), "{"),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let content_type = resp
+        .headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        content_type.starts_with("application/json"),
+        "expected an enveloped JSON body, got content-type {content_type:?}"
+    );
+    let body = json_body(resp).await;
+    assert_eq!(body["error"]["code"], "bad_request");
+    assert!(body["error"]["message"].is_string());
+}
+
+#[tokio::test]
+async fn wrong_shape_json_body_returns_enveloped_422() {
+    let (_pg, app) = setup(None).await;
+    let tenant = create_tenant(&app, "acme").await;
+    let key = create_key(&app, tenant).await;
+
+    // Well-formed JSON but the wrong shape (the required `provider` is missing):
+    // a 422 rendered through the shared envelope.
+    let resp = send(
+        &app,
+        request(
+            "POST",
+            "/v1/conversations",
+            Some(&key),
+            Some(json!({ "model": "mock-model" })),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = json_body(resp).await;
+    assert_eq!(body["error"]["code"], "unprocessable_entity");
+    assert!(body["error"]["message"].is_string());
+}
+
+#[tokio::test]
+async fn cross_tenant_delete_is_denied() {
+    let (_pg, app) = setup(None).await;
+    let tenant_a = create_tenant(&app, "tenant-a").await;
+    let tenant_b = create_tenant(&app, "tenant-b").await;
+    let key_a = create_key(&app, tenant_a).await;
+    let key_b = create_key(&app, tenant_b).await;
+
+    // A conversation owned by tenant A.
+    let convo = create_conversation(&app, &key_a, "mock", "mock-model").await;
+
+    // Tenant B may not delete tenant A's conversation: the store scopes the
+    // delete, yielding a 404 rather than a silent cross-tenant deletion.
+    let del = send(
+        &app,
+        request(
+            "DELETE",
+            &format!("/v1/conversations/{convo}"),
+            Some(&key_b),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(del.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json_body(del).await["error"]["code"], "not_found");
+
+    // Tenant A's conversation still exists.
+    let get = send(
+        &app,
+        request(
+            "GET",
+            &format!("/v1/conversations/{convo}"),
+            Some(&key_a),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(get.status(), StatusCode::OK);
+    assert_eq!(json_body(get).await["id"], convo.to_string());
+}
+
+#[tokio::test]
+async fn stateless_turn_rejects_empty_messages() {
+    let (_pg, app) = setup(None).await;
+    let tenant = create_tenant(&app, "acme").await;
+    let key = create_key(&app, tenant).await;
+
+    // Parity with `create_turn`'s empty-content check: an empty `messages`
+    // array is a 400 with the shared envelope, before any provider is resolved.
+    let resp = send(
+        &app,
+        request(
+            "POST",
+            "/v1/turns",
+            Some(&key),
+            Some(json!({
+                "provider": "mock",
+                "model": "mock-model",
+                "messages": []
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(resp).await["error"]["code"], "bad_request");
 }

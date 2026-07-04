@@ -322,8 +322,19 @@ async fn credential_round_trips_through_encryption() {
 
     let crypto = Crypto::new(ENC_KEY);
     let nonce = stored.nonce.expect("nonce persisted");
-    let decrypted = crypto.decrypt(&nonce, &stored.encrypted_secret).unwrap();
+    // The ciphertext is bound to its row identity (`{tenant_id}:{provider}`) as
+    // AES-GCM associated data, so decryption must supply the same aad.
+    let aad = format!("{tenant}:anthropic");
+    let decrypted = crypto
+        .decrypt(&nonce, &stored.encrypted_secret, aad.as_bytes())
+        .unwrap();
     assert_eq!(decrypted, plaintext.as_bytes());
+
+    // Decrypting under a different row's aad (a cross-tenant relocation) fails.
+    let wrong_aad = format!("{}:anthropic", Uuid::new_v4());
+    assert!(crypto
+        .decrypt(&nonce, &stored.encrypted_secret, wrong_aad.as_bytes())
+        .is_err());
 }
 
 #[tokio::test]

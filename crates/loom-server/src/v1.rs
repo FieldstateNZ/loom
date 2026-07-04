@@ -20,7 +20,8 @@ use futures::{stream, StreamExt};
 use http::header::HeaderValue;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi, ToSchema};
 use uuid::Uuid;
 
 use loom_core::{Conversation, ConversationOptions, Message, ProviderBinding, Role, Usage};
@@ -32,6 +33,7 @@ use loom_store::ConversationStore;
 
 use crate::auth::TenantContext;
 use crate::error::ApiError;
+use crate::extract;
 use crate::state::AppState;
 
 /// The default number of messages returned by a conversation fetch.
@@ -64,6 +66,16 @@ struct WhoAmI {
 
 /// `GET /v1/whoami` — echoes the resolved [`TenantContext`]. Useful for smoke
 /// tests of the auth layer.
+#[utoipa::path(
+    get,
+    path = "/v1/whoami",
+    tag = "conversations",
+    responses(
+        (status = 200, description = "The authenticated tenant identity", body = Object),
+        (status = 401, description = "Missing or invalid virtual key", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
 async fn whoami(ctx: TenantContext) -> Json<WhoAmI> {
     Json(WhoAmI {
         tenant_id: ctx.tenant_id,
@@ -105,7 +117,7 @@ pub struct CreateConversationRequest {
 async fn create_conversation(
     State(state): State<AppState>,
     ctx: TenantContext,
-    Json(req): Json<CreateConversationRequest>,
+    extract::Json(req): extract::Json<CreateConversationRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     if req.provider.trim().is_empty() || req.model.trim().is_empty() {
         return Err(ApiError::bad_request(
@@ -247,7 +259,7 @@ async fn create_turn(
     State(state): State<AppState>,
     ctx: TenantContext,
     Path(id): Path<Uuid>,
-    Json(req): Json<TurnRequest>,
+    extract::Json(req): extract::Json<TurnRequest>,
 ) -> Result<Response, ApiError> {
     if req.content.is_empty() {
         return Err(ApiError::bad_request("content must not be empty"));
@@ -323,12 +335,15 @@ pub struct StatelessTurnRequest {
 async fn stateless_turn(
     State(state): State<AppState>,
     ctx: TenantContext,
-    Json(req): Json<StatelessTurnRequest>,
+    extract::Json(req): extract::Json<StatelessTurnRequest>,
 ) -> Result<Response, ApiError> {
     if req.provider.trim().is_empty() || req.model.trim().is_empty() {
         return Err(ApiError::bad_request(
             "provider and model must not be empty",
         ));
+    }
+    if req.messages.is_empty() {
+        return Err(ApiError::bad_request("messages must not be empty"));
     }
 
     let options = req.options.unwrap_or_default();
@@ -484,6 +499,19 @@ fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Resp
 impl SseState {
     /// Persists the assistant message assembled so far, if a target was set.
     /// Best effort: a persistence failure is logged, never surfaced mid-stream.
+    ///
+    /// # Known limitation: `Message.raw` asymmetry between the turn paths
+    ///
+    /// The message persisted here has `raw = None`, whereas the non-streaming
+    /// path persists `raw = Some(native_payload)` (the provider's verbatim
+    /// response blob). This is a deliberate, documented gap — not data loss on
+    /// the wire: every SSE frame already carries the verbatim native event in
+    /// its [`TurnEvent::raw`](loom_provider::TurnEvent) field, so the streaming
+    /// client sees the full native payload. What is missing is only the *single
+    /// reconstructed native-response blob* at persistence time. Rebuilding it
+    /// would require provider-specific accumulation of native events (a
+    /// [`Provider`]-trait change), so it is deferred to a follow-up; the
+    /// reassembled [`Message`] uses the provider-agnostic normalised events.
     async fn persist_assembled(&mut self) {
         let Some(target) = self.persist.take() else {
             return;
@@ -549,6 +577,33 @@ impl TurnAccumulator {
     }
 }
 
+/// Registers the `virtual_key` security scheme referenced by every guarded
+/// operation.
+///
+/// The operations declare `security(("virtual_key" = []))`, so the scheme must
+/// exist in `components.securitySchemes` for the published document to be a
+/// valid, self-consistent OpenAPI spec (no dangling references). It is an HTTP
+/// bearer scheme: the tenant presents its virtual key as
+/// `Authorization: Bearer loom_...`.
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi
+            .components
+            .get_or_insert_with(utoipa::openapi::Components::default);
+        components.add_security_scheme(
+            "virtual_key",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("virtual key")
+                    .build(),
+            ),
+        );
+    }
+}
+
 /// The OpenAPI document for the gateway's HTTP surface.
 #[derive(OpenApi)]
 #[openapi(
@@ -556,7 +611,9 @@ impl TurnAccumulator {
         title = "Loom gateway API",
         description = "Multi-tenant LLM gateway: tenant-scoped conversations and turns over pluggable providers."
     ),
+    modifiers(&SecurityAddon),
     paths(
+        whoami,
         create_conversation,
         get_conversation,
         delete_conversation,

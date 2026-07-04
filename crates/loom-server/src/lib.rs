@@ -37,6 +37,7 @@ pub mod auth;
 pub mod config;
 pub mod crypto;
 pub mod error;
+pub mod extract;
 pub mod keys;
 pub mod provider;
 pub mod state;

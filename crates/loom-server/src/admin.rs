@@ -18,7 +18,9 @@ use loom_store::{
 };
 
 use crate::error::ApiError;
+use crate::extract;
 use crate::keys::{generate_key, KeyEnv};
+use crate::provider::credential_aad;
 use crate::state::AppState;
 
 /// Builds the `/admin` sub-router (without its guard layer, which the top-level
@@ -47,7 +49,7 @@ struct CreateTenantRequest {
 /// `POST /admin/tenants` — create a tenant.
 async fn create_tenant(
     State(state): State<AppState>,
-    Json(req): Json<CreateTenantRequest>,
+    extract::Json(req): extract::Json<CreateTenantRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     if req.slug.trim().is_empty() || req.name.trim().is_empty() {
         return Err(ApiError::bad_request("slug and name must not be empty"));
@@ -106,7 +108,7 @@ struct CreateKeyResponse {
 async fn create_key(
     State(state): State<AppState>,
     Path(tenant_id): Path<Uuid>,
-    Json(req): Json<CreateKeyRequest>,
+    extract::Json(req): extract::Json<CreateKeyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     if req.name.trim().is_empty() {
         return Err(ApiError::bad_request("name must not be empty"));
@@ -204,7 +206,7 @@ struct CredentialResponse {
 async fn put_credential(
     State(state): State<AppState>,
     Path((tenant_id, provider)): Path<(Uuid, String)>,
-    Json(req): Json<PutCredentialRequest>,
+    extract::Json(req): extract::Json<PutCredentialRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     if req.api_key.trim().is_empty() {
         return Err(ApiError::bad_request("api_key must not be empty"));
@@ -221,7 +223,12 @@ async fn put_credential(
         return Err(ApiError::not_found("tenant not found"));
     }
 
-    let sealed = state.crypto().encrypt(req.api_key.as_bytes())?;
+    // Bind the ciphertext to this row's identity so it cannot be relocated into
+    // another tenant's (or provider's) row and still decrypt.
+    let aad = credential_aad(Some(tenant_id), &provider);
+    let sealed = state
+        .crypto()
+        .encrypt(req.api_key.as_bytes(), aad.as_bytes())?;
 
     let stored = state
         .store()

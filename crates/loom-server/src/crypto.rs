@@ -6,7 +6,7 @@
 //! secret) and both are persisted via the store's `CredentialStore`. GCM's
 //! authentication tag detects tampering on decrypt.
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use rand::RngCore;
 
@@ -32,17 +32,31 @@ impl Crypto {
     /// Encrypts `plaintext`, returning a fresh nonce and the ciphertext (which
     /// includes the GCM authentication tag).
     ///
+    /// `aad` is bound into the AEAD as associated data: it is authenticated but
+    /// not encrypted, so the resulting ciphertext only decrypts when the same
+    /// `aad` is supplied to [`decrypt`](Self::decrypt). Callers use this to bind
+    /// a ciphertext to the identity of the row it belongs to (for credentials,
+    /// `"{tenant_id}:{provider}"`), so relocating the ciphertext into another
+    /// row causes decryption to fail rather than silently succeed. Pass `b""`
+    /// when no binding is required.
+    ///
     /// # Errors
     ///
     /// Returns [`CryptoError::Encrypt`] if the underlying AEAD fails (which in
     /// practice only happens on absurdly large inputs).
-    pub fn encrypt(&self, plaintext: &[u8]) -> Result<EncryptedSecret, CryptoError> {
+    pub fn encrypt(&self, plaintext: &[u8], aad: &[u8]) -> Result<EncryptedSecret, CryptoError> {
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
         let mut nonce_bytes = [0u8; NONCE_LEN];
         rand::thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::Encrypt)?;
         Ok(EncryptedSecret {
             nonce: nonce_bytes.to_vec(),
@@ -52,17 +66,34 @@ impl Crypto {
 
     /// Decrypts a `(nonce, ciphertext)` pair produced by [`Crypto::encrypt`].
     ///
+    /// `aad` must be byte-identical to the associated data supplied at
+    /// encryption time; otherwise authentication fails and this returns
+    /// [`CryptoError::Decrypt`]. This is what makes a confused-deputy row swap
+    /// (moving one row's ciphertext into another row) fail closed.
+    ///
     /// # Errors
     ///
     /// Returns [`CryptoError::Decrypt`] if the nonce length is wrong or the
-    /// authentication tag does not verify (wrong key, or tampered ciphertext).
-    pub fn decrypt(&self, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    /// authentication tag does not verify (wrong key, wrong `aad`, or tampered
+    /// ciphertext).
+    pub fn decrypt(
+        &self,
+        nonce: &[u8],
+        ciphertext: &[u8],
+        aad: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
         if nonce.len() != NONCE_LEN {
             return Err(CryptoError::Decrypt);
         }
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
         cipher
-            .decrypt(Nonce::from_slice(nonce), ciphertext)
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::Decrypt)
     }
 }
@@ -104,18 +135,19 @@ mod tests {
     fn round_trips_plaintext() {
         let crypto = Crypto::new([7u8; 32]);
         let secret = b"sk-ant-super-secret";
-        let enc = crypto.encrypt(secret).unwrap();
+        let aad = b"tenant:anthropic";
+        let enc = crypto.encrypt(secret, aad).unwrap();
         assert_ne!(enc.ciphertext, secret);
         assert_eq!(enc.nonce.len(), NONCE_LEN);
-        let dec = crypto.decrypt(&enc.nonce, &enc.ciphertext).unwrap();
+        let dec = crypto.decrypt(&enc.nonce, &enc.ciphertext, aad).unwrap();
         assert_eq!(dec, secret);
     }
 
     #[test]
     fn distinct_nonces_per_encryption() {
         let crypto = Crypto::new([9u8; 32]);
-        let a = crypto.encrypt(b"same").unwrap();
-        let b = crypto.encrypt(b"same").unwrap();
+        let a = crypto.encrypt(b"same", b"").unwrap();
+        let b = crypto.encrypt(b"same", b"").unwrap();
         // Random nonces mean identical plaintext yields distinct ciphertext.
         assert_ne!(a.nonce, b.nonce);
         assert_ne!(a.ciphertext, b.ciphertext);
@@ -123,10 +155,27 @@ mod tests {
 
     #[test]
     fn wrong_key_fails_to_decrypt() {
-        let enc = Crypto::new([1u8; 32]).encrypt(b"secret").unwrap();
+        let enc = Crypto::new([1u8; 32]).encrypt(b"secret", b"").unwrap();
         let err = Crypto::new([2u8; 32])
-            .decrypt(&enc.nonce, &enc.ciphertext)
+            .decrypt(&enc.nonce, &enc.ciphertext, b"")
             .unwrap_err();
         assert!(matches!(err, CryptoError::Decrypt));
+    }
+
+    #[test]
+    fn wrong_aad_fails_to_decrypt() {
+        // Encrypting under one row's identity and decrypting under another's
+        // (the confused-deputy row-swap) must fail closed, not panic.
+        let crypto = Crypto::new([3u8; 32]);
+        let enc = crypto.encrypt(b"secret", b"tenant-a:anthropic").unwrap();
+        let err = crypto
+            .decrypt(&enc.nonce, &enc.ciphertext, b"tenant-b:anthropic")
+            .unwrap_err();
+        assert!(matches!(err, CryptoError::Decrypt));
+        // The correct aad still decrypts.
+        let dec = crypto
+            .decrypt(&enc.nonce, &enc.ciphertext, b"tenant-a:anthropic")
+            .unwrap();
+        assert_eq!(dec, b"secret");
     }
 }

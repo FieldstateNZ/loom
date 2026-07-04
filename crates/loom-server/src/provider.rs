@@ -110,16 +110,37 @@ async fn load_credential(
 }
 
 /// Decrypts a stored credential's ciphertext back to the plaintext API key.
+///
+/// The AEAD associated data is rebuilt from the loaded row's own identity via
+/// [`credential_aad`], so a ciphertext that was relocated into a different
+/// `(tenant, provider)` row fails to decrypt rather than being silently used.
 fn decrypt_api_key(state: &AppState, credential: &ProviderCredential) -> Result<String, ApiError> {
     let nonce = credential.nonce.as_deref().ok_or_else(|| {
         tracing::error!("stored credential is missing its encryption nonce");
         ApiError::internal()
     })?;
+    let aad = credential_aad(credential.tenant_id, &credential.provider);
     let plaintext = state
         .crypto()
-        .decrypt(nonce, &credential.encrypted_secret)?;
+        .decrypt(nonce, &credential.encrypted_secret, aad.as_bytes())?;
     String::from_utf8(plaintext).map_err(|_| {
         tracing::error!("decrypted credential is not valid UTF-8");
         ApiError::internal()
     })
+}
+
+/// Builds the AEAD associated data that binds a provider credential's ciphertext
+/// to the identity of the row it belongs to.
+///
+/// The value is `"{tenant_id}:{provider}"` for a tenant-scoped credential, or
+/// `":{provider}"` for a gateway-global one (`tenant_id = None`). Both the
+/// encrypt path (admin `put_credential`) and the decrypt path (provider
+/// resolution) derive it the same way, so a confused-deputy row swap — moving
+/// one row's ciphertext into another — yields a mismatched `aad` and fails
+/// closed.
+pub(crate) fn credential_aad(tenant_id: Option<Uuid>, provider: &str) -> String {
+    match tenant_id {
+        Some(tenant_id) => format!("{tenant_id}:{provider}"),
+        None => format!(":{provider}"),
+    }
 }
