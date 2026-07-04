@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id, tenant_id, key_hash, key_prefix, name, status, scopes,\n                budget_limit_amount, budget_window, budget_action,\n                created_at, last_used_at\n            FROM virtual_keys\n            WHERE key_hash = $1\n            ",
+  "query": "\n            SELECT\n                id, tenant_id, key_hash, key_prefix, name, status, scopes,\n                budget_limit_amount, budget_window, budget_action,\n                rate_limit_requests_per_min, rate_limit_tokens_per_min,\n                created_at, last_used_at\n            FROM virtual_keys\n            WHERE key_hash = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -55,11 +55,21 @@
       },
       {
         "ordinal": 10,
+        "name": "rate_limit_requests_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "rate_limit_tokens_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "last_used_at",
         "type_info": "Timestamptz"
       }
@@ -80,9 +90,11 @@
       true,
       true,
       true,
+      true,
+      true,
       false,
       true
     ]
   },
-  "hash": "72266b8246e344864e82e915d86d7557d4ab8eafbe558c6bf74e40ce401839ce"
+  "hash": "8207421ca1042db6aa9ce3d74dc05a3066e822316b259fa8c83b862bf6ae70be"
 }

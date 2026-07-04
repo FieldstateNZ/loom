@@ -8,13 +8,13 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::model::{
-    KeyBudget, ModelPrice, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent,
-    NewVirtualKey, OutboxEntry, ProviderCredential, RollupGroup, Tenant, UsageEvent, UsageRollup,
-    UsageRollupRow, VirtualKey,
+    Budget, BudgetAction, BudgetWindow, ModelPrice, NewModelPrice, NewProviderCredential,
+    NewTenant, NewUsageEvent, NewVirtualKey, OutboxEntry, ProviderCredential, RateLimit,
+    RollupGroup, Tenant, UsageEvent, UsageRollup, UsageRollupRow, VirtualKey,
 };
 use crate::store::{
-    ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore, TenantStore,
-    UsageStore,
+    BudgetStore, ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore,
+    TenantStore, UsageStore,
 };
 use loom_core::{ContentPart, Conversation, Message, ProviderBinding, Role, Usage};
 
@@ -82,6 +82,43 @@ fn build_message(
     })
 }
 
+/// Assembles a [`Budget`] from its three nullable stored columns, treating a
+/// present `limit_amount` as the presence signal. Unknown window/action text
+/// falls back to the safe defaults (`Total` window, `Block` action) so a corrupt
+/// row never silently disables enforcement.
+fn build_budget(
+    limit_amount: Option<Decimal>,
+    window: Option<String>,
+    action: Option<String>,
+) -> Option<Budget> {
+    limit_amount.map(|limit_amount| Budget {
+        limit_amount,
+        window: window
+            .as_deref()
+            .and_then(BudgetWindow::parse)
+            .unwrap_or(BudgetWindow::Total),
+        action: action
+            .as_deref()
+            .and_then(BudgetAction::parse)
+            .unwrap_or(BudgetAction::Block),
+    })
+}
+
+/// Assembles a [`RateLimit`] from its two nullable stored columns, or `None`
+/// when neither dimension is set.
+fn build_rate_limit(
+    requests_per_min: Option<i64>,
+    tokens_per_min: Option<i64>,
+) -> Option<RateLimit> {
+    if requests_per_min.is_none() && tokens_per_min.is_none() {
+        return None;
+    }
+    Some(RateLimit {
+        requests_per_min,
+        tokens_per_min,
+    })
+}
+
 /// Reconstructs a [`VirtualKey`] from its stored columns.
 #[allow(clippy::too_many_arguments)]
 fn build_virtual_key(
@@ -95,15 +132,12 @@ fn build_virtual_key(
     budget_limit_amount: Option<Decimal>,
     budget_window: Option<String>,
     budget_action: Option<String>,
+    rate_limit_requests_per_min: Option<i64>,
+    rate_limit_tokens_per_min: Option<i64>,
     created_at: DateTime<Utc>,
     last_used_at: Option<DateTime<Utc>>,
 ) -> Result<VirtualKey> {
     let scopes: Vec<String> = serde_json::from_value(scopes)?;
-    let budget = budget_limit_amount.map(|limit_amount| KeyBudget {
-        limit_amount,
-        window: budget_window.unwrap_or_default(),
-        action: budget_action.unwrap_or_default(),
-    });
     Ok(VirtualKey {
         id,
         tenant_id,
@@ -112,7 +146,8 @@ fn build_virtual_key(
         name,
         status,
         scopes,
-        budget,
+        budget: build_budget(budget_limit_amount, budget_window, budget_action),
+        rate_limit: build_rate_limit(rate_limit_requests_per_min, rate_limit_tokens_per_min),
         created_at,
         last_used_at,
     })
@@ -191,7 +226,11 @@ impl KeyStore for PgStore {
         let id = Uuid::new_v4();
         let scopes = serde_json::to_value(&new.scopes)?;
         let (limit_amount, window, action) = match new.budget {
-            Some(b) => (Some(b.limit_amount), Some(b.window), Some(b.action)),
+            Some(b) => (
+                Some(b.limit_amount),
+                Some(b.window.as_str().to_owned()),
+                Some(b.action.as_str().to_owned()),
+            ),
             None => (None, None, None),
         };
         let row = sqlx::query!(
@@ -204,6 +243,7 @@ impl KeyStore for PgStore {
             RETURNING
                 id, tenant_id, key_hash, key_prefix, name, status, scopes,
                 budget_limit_amount, budget_window, budget_action,
+                rate_limit_requests_per_min, rate_limit_tokens_per_min,
                 created_at, last_used_at
             "#,
             id,
@@ -229,6 +269,8 @@ impl KeyStore for PgStore {
             row.budget_limit_amount,
             row.budget_window,
             row.budget_action,
+            row.rate_limit_requests_per_min,
+            row.rate_limit_tokens_per_min,
             row.created_at,
             row.last_used_at,
         )
@@ -240,6 +282,7 @@ impl KeyStore for PgStore {
             SELECT
                 id, tenant_id, key_hash, key_prefix, name, status, scopes,
                 budget_limit_amount, budget_window, budget_action,
+                rate_limit_requests_per_min, rate_limit_tokens_per_min,
                 created_at, last_used_at
             FROM virtual_keys
             WHERE key_hash = $1
@@ -260,6 +303,8 @@ impl KeyStore for PgStore {
                 row.budget_limit_amount,
                 row.budget_window,
                 row.budget_action,
+                row.rate_limit_requests_per_min,
+                row.rate_limit_tokens_per_min,
                 row.created_at,
                 row.last_used_at,
             )
@@ -1063,5 +1108,125 @@ impl OutboxStore for PgStore {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BudgetStore for PgStore {
+    async fn get_tenant_budget(&self, tenant_id: Uuid) -> Result<Option<Budget>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT budget_limit_amount, budget_window, budget_action
+            FROM tenants
+            WHERE id = $1
+            "#,
+            tenant_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|row| {
+            build_budget(
+                row.budget_limit_amount,
+                row.budget_window,
+                row.budget_action,
+            )
+        }))
+    }
+
+    async fn set_tenant_budget(&self, tenant_id: Uuid, budget: Option<Budget>) -> Result<bool> {
+        let (limit_amount, window, action) = match budget {
+            Some(b) => (
+                Some(b.limit_amount),
+                Some(b.window.as_str().to_owned()),
+                Some(b.action.as_str().to_owned()),
+            ),
+            None => (None, None, None),
+        };
+        let result = sqlx::query!(
+            r#"
+            UPDATE tenants
+            SET budget_limit_amount = $2, budget_window = $3, budget_action = $4
+            WHERE id = $1
+            "#,
+            tenant_id,
+            limit_amount,
+            window,
+            action,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_key_budget(&self, key_id: Uuid, budget: Option<Budget>) -> Result<bool> {
+        let (limit_amount, window, action) = match budget {
+            Some(b) => (
+                Some(b.limit_amount),
+                Some(b.window.as_str().to_owned()),
+                Some(b.action.as_str().to_owned()),
+            ),
+            None => (None, None, None),
+        };
+        let result = sqlx::query!(
+            r#"
+            UPDATE virtual_keys
+            SET budget_limit_amount = $2, budget_window = $3, budget_action = $4
+            WHERE id = $1
+            "#,
+            key_id,
+            limit_amount,
+            window,
+            action,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_key_rate_limit(
+        &self,
+        key_id: Uuid,
+        rate_limit: Option<RateLimit>,
+    ) -> Result<bool> {
+        let (requests, tokens) = match rate_limit {
+            Some(r) => (r.requests_per_min, r.tokens_per_min),
+            None => (None, None),
+        };
+        let result = sqlx::query!(
+            r#"
+            UPDATE virtual_keys
+            SET rate_limit_requests_per_min = $2, rate_limit_tokens_per_min = $3
+            WHERE id = $1
+            "#,
+            key_id,
+            requests,
+            tokens,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn budget_spend(
+        &self,
+        tenant_id: Uuid,
+        key_id: Option<Uuid>,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<Decimal> {
+        let row = sqlx::query!(
+            r#"
+            SELECT COALESCE(SUM(cost), 0)::numeric AS "spend!"
+            FROM usage_events
+            WHERE tenant_id = $1
+              AND ($2::uuid IS NULL OR virtual_key_id = $2)
+              AND ($3::timestamptz IS NULL OR created_at >= $3)
+            "#,
+            tenant_id,
+            key_id,
+            since,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.spend)
     }
 }

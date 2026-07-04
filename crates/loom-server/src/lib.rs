@@ -14,6 +14,8 @@
 //! - [`auth`] — tenant and admin authentication middleware and the
 //!   [`TenantContext`].
 //! - [`admin`] — the root-token-guarded provisioning API.
+//! - [`budget`] — before-the-call budget enforcement and the spend cache.
+//! - [`rate_limit`] — the in-process per-key token-bucket rate limiter.
 //! - [`error`] — the structured `{ "error": { code, message, provider_error? } }`
 //!   envelope.
 //!
@@ -29,17 +31,28 @@
 //! - `POST /admin/tenants`, `GET /admin/tenants/{id}`,
 //!   `POST /admin/tenants/{id}/keys`, `DELETE /admin/keys/{id}`,
 //!   `PUT /admin/tenants/{id}/credentials/{provider}` — admin auth.
+//! - `PUT`/`DELETE /admin/tenants/{id}/budget`, `PUT`/`DELETE
+//!   /admin/keys/{id}/budget`, `PUT`/`DELETE /admin/keys/{id}/rate-limit` —
+//!   budget and rate-limit administration (admin auth).
+//!
+//! Budgets and per-key rate limits are enforced before the provider call on
+//! both turn paths; a blocked budget returns `402 budget_exceeded` and a tripped
+//! rate limit returns `429` with `Retry-After`. Enforcement state (rate-limit
+//! buckets, spend cache) is in-process and therefore per-replica; see the
+//! README's "Known limitation" note.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod admin;
 pub mod auth;
+pub mod budget;
 pub mod config;
 pub mod crypto;
 pub mod error;
 pub mod extract;
 pub mod keys;
 pub mod provider;
+pub mod rate_limit;
 pub mod state;
 pub mod usage;
 pub mod v1;

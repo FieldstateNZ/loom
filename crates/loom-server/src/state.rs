@@ -9,11 +9,13 @@ use uuid::Uuid;
 use loom_provider::Provider;
 use loom_store::PgStore;
 
+use crate::budget::BudgetCache;
 use crate::config::Config;
 use crate::crypto::Crypto;
 use crate::error::ApiError;
 use crate::keys::KeyHasher;
 use crate::provider::{DefaultProviderFactory, ProviderFactory};
+use crate::rate_limit::RateLimiter;
 use crate::usage::{OutboxUsageRecorder, UsageRecorder};
 
 /// The state shared across all handlers.
@@ -32,6 +34,10 @@ struct Inner {
     root_admin_token: String,
     factory: Arc<dyn ProviderFactory>,
     usage_recorder: Arc<dyn UsageRecorder>,
+    /// Per-key, in-process request/token rate limiter (per replica).
+    rate_limiter: Arc<RateLimiter>,
+    /// Short-TTL, in-process cache of current-window spend (per replica).
+    budget_cache: Arc<BudgetCache>,
 }
 
 impl AppState {
@@ -51,6 +57,8 @@ impl AppState {
                 root_admin_token,
                 factory: Arc::new(DefaultProviderFactory),
                 usage_recorder: Arc::new(OutboxUsageRecorder),
+                rate_limiter: Arc::new(RateLimiter::new()),
+                budget_cache: Arc::new(BudgetCache::new()),
             }),
         }
     }
@@ -71,6 +79,8 @@ impl AppState {
                 root_admin_token: self.inner.root_admin_token.clone(),
                 factory,
                 usage_recorder: self.inner.usage_recorder.clone(),
+                rate_limiter: self.inner.rate_limiter.clone(),
+                budget_cache: self.inner.budget_cache.clone(),
             }),
         }
     }
@@ -90,6 +100,8 @@ impl AppState {
                 root_admin_token: self.inner.root_admin_token.clone(),
                 factory: self.inner.factory.clone(),
                 usage_recorder,
+                rate_limiter: self.inner.rate_limiter.clone(),
+                budget_cache: self.inner.budget_cache.clone(),
             }),
         }
     }
@@ -128,6 +140,18 @@ impl AppState {
     #[must_use]
     pub fn usage_recorder(&self) -> &Arc<dyn UsageRecorder> {
         &self.inner.usage_recorder
+    }
+
+    /// The per-key request/token rate limiter (in-process, per replica).
+    #[must_use]
+    pub fn rate_limiter(&self) -> &RateLimiter {
+        &self.inner.rate_limiter
+    }
+
+    /// The short-TTL current-window spend cache (in-process, per replica).
+    #[must_use]
+    pub fn budget_cache(&self) -> &BudgetCache {
+        &self.inner.budget_cache
     }
 
     /// Resolves the [`Provider`] bound to `provider` for `tenant_id` via the

@@ -105,6 +105,11 @@ Generate an encryption key with `openssl rand -hex 32`.
 | `POST /admin/tenants/{id}/keys` | root token | Mint a virtual key `{ name, env? }`. |
 | `DELETE /admin/keys/{id}` | root token | Revoke a virtual key (effective immediately). |
 | `PUT /admin/tenants/{id}/credentials/{provider}` | root token | Store an encrypted provider credential `{ api_key, base_url? }`. |
+| `PUT`/`DELETE /admin/tenants/{id}/budget` | root token | Set or clear a tenant's default spend budget `{ limit_amount, window, action }`. |
+| `PUT`/`DELETE /admin/keys/{id}/budget` | root token | Set or clear a key's budget override (takes precedence over the tenant default). |
+| `PUT`/`DELETE /admin/keys/{id}/rate-limit` | root token | Set or clear a key's rate limit `{ requests_per_min?, tokens_per_min? }`. |
+| `GET /v1/usage` | virtual key | Tenant-scoped usage/cost rollups (`?from&to&group_by=key\|model\|conversation`). |
+| `GET /admin/usage?group_by=tenant` | root token | Gateway-wide usage/cost rolled up by tenant. |
 
 ### Auth model
 
@@ -190,6 +195,54 @@ Capability negotiation runs before any request is dispatched: asking a model for
 a feature it does not support returns `422` with a `capability_unsupported`
 detail rather than silently degrading. A provider's own HTTP errors are mapped
 through with the native payload preserved under `error.provider_error`.
+
+### Budgets and rate limits
+
+Every turn is checked **before** the provider call against the caller's budget
+and rate limit.
+
+**Budgets** attach at the tenant level (a default) and/or the key level; a
+**key-level budget overrides the tenant default**. A budget is
+`{ limit_amount, window, action }` where `window` is `daily`, `weekly`,
+`monthly` (rolling look-back windows) or `total` (all time), and `action` is
+`block` or `warn`. Current-window spend is summed from the priced
+`usage_events` (the spend-tracking store), memoised in a short-TTL in-process
+cache so a burst of turns shares one query. A key-scoped budget meters that
+key's spend; a tenant-scoped budget meters the whole tenant's spend.
+
+- `action: block` — once spend reaches the limit, the turn is rejected with
+  `402` and the envelope
+  `{ "error": { "code": "budget_exceeded", "details": { scope, limit, spent, window } } }`.
+- `action: warn` — the turn proceeds but the response carries an
+  `x-loom-budget-warning` header (and a warning is logged).
+
+```bash
+# Block a key at $25 of monthly spend.
+curl -X PUT $BASE/admin/keys/$KEY_ID/budget \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"limit_amount":"25.00","window":"monthly","action":"block"}'
+```
+
+**Rate limits** attach per key as `{ requests_per_min?, tokens_per_min? }`
+(either dimension may be omitted for unlimited). They are enforced by an
+in-process token bucket; a request over the limit is rejected with `429` and a
+`Retry-After` header (whole seconds). Token usage is debited from the
+tokens-per-minute bucket once a turn's usage is known.
+
+```bash
+# Cap a key at 60 requests and 120k tokens per minute.
+curl -X PUT $BASE/admin/keys/$KEY_ID/rate-limit \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"requests_per_min":60,"tokens_per_min":120000}'
+```
+
+> **Known limitation — single-instance enforcement.** The rate-limit token
+> buckets and the budget spend cache live in each replica's memory, so both are
+> enforced **per replica**: with _N_ gateway replicas the effective rate ceiling
+> is _N×_ the configured limit, and a replica may not see another replica's
+> just-recorded spend until its cache TTL lapses. **Distributed rate limiting and
+> a shared spend cache (e.g. Redis) are deferred** to a later issue; for a
+> single-instance deployment the limits are exact.
 
 ## Licence
 

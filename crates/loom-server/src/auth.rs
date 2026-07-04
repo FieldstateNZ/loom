@@ -21,7 +21,7 @@ use axum::response::Response;
 use http::request::Parts;
 use uuid::Uuid;
 
-use loom_store::{KeyStore, TenantStore};
+use loom_store::{Budget, KeyStore, RateLimit, TenantStore};
 
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -42,6 +42,11 @@ pub struct TenantContext {
     pub key_prefix: String,
     /// The scopes granted to the key.
     pub scopes: Vec<String>,
+    /// The key's budget override, if any (takes precedence over the tenant
+    /// default during enforcement).
+    pub budget: Option<Budget>,
+    /// The key's rate limit, if any.
+    pub rate_limit: Option<RateLimit>,
 }
 
 impl<S> FromRequestParts<S> for TenantContext
@@ -126,6 +131,8 @@ pub async fn tenant_auth(
         key_id: key.id,
         key_prefix: key.key_prefix,
         scopes: key.scopes,
+        budget: key.budget,
+        rate_limit: key.rate_limit,
     });
 
     Ok(next.run(Request::from_parts(parts, body)).await)

@@ -36,9 +36,13 @@ use loom_store::{
 };
 
 use crate::auth::TenantContext;
+use crate::budget::{self, BudgetWarning};
 use crate::error::ApiError;
 use crate::extract;
 use crate::state::AppState;
+
+/// Response header set when a `warn`-action budget is over its soft limit.
+const BUDGET_WARNING_HEADER: &str = "x-loom-budget-warning";
 
 /// The default number of messages returned by a conversation fetch.
 const DEFAULT_MESSAGE_LIMIT: i64 = 100;
@@ -289,6 +293,10 @@ async fn create_turn(
     conversation.messages.push(user_turn.clone());
     negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
 
+    // Enforce rate limits and budget *before* the provider call (and before
+    // persisting the user turn, so a blocked request leaves history untouched).
+    let warning = enforce_limits(&state, &ctx).await?;
+
     // Persist the user turn now that the request is known to be runnable.
     state
         .store()
@@ -305,6 +313,7 @@ async fn create_turn(
         req.stream,
         true,
         ctx.key_id,
+        warning,
     )
     .await
 }
@@ -371,6 +380,9 @@ async fn stateless_turn(
         .await?;
     negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
 
+    // Enforce rate limits and budget before the provider call.
+    let warning = enforce_limits(&state, &ctx).await?;
+
     execute_turn(
         provider,
         &state,
@@ -379,8 +391,32 @@ async fn stateless_turn(
         req.stream,
         false,
         ctx.key_id,
+        warning,
     )
     .await
+}
+
+/// Enforces per-key rate limits and the effective budget before a provider
+/// call, shared by the stateful and stateless turn paths.
+///
+/// Returns `Err` with a `429` (rate limit) or `402` (blocked budget); returns
+/// `Ok(Some(warning))` when a `warn`-action budget is over its soft limit (the
+/// caller surfaces it as the `x-loom-budget-warning` header) and `Ok(None)`
+/// otherwise.
+async fn enforce_limits(
+    state: &AppState,
+    ctx: &TenantContext,
+) -> Result<Option<BudgetWarning>, ApiError> {
+    if let Err(rejection) = state
+        .rate_limiter()
+        .check(ctx.key_id, ctx.rate_limit.as_ref())
+    {
+        return Err(ApiError::rate_limited(
+            format!("{} rate limit exceeded", rejection.kind.label()),
+            rejection.retry_after_secs(),
+        ));
+    }
+    budget::enforce(state, ctx).await
 }
 
 /// Query parameters for a usage rollup.
@@ -547,6 +583,7 @@ struct UsageAttribution {
 /// Non-streaming returns the assistant [`Message`] as JSON; streaming returns an
 /// SSE response of [`TurnEvent`] envelopes, recording usage and persisting the
 /// reassembled assistant message when the stream ends.
+#[allow(clippy::too_many_arguments)]
 async fn execute_turn(
     provider: std::sync::Arc<dyn Provider>,
     state: &AppState,
@@ -555,6 +592,7 @@ async fn execute_turn(
     stream: bool,
     persist: bool,
     key_id: Uuid,
+    warning: Option<BudgetWarning>,
 ) -> Result<Response, ApiError> {
     let attribution = UsageAttribution {
         tenant_id: conversation.tenant_id,
@@ -565,18 +603,13 @@ async fn execute_turn(
         model: conversation.binding.model.clone(),
     };
 
-    if stream {
+    let mut response = if stream {
         let events = provider
             .stream(&conversation, &options)
             .await
             .map_err(ApiError::from_provider)?;
         let persist_target = persist.then_some((conversation.tenant_id, conversation.id));
-        Ok(sse_response(
-            events,
-            state.clone(),
-            attribution,
-            persist_target,
-        ))
+        sse_response(events, state.clone(), attribution, persist_target)
     } else {
         let message = provider
             .complete(&conversation, &options)
@@ -596,8 +629,17 @@ async fn execute_turn(
                 .await
                 .map_err(ApiError::from_store)?;
         }
-        Ok(Json(message).into_response())
+        Json(message).into_response()
+    };
+
+    // A `warn`-action budget over its soft limit lets the turn proceed but flags
+    // it to the caller via a response header.
+    if let Some(warning) = warning {
+        if let Ok(value) = HeaderValue::from_str(warning.header_value()) {
+            response.headers_mut().insert(BUDGET_WARNING_HEADER, value);
+        }
     }
+    Ok(response)
 }
 
 /// Records a priced usage event for a completed turn (best effort).
@@ -621,6 +663,15 @@ async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usa
             None
         }
     };
+    // Debit the key's per-minute token bucket now that the turn's usage is known
+    // (a no-op when the key has no token limit).
+    if let Some(key_id) = attribution.virtual_key_id {
+        let tokens = usage.input_tokens.unwrap_or(0)
+            + usage.output_tokens.unwrap_or(0)
+            + usage.cache_read_tokens.unwrap_or(0)
+            + usage.cache_write_tokens.unwrap_or(0);
+        state.rate_limiter().record_tokens(key_id, tokens);
+    }
     let event = NewUsageEvent {
         tenant_id: attribution.tenant_id,
         virtual_key_id: attribution.virtual_key_id,

@@ -7,9 +7,9 @@
 
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use http::header::{HeaderName, HeaderValue};
 use http::StatusCode;
 use loom_provider::ProviderError;
-use serde::Serialize;
 use serde_json::json;
 
 use crate::crypto::CryptoError;
@@ -23,8 +23,20 @@ pub struct ApiError {
     code: &'static str,
     /// A human-readable, non-sensitive message.
     message: String,
+    /// Uncommon extras (provider payload, structured details, response
+    /// headers), boxed so the common small error stays cheap to move.
+    extra: Option<Box<ApiErrorExtra>>,
+}
+
+/// The uncommon parts of an [`ApiError`], allocated only when set.
+#[derive(Debug, Default)]
+struct ApiErrorExtra {
     /// An optional verbatim provider-native error payload.
     provider_error: Option<serde_json::Value>,
+    /// Optional structured details carried in `error.details`.
+    details: Option<serde_json::Value>,
+    /// Extra response headers (e.g. `Retry-After` on a rate-limit rejection).
+    headers: Vec<(HeaderName, HeaderValue)>,
 }
 
 impl ApiError {
@@ -35,15 +47,72 @@ impl ApiError {
             status,
             code,
             message: message.into(),
-            provider_error: None,
+            extra: None,
         }
+    }
+
+    /// Lazily allocates and returns the extras block.
+    fn extra_mut(&mut self) -> &mut ApiErrorExtra {
+        self.extra.get_or_insert_with(Box::default)
     }
 
     /// Attaches a provider-native error payload to the envelope.
     #[must_use]
     pub fn with_provider_error(mut self, payload: serde_json::Value) -> Self {
-        self.provider_error = Some(payload);
+        self.extra_mut().provider_error = Some(payload);
         self
+    }
+
+    /// Attaches a structured `error.details` object to the envelope.
+    #[must_use]
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.extra_mut().details = Some(details);
+        self
+    }
+
+    /// Adds a response header carried through to the rendered response.
+    ///
+    /// A header that cannot be constructed (invalid name or value) is dropped
+    /// rather than panicking — the error body still renders.
+    #[must_use]
+    pub fn with_header(mut self, name: &'static str, value: impl AsRef<str>) -> Self {
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value.as_ref()),
+        ) {
+            self.extra_mut().headers.push((name, value));
+        }
+        self
+    }
+
+    /// A `402 Payment Required` for a blocked budget, carrying the
+    /// `{ scope, limit, spent, window }` breakdown in `error.details`.
+    #[must_use]
+    pub fn budget_exceeded(
+        scope: &str,
+        limit: rust_decimal::Decimal,
+        spent: rust_decimal::Decimal,
+        window: &str,
+    ) -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "budget_exceeded",
+            format!("{scope} budget of {limit} exceeded (spent {spent} this {window})"),
+        )
+        .with_details(json!({
+            "scope": scope,
+            "limit": limit,
+            "spent": spent,
+            "window": window,
+        }))
+    }
+
+    /// A `429 Too Many Requests` for a tripped rate limit, setting `Retry-After`
+    /// (whole seconds) so the caller knows when to retry.
+    #[must_use]
+    pub fn rate_limited(message: impl Into<String>, retry_after_secs: u64) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", message)
+            .with_header("retry-after", retry_after_secs.to_string())
     }
 
     /// A `401 Unauthorized` (authentication missing, malformed, or rejected).
@@ -114,8 +183,13 @@ impl ApiError {
     #[must_use]
     pub fn envelope(&self) -> serde_json::Value {
         let mut error = json!({ "code": self.code, "message": self.message });
-        if let (Some(payload), Some(obj)) = (self.provider_error.as_ref(), error.as_object_mut()) {
-            obj.insert("provider_error".to_owned(), payload.clone());
+        if let (Some(extra), Some(obj)) = (self.extra.as_ref(), error.as_object_mut()) {
+            if let Some(payload) = extra.provider_error.as_ref() {
+                obj.insert("provider_error".to_owned(), payload.clone());
+            }
+            if let Some(details) = extra.details.as_ref() {
+                obj.insert("details".to_owned(), details.clone());
+            }
         }
         json!({ "error": error })
     }
@@ -213,30 +287,15 @@ impl From<CryptoError> for ApiError {
     }
 }
 
-/// The serialised envelope body: `{ "error": { ... } }`.
-#[derive(Serialize)]
-struct ErrorEnvelope<'a> {
-    error: ErrorBody<'a>,
-}
-
-/// The inner error object.
-#[derive(Serialize)]
-struct ErrorBody<'a> {
-    code: &'a str,
-    message: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    provider_error: Option<&'a serde_json::Value>,
-}
-
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = ErrorEnvelope {
-            error: ErrorBody {
-                code: self.code,
-                message: &self.message,
-                provider_error: self.provider_error.as_ref(),
-            },
-        };
-        (self.status, Json(body)).into_response()
+        let body = self.envelope();
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(extra) = self.extra {
+            for (name, value) in extra.headers {
+                response.headers_mut().insert(name, value);
+            }
+        }
+        response
     }
 }

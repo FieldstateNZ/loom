@@ -1,4 +1,5 @@
-//! The `/admin` API: tenant, virtual-key and credential provisioning.
+//! The `/admin` API: tenant, virtual-key and credential provisioning, plus
+//! budget and rate-limit administration.
 //!
 //! Every route here is guarded by [`admin_auth`](crate::auth::admin_auth), so
 //! handlers assume the caller holds the root admin token. Responses use the
@@ -15,10 +16,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use loom_store::{
-    CredentialStore, KeyStore, NewProviderCredential, NewTenant, NewVirtualKey, TenantStore,
-    UsageStore,
+    BudgetStore, CredentialStore, KeyStore, NewProviderCredential, NewTenant, NewVirtualKey,
+    RateLimit, TenantStore, UsageStore,
 };
 
+use crate::budget::parse_budget;
 use crate::error::ApiError;
 use crate::extract;
 use crate::keys::{generate_key, KeyEnv};
@@ -36,6 +38,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/tenants/{id}/credentials/{provider}",
             put(put_credential),
+        )
+        .route(
+            "/admin/tenants/{id}/budget",
+            put(put_tenant_budget).delete(delete_tenant_budget),
+        )
+        .route(
+            "/admin/keys/{id}/budget",
+            put(put_key_budget).delete(delete_key_budget),
+        )
+        .route(
+            "/admin/keys/{id}/rate-limit",
+            put(put_key_rate_limit).delete(delete_key_rate_limit),
         )
         .route("/admin/usage", get(usage_by_tenant))
 }
@@ -253,6 +267,154 @@ async fn put_credential(
         base_url: stored.base_url,
         created_at: stored.created_at,
     }))
+}
+
+/// Request body for setting a budget (tenant or key level).
+#[derive(Debug, Deserialize)]
+struct SetBudgetRequest {
+    /// The spend limit, in the gateway's accounting currency.
+    limit_amount: Decimal,
+    /// The rolling window: `daily`, `weekly`, `monthly`, or `total`.
+    window: String,
+    /// The action on breach: `block` or `warn`.
+    action: String,
+}
+
+/// `PUT /admin/tenants/{id}/budget` — set (or replace) a tenant's default
+/// budget. A key-level budget overrides this at enforcement time.
+async fn put_tenant_budget(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<Uuid>,
+    extract::Json(req): extract::Json<SetBudgetRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let budget = parse_budget(req.limit_amount, &req.window, &req.action)?;
+    let updated = state
+        .store()
+        .set_tenant_budget(tenant_id, Some(budget))
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("tenant not found"))
+    }
+}
+
+/// `DELETE /admin/tenants/{id}/budget` — clear a tenant's default budget.
+async fn delete_tenant_budget(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let updated = state
+        .store()
+        .set_tenant_budget(tenant_id, None)
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("tenant not found"))
+    }
+}
+
+/// `PUT /admin/keys/{id}/budget` — set (or replace) a key's budget override.
+async fn put_key_budget(
+    State(state): State<AppState>,
+    Path(key_id): Path<Uuid>,
+    extract::Json(req): extract::Json<SetBudgetRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let budget = parse_budget(req.limit_amount, &req.window, &req.action)?;
+    let updated = state
+        .store()
+        .set_key_budget(key_id, Some(budget))
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("key not found"))
+    }
+}
+
+/// `DELETE /admin/keys/{id}/budget` — clear a key's budget override (the tenant
+/// default, if any, then applies).
+async fn delete_key_budget(
+    State(state): State<AppState>,
+    Path(key_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let updated = state
+        .store()
+        .set_key_budget(key_id, None)
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("key not found"))
+    }
+}
+
+/// Request body for setting a key's rate limit. Either dimension may be omitted
+/// (unlimited on that dimension).
+#[derive(Debug, Deserialize)]
+struct SetRateLimitRequest {
+    /// Maximum requests per minute, or `null`/absent for unlimited.
+    #[serde(default)]
+    requests_per_min: Option<i64>,
+    /// Maximum tokens per minute, or `null`/absent for unlimited.
+    #[serde(default)]
+    tokens_per_min: Option<i64>,
+}
+
+/// `PUT /admin/keys/{id}/rate-limit` — set (or replace) a key's rate limit.
+async fn put_key_rate_limit(
+    State(state): State<AppState>,
+    Path(key_id): Path<Uuid>,
+    extract::Json(req): extract::Json<SetRateLimitRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    for (label, value) in [
+        ("requests_per_min", req.requests_per_min),
+        ("tokens_per_min", req.tokens_per_min),
+    ] {
+        if value.is_some_and(|v| v < 0) {
+            return Err(ApiError::bad_request(format!(
+                "{label} must not be negative"
+            )));
+        }
+    }
+    let rate_limit = RateLimit {
+        requests_per_min: req.requests_per_min,
+        tokens_per_min: req.tokens_per_min,
+    };
+    // An all-unlimited body is stored as "no limit" rather than a hollow row.
+    let value = rate_limit.is_some().then_some(rate_limit);
+    let updated = state
+        .store()
+        .set_key_rate_limit(key_id, value)
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("key not found"))
+    }
+}
+
+/// `DELETE /admin/keys/{id}/rate-limit` — clear a key's rate limit.
+async fn delete_key_rate_limit(
+    State(state): State<AppState>,
+    Path(key_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let updated = state
+        .store()
+        .set_key_rate_limit(key_id, None)
+        .await
+        .map_err(ApiError::from_store)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("key not found"))
+    }
 }
 
 /// Query parameters for the gateway-wide usage rollup.

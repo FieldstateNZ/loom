@@ -10,8 +10,9 @@
 //! - [`PgStore`] is the PostgreSQL implementation of every store trait over a
 //!   shared [`sqlx::PgPool`].
 //! - The store traits ([`TenantStore`], [`KeyStore`], [`CredentialStore`],
-//!   [`ConversationStore`], [`UsageStore`]) are the persistence surface the
-//!   rest of the workspace depends on.
+//!   [`ConversationStore`], [`UsageStore`], [`PricingStore`], [`OutboxStore`],
+//!   [`BudgetStore`]) are the persistence surface the rest of the workspace
+//!   depends on.
 //! - [`run_migrations`] applies the embedded migration set at startup.
 //!
 //! Conversation history round-trips the [`loom_core`] domain model through
@@ -35,15 +36,16 @@ mod store;
 
 pub use error::{Result, StoreError};
 pub use model::{
-    KeyBudget, ModelPrice, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent,
-    NewVirtualKey, OutboxEntry, ProviderCredential, RollupGroup, Tenant, UsageEvent, UsageRollup,
-    UsageRollupRow, VirtualKey,
+    Budget, BudgetAction, BudgetWindow, KeyBudget, ModelPrice, NewModelPrice,
+    NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, OutboxEntry,
+    ProviderCredential, RateLimit, RollupGroup, Tenant, UsageEvent, UsageRollup, UsageRollupRow,
+    VirtualKey,
 };
 pub use pg::PgStore;
 pub use pricing::Pricer;
 pub use store::{
-    ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore, TenantStore,
-    UsageStore,
+    BudgetStore, ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore,
+    TenantStore, UsageStore,
 };
 
 /// Re-export of the domain model persisted by this layer.
