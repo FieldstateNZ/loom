@@ -11,3 +11,17 @@ authors.workspace = true
 [dependencies]
 loom-core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+rust_decimal = { workspace = true }
+
+[features]
+# Exposes `MockProvider`, a canned in-memory provider that downstream crates
+# (e.g. the server) can use in their own tests without a live provider backend.
+mock = []
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+uuid = { workspace = true }
