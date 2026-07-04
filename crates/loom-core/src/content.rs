@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 /// A single, typed piece of message content.
 ///
 /// `ContentPart` is the heart of Loom's fluent conversation model. It is rich
-/// enough to carry provider-native concepts — server-side tool use, cache
-/// markers, citations, and reasoning ("thinking") blocks — **without**
-/// flattening them into a lossy OpenAI-shaped representation.
+/// enough to carry provider-native concepts — server-side tool use, citations,
+/// and reasoning ("thinking") blocks — **without** flattening them into a lossy
+/// OpenAI-shaped representation. (Per-block cache-control markers gain typed
+/// support with prompt caching; until then they ride verbatim through
+/// [`ContentPart::ProviderExtension`], so they are never dropped.)
 ///
 /// # Serde representation
 ///

@@ -53,6 +53,7 @@ impl MockProvider {
             TurnEvent::new(
                 TurnEventKind::TurnEnded {
                     stop_reason: StopReason::EndTurn,
+                    usage: None,
                 },
                 serde_json::json!({ "type": "message_stop" }),
             ),

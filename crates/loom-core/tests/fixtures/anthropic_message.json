@@ -35,6 +35,19 @@
       ]
     },
     {
+      "type": "text",
+      "text": "Loom 0.1 shipped two days ago.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://example.com/loom-0-1",
+          "title": "Loom 0.1 released",
+          "cited_text": "Loom 0.1 released",
+          "encrypted_index": "AbCdEf=="
+        }
+      ]
+    },
+    {
       "type": "tool_use",
       "id": "toolu_099def",
       "name": "get_weather",

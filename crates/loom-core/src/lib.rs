@@ -4,9 +4,9 @@
 //! clients: conversations, messages, content parts, usage and options.
 //! Provider libraries translate this model to and from each provider's native
 //! wire format **without flattening provider-specific capabilities** — Loom
-//! carries provider-native concepts (server-side tool use, cache markers,
-//! citations, reasoning blocks) faithfully rather than forcing them through a
-//! lossy OpenAI-shaped normalisation.
+//! carries provider-native concepts (server-side tool use, citations, reasoning
+//! blocks) faithfully rather than forcing them through a lossy OpenAI-shaped
+//! normalisation.
 //!
 //! # Design guarantees
 //!

@@ -70,8 +70,8 @@ pub enum ProviderError {
 /// to prompt versus completion tokens when it has the rates to do so.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Cost {
-    /// ISO 4217 currency code (e.g. `"USD"`). Empty when the cost is a
-    /// placeholder zero produced without pricing data.
+    /// ISO 4217 currency code (e.g. `"USD"`). Empty only for a [`Default`]
+    /// value; the [`Cost::zero`] placeholder constructor always sets a currency.
     pub currency: String,
     /// The total monetary amount.
     pub amount: Decimal,

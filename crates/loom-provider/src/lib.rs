@@ -234,9 +234,12 @@ mod tests {
 
     #[test]
     fn turn_event_round_trips_through_serde() {
+        let mut usage = loom_core::Usage::new();
+        usage.output_tokens = Some(7);
         let event = TurnEvent::new(
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::MaxTokens,
+                usage: Some(usage),
             },
             serde_json::json!({ "type": "message_delta" }),
         );

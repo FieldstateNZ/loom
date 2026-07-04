@@ -1,7 +1,8 @@
 //! Fixture-based lossless round-trip test.
 //!
 //! This proves the domain model can represent a realistic Anthropic Messages
-//! API response — text, a client `tool_use`, a `thinking` block, a
+//! API response — plain and citation-annotated text, a client `tool_use` (with
+//! a client `tool_result` on the following turn), a `thinking` block, a
 //! `server_tool_use` + `web_search_tool_result` pair, and an unmodelled
 //! `mcp_tool_use` block — losslessly. It maps the fixture's native content
 //! blocks **into** [`ContentPart`]s and back **out** to the original Anthropic
@@ -44,6 +45,14 @@ fn block_to_part(block: &Value) -> ContentPart {
             id: block["id"].as_str().unwrap().to_owned(),
             name: block["name"].as_str().unwrap().to_owned(),
             input: block["input"].clone(),
+        },
+        // A CLIENT tool result (sent by the host on the following user turn).
+        // Matched explicitly and *before* the server `<tool>_tool_result` arm so
+        // it never falls through to ServerToolResult or the escape hatch.
+        "tool_result" => ContentPart::ToolResult {
+            tool_use_id: block["tool_use_id"].as_str().unwrap().to_owned(),
+            content: block["content"].clone(),
+            is_error: block.get("is_error").and_then(Value::as_bool),
         },
         "server_tool_use" => ContentPart::ServerToolUse {
             id: block["id"].as_str().unwrap().to_owned(),
@@ -104,6 +113,20 @@ fn part_to_block(part: &ContentPart, server_tool_names: &BTreeMap<String, String
         ContentPart::ToolUse { id, name, input } => {
             json!({ "type": "tool_use", "id": id, "name": name, "input": input })
         }
+        ContentPart::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => {
+            let mut obj = Map::new();
+            obj.insert("type".into(), json!("tool_result"));
+            obj.insert("tool_use_id".into(), json!(tool_use_id));
+            obj.insert("content".into(), content.clone());
+            if let Some(is_error) = is_error {
+                obj.insert("is_error".into(), json!(is_error));
+            }
+            Value::Object(obj)
+        }
         ContentPart::ServerToolUse { id, name, input } => {
             json!({ "type": "server_tool_use", "id": id, "name": name, "input": input })
         }
@@ -160,11 +183,30 @@ fn anthropic_fixture_maps_losslessly() {
     // Sanity: the native shapes landed on the expected variants, including the
     // escape hatch for the unmodelled `mcp_tool_use` block.
     assert!(matches!(parts[0], ContentPart::Thinking { .. }));
-    assert!(matches!(parts[1], ContentPart::Text { .. }));
+    // Preamble text carries no citations...
+    assert!(matches!(
+        parts[1],
+        ContentPart::Text {
+            citations: None,
+            ..
+        }
+    ));
     assert!(matches!(parts[2], ContentPart::ServerToolUse { .. }));
     assert!(matches!(parts[3], ContentPart::ServerToolResult { .. }));
-    assert!(matches!(parts[4], ContentPart::ToolUse { .. }));
-    match &parts[5] {
+    // ...while the post-search summary text does, and each citation is preserved
+    // verbatim (Loom does not flatten provider citation shapes).
+    match &parts[4] {
+        ContentPart::Text {
+            citations: Some(citations),
+            ..
+        } => {
+            assert_eq!(citations.len(), 1);
+            assert_eq!(citations[0].0["type"], json!("web_search_result_location"));
+        }
+        other => panic!("expected cited Text, got {other:?}"),
+    }
+    assert!(matches!(parts[5], ContentPart::ToolUse { .. }));
+    match &parts[6] {
         ContentPart::ProviderExtension {
             provider,
             kind,
@@ -195,6 +237,29 @@ fn anthropic_fixture_maps_losslessly() {
         &Value::Array(rebuilt_blocks),
         &fixture["content"],
         "content blocks did not round-trip losslessly"
+    );
+
+    // A CLIENT tool_result block (as the host returns on the following user
+    // turn) also round-trips through the same native mapping — covering a shape
+    // an assistant-response fixture cannot naturally contain.
+    let tool_result_block = json!({
+        "type": "tool_result",
+        "tool_use_id": "toolu_099def",
+        "content": [{ "type": "text", "text": "18C and clear" }],
+        "is_error": false
+    });
+    let tr_part = block_to_part(&tool_result_block);
+    assert!(matches!(
+        tr_part,
+        ContentPart::ToolResult {
+            is_error: Some(false),
+            ..
+        }
+    ));
+    assert_eq!(
+        part_to_block(&tr_part, &server_tool_names),
+        tool_result_block,
+        "client tool_result did not round-trip losslessly"
     );
 
     // Usage: typed fields are extracted correctly, and the raw payload is
