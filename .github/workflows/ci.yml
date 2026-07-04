@@ -90,7 +90,7 @@ jobs:
             rendered/default.yaml rendered/staging.yaml rendered/production.yaml
 
   console:
-    name: console (typecheck + build)
+    name: console (typecheck + build + lint)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -105,9 +105,11 @@ jobs:
       - run: npm ci
       # `npm run build` runs `tsc -b` (typecheck) then `vite build`.
       - run: npm run build
+      # Enforce the typescript-codebase house rules (no-any/no-console/max-lines/…).
+      - run: npm run lint
 
   ts-client:
-    name: ts client (typecheck + build + test)
+    name: ts client (typecheck + build + test + lint)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -125,3 +127,5 @@ jobs:
       - run: npm run build
       # Request-shaping unit test (no network).
       - run: npm test
+      # Enforce the typescript-codebase house rules.
+      - run: npm run lint
