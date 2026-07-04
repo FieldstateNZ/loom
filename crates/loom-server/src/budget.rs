@@ -197,8 +197,16 @@ async fn current_spend(
 ///
 /// # Errors
 ///
-/// Returns a `400` [`ApiError`] if `window` or `action` is not a known value.
+/// Returns a `400` [`ApiError`] if `limit_amount` is not positive, or if
+/// `window` or `action` is not a known value. A non-positive limit is rejected
+/// because a zero or negative cap would block (or warn on) every request, which
+/// is never the intent — remove the budget instead to lift the cap.
 pub fn parse_budget(limit_amount: Decimal, window: &str, action: &str) -> Result<Budget, ApiError> {
+    if limit_amount <= Decimal::ZERO {
+        return Err(ApiError::bad_request(format!(
+            "budget limit_amount must be positive, got {limit_amount}"
+        )));
+    }
     let window = BudgetWindow::parse(window).ok_or_else(|| {
         ApiError::bad_request(format!(
             "unknown budget window {window:?}; expected daily, weekly, monthly, or total"

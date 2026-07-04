@@ -666,10 +666,12 @@ async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usa
     // Debit the key's per-minute token bucket now that the turn's usage is known
     // (a no-op when the key has no token limit).
     if let Some(key_id) = attribution.virtual_key_id {
-        let tokens = usage.input_tokens.unwrap_or(0)
-            + usage.output_tokens.unwrap_or(0)
-            + usage.cache_read_tokens.unwrap_or(0)
-            + usage.cache_write_tokens.unwrap_or(0);
+        let tokens = usage
+            .input_tokens
+            .unwrap_or(0)
+            .saturating_add(usage.output_tokens.unwrap_or(0))
+            .saturating_add(usage.cache_read_tokens.unwrap_or(0))
+            .saturating_add(usage.cache_write_tokens.unwrap_or(0));
         state.rate_limiter().record_tokens(key_id, tokens);
     }
     let event = NewUsageEvent {
