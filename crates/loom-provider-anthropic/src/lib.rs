@@ -20,6 +20,12 @@
 //!   on mid-stream failure.
 //! - [`translate`] — the pure request/response translation functions, exercised
 //!   directly against fixtures.
+//! - The Message Batches surface —
+//!   [`create_batch`](AnthropicProvider::create_batch),
+//!   [`get_batch`](AnthropicProvider::get_batch),
+//!   [`fetch_batch_results`](AnthropicProvider::fetch_batch_results) and
+//!   [`cancel_batch`](AnthropicProvider::cancel_batch) — for asynchronous bulk
+//!   processing at the discounted batch tier, reusing the same client and auth.
 //!
 //! [`Message`]: loom_core::Message
 //! - [`catalogue`] — the static catalogue of Claude models and their
@@ -32,11 +38,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod batch;
 mod catalogue;
 mod provider;
 mod streaming;
 pub mod translate;
 
+pub use batch::{AnthropicBatch, AnthropicBatchResult, BatchRequest, BatchRequestCounts};
 pub use catalogue::{catalogue, feature_beta, BetaFeature, PROVIDER_NAME};
 pub use provider::AnthropicProvider;
 pub use streaming::SseAccumulator;

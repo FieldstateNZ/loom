@@ -340,6 +340,7 @@ async fn price_versioning_affects_new_events_only() {
             cache_write_per_mtok: Decimal::from(0),
             cache_read_per_mtok: Decimal::from(0),
             server_tool_prices: json!({}),
+            batch_multiplier: rust_decimal::Decimal::ONE,
             currency: "USD".to_owned(),
             effective_from: Utc::now(),
         })

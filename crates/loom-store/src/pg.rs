@@ -8,14 +8,15 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::model::{
-    Budget, BudgetAction, BudgetWindow, McpServer, ModelPrice, NewMcpServer, NewModelPrice,
+    BatchCounts, BatchItem, BatchItemStatus, BatchJob, BatchStatus, Budget, BudgetAction,
+    BudgetWindow, McpServer, ModelPrice, NewBatchJob, NewMcpServer, NewModelPrice,
     NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, OutboxEntry,
     ProviderCredential, RateLimit, RollupGroup, Tenant, UsageEvent, UsageRollup, UsageRollupRow,
     VirtualKey,
 };
 use crate::store::{
-    BudgetStore, ConversationStore, CredentialStore, KeyStore, McpServerStore, OutboxStore,
-    PricingStore, TenantStore, UsageStore,
+    BatchStore, BudgetStore, ConversationStore, CredentialStore, KeyStore, McpServerStore,
+    OutboxStore, PricingStore, TenantStore, UsageStore,
 };
 use loom_core::{ContentPart, Conversation, Message, ProviderBinding, Role, Usage};
 
@@ -118,6 +119,80 @@ fn build_rate_limit(
         requests_per_min,
         tokens_per_min,
     })
+}
+
+/// Reconstructs a [`BatchJob`] from its stored columns.
+#[allow(clippy::too_many_arguments)]
+fn build_batch_job(
+    id: Uuid,
+    tenant_id: Uuid,
+    virtual_key_id: Option<Uuid>,
+    provider: String,
+    status: String,
+    provider_batch_id: Option<String>,
+    results_url: Option<String>,
+    total_items: i32,
+    processing_count: i32,
+    succeeded_count: i32,
+    errored_count: i32,
+    canceled_count: i32,
+    expired_count: i32,
+    error: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    ended_at: Option<DateTime<Utc>>,
+) -> BatchJob {
+    BatchJob {
+        id,
+        tenant_id,
+        virtual_key_id,
+        provider,
+        // A row Loom wrote always carries a known status; default a corrupt
+        // value to `Created` rather than panicking.
+        status: BatchStatus::parse(&status).unwrap_or(BatchStatus::Created),
+        provider_batch_id,
+        results_url,
+        total_items,
+        counts: BatchCounts {
+            processing: processing_count,
+            succeeded: succeeded_count,
+            errored: errored_count,
+            canceled: canceled_count,
+            expired: expired_count,
+        },
+        error,
+        created_at,
+        updated_at,
+        ended_at,
+    }
+}
+
+/// Reconstructs a [`BatchItem`] from its stored columns.
+#[allow(clippy::too_many_arguments)]
+fn build_batch_item(
+    id: Uuid,
+    batch_id: Uuid,
+    tenant_id: Uuid,
+    custom_id: String,
+    seq: i32,
+    model: String,
+    status: String,
+    request: serde_json::Value,
+    result: Option<serde_json::Value>,
+    created_at: DateTime<Utc>,
+) -> BatchItem {
+    BatchItem {
+        id,
+        batch_id,
+        tenant_id,
+        custom_id,
+        seq,
+        model,
+        status: BatchItemStatus::parse(&status),
+        request,
+        result,
+        created_at,
+    }
 }
 
 /// Reconstructs a [`VirtualKey`] from its stored columns.
@@ -813,9 +888,9 @@ impl UsageStore for PgStore {
             INSERT INTO usage_events (
                 id, tenant_id, virtual_key_id, conversation_id, provider, model,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                server_tool_counts, cost, raw_usage
+                server_tool_counts, cost, is_batch, raw_usage
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING id
             "#,
             id,
@@ -830,6 +905,7 @@ impl UsageStore for PgStore {
             cache_write_tokens,
             server_tool_counts,
             event.cost,
+            event.is_batch,
             raw_usage,
         )
         .fetch_one(&self.pool)
@@ -843,7 +919,7 @@ impl UsageStore for PgStore {
             SELECT
                 id, tenant_id, virtual_key_id, conversation_id, provider, model,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                server_tool_counts, cost, raw_usage, created_at
+                server_tool_counts, cost, is_batch, raw_usage, created_at
             FROM usage_events
             WHERE tenant_id = $1
             ORDER BY created_at DESC, id DESC
@@ -869,6 +945,7 @@ impl UsageStore for PgStore {
                 cache_write_tokens: row.cache_write_tokens,
                 server_tool_counts: row.server_tool_counts,
                 cost: row.cost,
+                is_batch: row.is_batch,
                 raw_usage: row.raw_usage,
                 created_at: row.created_at,
             })
@@ -1074,7 +1151,7 @@ impl PricingStore for PgStore {
             SELECT
                 id, provider, model, input_per_mtok, output_per_mtok,
                 cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
-                currency, effective_from, created_at
+                batch_multiplier, currency, effective_from, created_at
             FROM model_prices
             WHERE provider = $1 AND model = $2 AND effective_from <= $3
             ORDER BY effective_from DESC
@@ -1095,6 +1172,7 @@ impl PricingStore for PgStore {
             cache_write_per_mtok: row.cache_write_per_mtok,
             cache_read_per_mtok: row.cache_read_per_mtok,
             server_tool_prices: row.server_tool_prices,
+            batch_multiplier: row.batch_multiplier,
             currency: row.currency,
             effective_from: row.effective_from,
             created_at: row.created_at,
@@ -1108,9 +1186,9 @@ impl PricingStore for PgStore {
             INSERT INTO model_prices (
                 id, provider, model, input_per_mtok, output_per_mtok,
                 cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
-                currency, effective_from
+                batch_multiplier, currency, effective_from
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT ON CONSTRAINT uq_model_prices_version
             DO UPDATE SET
                 input_per_mtok = EXCLUDED.input_per_mtok,
@@ -1118,11 +1196,12 @@ impl PricingStore for PgStore {
                 cache_write_per_mtok = EXCLUDED.cache_write_per_mtok,
                 cache_read_per_mtok = EXCLUDED.cache_read_per_mtok,
                 server_tool_prices = EXCLUDED.server_tool_prices,
+                batch_multiplier = EXCLUDED.batch_multiplier,
                 currency = EXCLUDED.currency
             RETURNING
                 id, provider, model, input_per_mtok, output_per_mtok,
                 cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
-                currency, effective_from, created_at
+                batch_multiplier, currency, effective_from, created_at
             "#,
             id,
             price.provider,
@@ -1132,6 +1211,7 @@ impl PricingStore for PgStore {
             price.cache_write_per_mtok,
             price.cache_read_per_mtok,
             price.server_tool_prices,
+            price.batch_multiplier,
             price.currency,
             price.effective_from,
         )
@@ -1146,6 +1226,7 @@ impl PricingStore for PgStore {
             cache_write_per_mtok: row.cache_write_per_mtok,
             cache_read_per_mtok: row.cache_read_per_mtok,
             server_tool_prices: row.server_tool_prices,
+            batch_multiplier: row.batch_multiplier,
             currency: row.currency,
             effective_from: row.effective_from,
             created_at: row.created_at,
@@ -1345,5 +1426,407 @@ impl BudgetStore for PgStore {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.spend)
+    }
+}
+
+#[async_trait]
+impl BatchStore for PgStore {
+    async fn create_batch_job(&self, new: NewBatchJob) -> Result<BatchJob> {
+        let id = Uuid::new_v4();
+        let total = i32::try_from(new.items.len()).unwrap_or(i32::MAX);
+        let mut tx = self.pool.begin().await?;
+        let head = sqlx::query!(
+            r#"
+            INSERT INTO batch_jobs (id, tenant_id, virtual_key_id, provider, total_items)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING created_at, updated_at
+            "#,
+            id,
+            new.tenant_id,
+            new.virtual_key_id,
+            new.provider,
+            total,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        for (index, item) in new.items.iter().enumerate() {
+            let seq = i32::try_from(index).unwrap_or(i32::MAX);
+            sqlx::query!(
+                r#"
+                INSERT INTO batch_items (
+                    id, batch_id, tenant_id, custom_id, seq, model, request
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                "#,
+                Uuid::new_v4(),
+                id,
+                new.tenant_id,
+                item.custom_id,
+                seq,
+                item.model,
+                item.request,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(BatchJob {
+            id,
+            tenant_id: new.tenant_id,
+            virtual_key_id: new.virtual_key_id,
+            provider: new.provider,
+            status: BatchStatus::Created,
+            provider_batch_id: None,
+            results_url: None,
+            total_items: total,
+            counts: BatchCounts::default(),
+            error: None,
+            created_at: head.created_at,
+            updated_at: head.updated_at,
+            ended_at: None,
+        })
+    }
+
+    async fn get_batch_job(&self, tenant_id: Uuid, id: Uuid) -> Result<Option<BatchJob>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                id, tenant_id, virtual_key_id, provider, status, provider_batch_id,
+                results_url, total_items, processing_count, succeeded_count,
+                errored_count, canceled_count, expired_count, error,
+                created_at, updated_at, ended_at
+            FROM batch_jobs
+            WHERE id = $1 AND tenant_id = $2
+            "#,
+            id,
+            tenant_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| {
+            build_batch_job(
+                r.id,
+                r.tenant_id,
+                r.virtual_key_id,
+                r.provider,
+                r.status,
+                r.provider_batch_id,
+                r.results_url,
+                r.total_items,
+                r.processing_count,
+                r.succeeded_count,
+                r.errored_count,
+                r.canceled_count,
+                r.expired_count,
+                r.error,
+                r.created_at,
+                r.updated_at,
+                r.ended_at,
+            )
+        }))
+    }
+
+    async fn list_batch_items(&self, tenant_id: Uuid, batch_id: Uuid) -> Result<Vec<BatchItem>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, batch_id, tenant_id, custom_id, seq, model, status, request, result, created_at
+            FROM batch_items
+            WHERE batch_id = $1 AND tenant_id = $2
+            ORDER BY seq
+            "#,
+            batch_id,
+            tenant_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                build_batch_item(
+                    r.id,
+                    r.batch_id,
+                    r.tenant_id,
+                    r.custom_id,
+                    r.seq,
+                    r.model,
+                    r.status,
+                    r.request,
+                    r.result,
+                    r.created_at,
+                )
+            })
+            .collect())
+    }
+
+    async fn list_active_batch_jobs(&self, limit: i64) -> Result<Vec<BatchJob>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                id, tenant_id, virtual_key_id, provider, status, provider_batch_id,
+                results_url, total_items, processing_count, succeeded_count,
+                errored_count, canceled_count, expired_count, error,
+                created_at, updated_at, ended_at
+            FROM batch_jobs
+            WHERE status <> 'ended'
+            ORDER BY created_at
+            LIMIT $1
+            "#,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                build_batch_job(
+                    r.id,
+                    r.tenant_id,
+                    r.virtual_key_id,
+                    r.provider,
+                    r.status,
+                    r.provider_batch_id,
+                    r.results_url,
+                    r.total_items,
+                    r.processing_count,
+                    r.succeeded_count,
+                    r.errored_count,
+                    r.canceled_count,
+                    r.expired_count,
+                    r.error,
+                    r.created_at,
+                    r.updated_at,
+                    r.ended_at,
+                )
+            })
+            .collect())
+    }
+
+    async fn get_batch_items(&self, batch_id: Uuid) -> Result<Vec<BatchItem>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, batch_id, tenant_id, custom_id, seq, model, status, request, result, created_at
+            FROM batch_items
+            WHERE batch_id = $1
+            ORDER BY seq
+            "#,
+            batch_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                build_batch_item(
+                    r.id,
+                    r.batch_id,
+                    r.tenant_id,
+                    r.custom_id,
+                    r.seq,
+                    r.model,
+                    r.status,
+                    r.request,
+                    r.result,
+                    r.created_at,
+                )
+            })
+            .collect())
+    }
+
+    async fn mark_batch_submitted(
+        &self,
+        id: Uuid,
+        provider_batch_id: &str,
+        counts: BatchCounts,
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE batch_jobs
+            SET provider_batch_id = $2,
+                status = 'in_progress',
+                processing_count = $3,
+                succeeded_count = $4,
+                errored_count = $5,
+                canceled_count = $6,
+                expired_count = $7,
+                error = NULL,
+                updated_at = now()
+            WHERE id = $1
+            "#,
+            id,
+            provider_batch_id,
+            counts.processing,
+            counts.succeeded,
+            counts.errored,
+            counts.canceled,
+            counts.expired,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_batch_progress(
+        &self,
+        id: Uuid,
+        status: BatchStatus,
+        counts: BatchCounts,
+        results_url: Option<&str>,
+        ended_at: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE batch_jobs
+            SET status = $2,
+                processing_count = $3,
+                succeeded_count = $4,
+                errored_count = $5,
+                canceled_count = $6,
+                expired_count = $7,
+                results_url = COALESCE($8, results_url),
+                ended_at = COALESCE($9, ended_at),
+                error = NULL,
+                updated_at = now()
+            WHERE id = $1
+            "#,
+            id,
+            status.as_str(),
+            counts.processing,
+            counts.succeeded,
+            counts.errored,
+            counts.canceled,
+            counts.expired,
+            results_url,
+            ended_at,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn save_batch_item_result(
+        &self,
+        batch_id: Uuid,
+        custom_id: &str,
+        status: BatchItemStatus,
+        result: &serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE batch_items
+            SET status = $3, result = $4
+            WHERE batch_id = $1 AND custom_id = $2
+            "#,
+            batch_id,
+            custom_id,
+            status.as_str(),
+            result,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn request_batch_cancel(&self, tenant_id: Uuid, id: Uuid) -> Result<Option<BatchJob>> {
+        let mut tx = self.pool.begin().await?;
+        let Some(job) = sqlx::query!(
+            r#"
+            SELECT status, provider_batch_id, total_items
+            FROM batch_jobs
+            WHERE id = $1 AND tenant_id = $2
+            FOR UPDATE
+            "#,
+            id,
+            tenant_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        let status = BatchStatus::parse(&job.status).unwrap_or(BatchStatus::Created);
+        // Already terminal, or not yet submitted, or in flight: pick the right
+        // transition. An already-`ended` job is left untouched (idempotent).
+        if status != BatchStatus::Ended {
+            if job.provider_batch_id.is_none() {
+                // Never submitted to the provider — finalise locally.
+                sqlx::query!(
+                    r#"
+                    UPDATE batch_jobs
+                    SET status = 'ended',
+                        canceled_count = total_items,
+                        processing_count = 0,
+                        ended_at = now(),
+                        updated_at = now()
+                    WHERE id = $1
+                    "#,
+                    id,
+                )
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query!(
+                    r#"UPDATE batch_items SET status = 'canceled' WHERE batch_id = $1 AND status = 'pending'"#,
+                    id,
+                )
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query!(
+                    r#"UPDATE batch_jobs SET status = 'canceling', updated_at = now() WHERE id = $1"#,
+                    id,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                id, tenant_id, virtual_key_id, provider, status, provider_batch_id,
+                results_url, total_items, processing_count, succeeded_count,
+                errored_count, canceled_count, expired_count, error,
+                created_at, updated_at, ended_at
+            FROM batch_jobs
+            WHERE id = $1
+            "#,
+            id,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Some(build_batch_job(
+            row.id,
+            row.tenant_id,
+            row.virtual_key_id,
+            row.provider,
+            row.status,
+            row.provider_batch_id,
+            row.results_url,
+            row.total_items,
+            row.processing_count,
+            row.succeeded_count,
+            row.errored_count,
+            row.canceled_count,
+            row.expired_count,
+            row.error,
+            row.created_at,
+            row.updated_at,
+            row.ended_at,
+        )))
+    }
+
+    async fn set_batch_error(&self, id: Uuid, error: &str) -> Result<()> {
+        sqlx::query!(
+            r#"UPDATE batch_jobs SET error = $2, updated_at = now() WHERE id = $1"#,
+            id,
+            error,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

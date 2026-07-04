@@ -34,6 +34,10 @@
 //! - `PUT`/`DELETE /admin/tenants/{id}/budget`, `PUT`/`DELETE
 //!   /admin/keys/{id}/budget`, `PUT`/`DELETE /admin/keys/{id}/rate-limit` —
 //!   budget and rate-limit administration (admin auth).
+//! - `POST /v1/batches`, `GET /v1/batches/{id}`,
+//!   `GET /v1/batches/{id}/results`, `POST /v1/batches/{id}/cancel` — the
+//!   asynchronous batch API: bulk stateless turns processed at the discounted
+//!   batch tier, advanced by a background poll worker (tenant auth).
 //! - `GET /admin/tenants/{id}/mcp-servers`,
 //!   `PUT`/`DELETE /admin/tenants/{id}/mcp-servers/{name}` — the per-tenant MCP
 //!   server registry; conversations reference these by name and Loom injects
@@ -49,6 +53,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod batch;
 pub mod budget;
 pub mod config;
 pub mod crypto;
@@ -71,6 +76,10 @@ use http::StatusCode;
 use serde::Serialize;
 
 pub use crate::auth::TenantContext;
+pub use crate::batch::{
+    run_batch_poll_pass, spawn_batch_worker, BatchBackend, BatchBackendFactory, BatchSubmitItem,
+    DefaultBatchBackendFactory, PollReport, ProviderBatchResult, ProviderBatchSnapshot,
+};
 pub use crate::config::{Config, ConfigError};
 pub use crate::crypto::{Crypto, CryptoError, EncryptedSecret};
 pub use crate::error::ApiError;
@@ -92,7 +101,9 @@ use crate::auth::{admin_auth, tenant_auth};
 /// `/v1` conversation API, and the root-token-guarded `/admin` API, under a
 /// request-tracing layer.
 pub fn build_router(state: AppState) -> Router {
-    let protected = v1::router().route_layer(from_fn_with_state(state.clone(), tenant_auth));
+    let protected = v1::router()
+        .merge(batch::router())
+        .route_layer(from_fn_with_state(state.clone(), tenant_auth));
 
     let admin = admin::router().route_layer(from_fn_with_state(state.clone(), admin_auth));
 

@@ -11,8 +11,8 @@
 //!   shared [`sqlx::PgPool`].
 //! - The store traits ([`TenantStore`], [`KeyStore`], [`CredentialStore`],
 //!   [`McpServerStore`], [`ConversationStore`], [`UsageStore`], [`PricingStore`],
-//!   [`OutboxStore`], [`BudgetStore`]) are the persistence surface the rest of
-//!   the workspace depends on.
+//!   [`OutboxStore`], [`BudgetStore`], [`BatchStore`]) are the persistence
+//!   surface the rest of the workspace depends on.
 //! - [`run_migrations`] applies the embedded migration set at startup.
 //!
 //! Conversation history round-trips the [`loom_core`] domain model through
@@ -36,7 +36,8 @@ mod store;
 
 pub use error::{Result, StoreError};
 pub use model::{
-    Budget, BudgetAction, BudgetWindow, KeyBudget, McpServer, ModelPrice, NewMcpServer,
+    BatchCounts, BatchItem, BatchItemStatus, BatchJob, BatchStatus, Budget, BudgetAction,
+    BudgetWindow, KeyBudget, McpServer, ModelPrice, NewBatchItem, NewBatchJob, NewMcpServer,
     NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, OutboxEntry,
     ProviderCredential, RateLimit, RollupGroup, Tenant, UsageEvent, UsageRollup, UsageRollupRow,
     VirtualKey,
@@ -44,8 +45,8 @@ pub use model::{
 pub use pg::PgStore;
 pub use pricing::Pricer;
 pub use store::{
-    BudgetStore, ConversationStore, CredentialStore, KeyStore, McpServerStore, OutboxStore,
-    PricingStore, TenantStore, UsageStore,
+    BatchStore, BudgetStore, ConversationStore, CredentialStore, KeyStore, McpServerStore,
+    OutboxStore, PricingStore, TenantStore, UsageStore,
 };
 
 /// Re-export of the domain model persisted by this layer.

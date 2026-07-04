@@ -22,7 +22,7 @@ impl Pricer {
     /// Number of tokens a per-MTok rate is quoted against.
     const TOKENS_PER_MTOK: i64 = 1_000_000;
 
-    /// Computes the total cost of `usage` under `price`.
+    /// Computes the total **interactive** cost of `usage` under `price`.
     ///
     /// The cost is the sum of input, output, cache-read and cache-write token
     /// charges (each `tokens * per_mtok / 1_000_000`) plus per-request
@@ -34,18 +34,36 @@ impl Pricer {
     /// contributes nothing.
     #[must_use]
     pub fn cost(usage: &Usage, price: &ModelPrice) -> Decimal {
+        Self::cost_with_mode(usage, price, false)
+    }
+
+    /// Computes the cost of `usage` under `price`, applying the batch discount
+    /// when `is_batch` is set.
+    ///
+    /// The [`ModelPrice::batch_multiplier`] scales only the **token** charges
+    /// (input, output and cache read/write); per-request server-tool charges are
+    /// billed at the standard rate regardless, matching how the provider prices
+    /// batch requests. With `is_batch = false` this is exactly [`Self::cost`].
+    #[must_use]
+    pub fn cost_with_mode(usage: &Usage, price: &ModelPrice, is_batch: bool) -> Decimal {
         let per_mtok = Decimal::from(Self::TOKENS_PER_MTOK);
-        let mut total = Decimal::ZERO;
+        let multiplier = if is_batch {
+            price.batch_multiplier
+        } else {
+            Decimal::ONE
+        };
+        let mut tokens_total = Decimal::ZERO;
 
         let mut add_tokens = |tokens: Option<u64>, rate: Decimal| {
             let tokens = Decimal::from(tokens.unwrap_or(0));
-            total += tokens * rate / per_mtok;
+            tokens_total += tokens * rate / per_mtok;
         };
         add_tokens(usage.input_tokens, price.input_per_mtok);
         add_tokens(usage.output_tokens, price.output_per_mtok);
         add_tokens(usage.cache_read_tokens, price.cache_read_per_mtok);
         add_tokens(usage.cache_write_tokens, price.cache_write_per_mtok);
 
+        let mut total = tokens_total * multiplier;
         for (tool, count) in &usage.server_tool_use {
             if let Some(unit) = Self::server_tool_price(price, tool) {
                 total += Decimal::from(*count) * unit;
@@ -80,6 +98,7 @@ mod tests {
             cache_write_per_mtok: Decimal::from_str("6.25").unwrap(),
             cache_read_per_mtok: Decimal::from_str("0.50").unwrap(),
             server_tool_prices: serde_json::json!({ "web_search_requests": 0.01 }),
+            batch_multiplier: Decimal::from_str("0.5").unwrap(),
             currency: "USD".to_owned(),
             effective_from: Utc::now(),
             created_at: Utc::now(),
@@ -110,6 +129,26 @@ mod tests {
         assert_eq!(
             Pricer::cost(&usage, &price()),
             Decimal::from_str("0.03").unwrap()
+        );
+    }
+
+    #[test]
+    fn batch_multiplier_discounts_only_token_charges() {
+        let mut usage = Usage::new();
+        usage.input_tokens = Some(1_000_000);
+        usage.output_tokens = Some(1_000_000);
+        usage
+            .server_tool_use
+            .insert("web_search_requests".to_owned(), 3);
+        // Interactive: (5 + 25) tokens + 0.03 tools = 30.03.
+        assert_eq!(
+            Pricer::cost_with_mode(&usage, &price(), false),
+            Decimal::from_str("30.03").unwrap()
+        );
+        // Batch: tokens halved (15) but the tool charge is unchanged (0.03).
+        assert_eq!(
+            Pricer::cost_with_mode(&usage, &price(), true),
+            Decimal::from_str("15.03").unwrap()
         );
     }
 

@@ -776,6 +776,7 @@ async fn record_turn_usage(
         model: attribution.model.clone(),
         usage,
         cost,
+        is_batch: false,
     };
     state.usage_recorder().record(state.store(), event).await;
     cost
@@ -1194,15 +1195,24 @@ impl Modify for SecurityAddon {
         create_turn,
         stateless_turn,
         usage_rollup,
+        crate::batch::create_batch,
+        crate::batch::get_batch,
+        crate::batch::get_batch_results,
+        crate::batch::cancel_batch,
     ),
     components(schemas(
         CreateConversationRequest,
         TurnRequest,
         StatelessTurnRequest,
+        crate::batch::CreateBatchRequest,
+        crate::batch::BatchItemInput,
+        crate::batch::BatchJobDto,
+        crate::batch::BatchCountsDto,
     )),
     tags(
         (name = "conversations", description = "Tenant-scoped conversation and turn endpoints"),
         (name = "usage", description = "Spend and token usage rollups"),
+        (name = "batches", description = "Asynchronous batch jobs (bulk turns at the discounted batch tier)"),
     )
 )]
 pub struct ApiDoc;

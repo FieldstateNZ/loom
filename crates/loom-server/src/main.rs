@@ -48,6 +48,17 @@ async fn run() -> anyhow::Result<()> {
 
     let bind_addr = config.bind_addr;
     let state = AppState::from_config(&config, store);
+
+    // Advance asynchronous batch jobs on a background interval (disabled when the
+    // interval is zero, e.g. when a dedicated worker owns it).
+    if !config.batch_poll_interval.is_zero() {
+        tracing::info!(
+            interval_secs = config.batch_poll_interval.as_secs(),
+            "starting batch poll worker"
+        );
+        let _worker = loom_server::spawn_batch_worker(state.clone(), config.batch_poll_interval);
+    }
+
     let app = build_router(state);
 
     let listener = TcpListener::bind(bind_addr).await?;

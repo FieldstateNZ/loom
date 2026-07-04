@@ -98,6 +98,7 @@ with a clear diagnostic if one is missing or malformed.
 | `LOOM_BIND_ADDR` | no | `0.0.0.0:8080` | `host:port` to bind the HTTP listener. |
 | `LOOM_KEY_PEPPER` | no | derived | Pepper for the virtual-key lookup HMAC. When unset it is derived deterministically as `HMAC-SHA256(LOOM_ENCRYPTION_KEY, "loom.virtual-key.pepper.v1")`. Set it explicitly to decouple its lifecycle from the encryption key. |
 | `LOOM_RUN_MIGRATIONS` | no | `true` | Apply database migrations on startup; set `false`/`0`/`no`/`off` to skip. |
+| `LOOM_BATCH_POLL_INTERVAL_SECS` | no | `5` | Seconds between batch poll-worker passes (advancing async batch jobs). `0` disables the in-process worker (e.g. when a dedicated worker process owns it). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — | OTLP collector endpoint. **Its presence turns telemetry export on**; unset means JSON logs only, no exporter (the default). Signal-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` override it. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | no | `grpc` | OTLP transport: `grpc` (tonic) or `http/protobuf` (HTTP). |
 | `OTEL_SERVICE_NAME` | no | `loom-server` | Logical service name on emitted spans/metrics. |
@@ -161,6 +162,10 @@ Jaeger (with OTLP enabled), Honeycomb, and so on.
 | `POST /v1/conversations/{id}/turns` | virtual key | Append a user turn, run the provider, return/stream the assistant turn `{ content, stream?, options? }`. |
 | `DELETE /v1/conversations/{id}` | virtual key | Delete a conversation (tenant-scoped). |
 | `POST /v1/turns` | virtual key | Stateless turn over a fully-inline conversation `{ provider, model, system?, messages, options?, stream? }` — no persistence. |
+| `POST /v1/batches` | virtual key | Create an async batch from `{ items: [{ custom_id?, provider, model, system?, messages, options? }] }` — bulk stateless turns at the discounted batch tier. |
+| `GET /v1/batches/{id}` | virtual key | Batch status and per-status item counts; `404` across tenants. |
+| `GET /v1/batches/{id}/results` | virtual key | Per-item results as streamed JSONL (one `{ custom_id, status, result }` per line). |
+| `POST /v1/batches/{id}/cancel` | virtual key | Request cancellation of a batch. |
 | `POST /admin/tenants` | root token | Create a tenant `{ slug, name }`. |
 | `GET /admin/tenants/{id}` | root token | Fetch a tenant. |
 | `POST /admin/tenants/{id}/keys` | root token | Mint a virtual key `{ name, env? }`. |
@@ -304,6 +309,49 @@ curl -X PUT $BASE/admin/keys/$KEY_ID/rate-limit \
 > just-recorded spend until its cache TTL lapses. **Distributed rate limiting and
 > a shared spend cache (e.g. Redis) are deferred** to a later issue; for a
 > single-instance deployment the limits are exact.
+
+### Batches
+
+`POST /v1/batches` accepts a list of items, each the same inline shape as
+`POST /v1/turns` (`{ custom_id?, provider, model, system?, messages, options? }`),
+and processes them asynchronously at the provider's **discounted batch tier**.
+The lifecycle is `created → in_progress → ended` (a cancel passes through
+`canceling`), advanced by an in-process poll worker; there is **no external
+queue**. A worker pass is a single function (`run_batch_poll_pass`) that submits
+`created` jobs, polls the provider, and finalises ended ones — so it is driven
+directly (and deterministically) by tests, and on a fixed
+`LOOM_BATCH_POLL_INTERVAL_SECS` interval in production.
+
+```bash
+# Submit a two-item batch.
+BATCH=$(curl -s -X POST $BASE/v1/batches -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"items":[
+    {"custom_id":"a","provider":"anthropic","model":"claude-opus-4-8",
+     "messages":[{"role":"user","content":[{"type":"text","text":"one"}]}]},
+    {"custom_id":"b","provider":"anthropic","model":"claude-opus-4-8",
+     "messages":[{"role":"user","content":[{"type":"text","text":"two"}]}]}
+  ]}' | jq -r .id)
+
+curl -s $BASE/v1/batches/$BATCH -H "Authorization: Bearer $KEY"          # status + counts
+curl -s $BASE/v1/batches/$BATCH/results -H "Authorization: Bearer $KEY"  # JSONL, one line/item
+curl -s -X POST $BASE/v1/batches/$BATCH/cancel -H "Authorization: Bearer $KEY"
+```
+
+Two design decisions worth calling out:
+
+- **Results retention — stored, not fetched-through.** When a batch ends the
+  worker retrieves the provider's JSONL results **once** and persists each item's
+  outcome into `batch_items.result`; `GET .../results` then streams straight from
+  the store. Reads are therefore cheap and independent of the provider's
+  results-URL retention window, at the cost of storing the result payloads
+  (bounded by the batch the caller submitted).
+- **Batch pricing — a multiplier, not duplicate price rows.** Rather than
+  maintain a parallel set of batch-tier prices, `model_prices` carries a single
+  `batch_multiplier` column (`1.0` = no discount, seeded `0.5` for Anthropic's
+  50%-off batch tier). It scales only the **token** charges when a batch item's
+  usage is recorded; server-tool per-request charges are unaffected. Those usage
+  events are marked `is_batch = true` so rollups can distinguish batch from
+  interactive spend.
 
 ## Licence
 

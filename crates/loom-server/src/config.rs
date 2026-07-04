@@ -5,11 +5,16 @@
 //! appear in the [`Debug`] representation.
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use crate::keys::derive_pepper;
 
 /// The default address the server binds when `LOOM_BIND_ADDR` is unset.
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
+
+/// The default batch poll interval (seconds) when `LOOM_BATCH_POLL_INTERVAL_SECS`
+/// is unset.
+pub const DEFAULT_BATCH_POLL_INTERVAL_SECS: u64 = 5;
 
 /// Environment variable names read at startup.
 mod env_keys {
@@ -26,6 +31,8 @@ mod env_keys {
     pub const KEY_PEPPER: &str = "LOOM_KEY_PEPPER";
     /// Whether to run database migrations on startup (default: on).
     pub const RUN_MIGRATIONS: &str = "LOOM_RUN_MIGRATIONS";
+    /// Seconds between batch poll-worker passes (`0` disables the worker).
+    pub const BATCH_POLL_INTERVAL_SECS: &str = "LOOM_BATCH_POLL_INTERVAL_SECS";
 }
 
 /// A validated startup configuration.
@@ -41,6 +48,9 @@ pub struct Config {
     pub database_url: String,
     /// Whether to apply database migrations on startup.
     pub run_migrations: bool,
+    /// How often the batch poll worker advances active jobs. Zero disables the
+    /// worker (e.g. when a dedicated worker process owns it).
+    pub batch_poll_interval: Duration,
     /// The `/admin` bearer token.
     pub(crate) root_admin_token: String,
     /// The AES-256-GCM key for credential encryption.
@@ -105,10 +115,22 @@ impl Config {
             None => true,
         };
 
+        let batch_poll_interval = match optional(env_keys::BATCH_POLL_INTERVAL_SECS) {
+            Some(v) => {
+                let secs = v.parse::<u64>().map_err(|e| ConfigError::Malformed {
+                    name: env_keys::BATCH_POLL_INTERVAL_SECS,
+                    detail: format!("expected a non-negative integer ({e})"),
+                })?;
+                Duration::from_secs(secs)
+            }
+            None => Duration::from_secs(DEFAULT_BATCH_POLL_INTERVAL_SECS),
+        };
+
         Ok(Self {
             bind_addr,
             database_url,
             run_migrations,
+            batch_poll_interval,
             root_admin_token,
             encryption_key,
             key_pepper,
@@ -140,6 +162,7 @@ impl std::fmt::Debug for Config {
             .field("bind_addr", &self.bind_addr)
             .field("database_url", &"<redacted>")
             .field("run_migrations", &self.run_migrations)
+            .field("batch_poll_interval", &self.batch_poll_interval)
             .field("root_admin_token", &"<redacted>")
             .field("encryption_key", &"<redacted>")
             .field("key_pepper", &"<redacted>")

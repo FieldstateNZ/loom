@@ -9,6 +9,7 @@ use uuid::Uuid;
 use loom_provider::Provider;
 use loom_store::PgStore;
 
+use crate::batch::{BatchBackend, BatchBackendFactory, DefaultBatchBackendFactory};
 use crate::budget::BudgetCache;
 use crate::config::Config;
 use crate::crypto::Crypto;
@@ -34,6 +35,7 @@ struct Inner {
     hasher: KeyHasher,
     root_admin_token: String,
     factory: Arc<dyn ProviderFactory>,
+    batch_factory: Arc<dyn BatchBackendFactory>,
     usage_recorder: Arc<dyn UsageRecorder>,
     /// Per-key, in-process request/token rate limiter (per replica).
     rate_limiter: Arc<RateLimiter>,
@@ -59,6 +61,7 @@ impl AppState {
                 hasher,
                 root_admin_token,
                 factory: Arc::new(DefaultProviderFactory),
+                batch_factory: Arc::new(DefaultBatchBackendFactory),
                 usage_recorder: Arc::new(OutboxUsageRecorder),
                 rate_limiter: Arc::new(RateLimiter::new()),
                 budget_cache: Arc::new(BudgetCache::new()),
@@ -82,6 +85,7 @@ impl AppState {
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
                 factory,
+                batch_factory: self.inner.batch_factory.clone(),
                 usage_recorder: self.inner.usage_recorder.clone(),
                 rate_limiter: self.inner.rate_limiter.clone(),
                 budget_cache: self.inner.budget_cache.clone(),
@@ -104,7 +108,31 @@ impl AppState {
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
                 factory: self.inner.factory.clone(),
+                batch_factory: self.inner.batch_factory.clone(),
                 usage_recorder,
+                rate_limiter: self.inner.rate_limiter.clone(),
+                budget_cache: self.inner.budget_cache.clone(),
+                metrics: self.inner.metrics.clone(),
+            }),
+        }
+    }
+
+    /// Returns a clone of this state with its [`BatchBackendFactory`] replaced.
+    ///
+    /// The default resolves an Anthropic-backed batch surface from the tenant's
+    /// credential; tests substitute a deterministic fake backend to drive the
+    /// batch lifecycle without a live API.
+    #[must_use]
+    pub fn with_batch_backend_factory(self, batch_factory: Arc<dyn BatchBackendFactory>) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                crypto: self.inner.crypto.clone(),
+                hasher: self.inner.hasher.clone(),
+                root_admin_token: self.inner.root_admin_token.clone(),
+                factory: self.inner.factory.clone(),
+                batch_factory,
+                usage_recorder: self.inner.usage_recorder.clone(),
                 rate_limiter: self.inner.rate_limiter.clone(),
                 budget_cache: self.inner.budget_cache.clone(),
                 metrics: self.inner.metrics.clone(),
@@ -146,6 +174,30 @@ impl AppState {
     #[must_use]
     pub fn usage_recorder(&self) -> &Arc<dyn UsageRecorder> {
         &self.inner.usage_recorder
+    }
+
+    /// The batch-backend factory the poll worker resolves per `(tenant,
+    /// provider)`.
+    #[must_use]
+    pub fn batch_backend_factory(&self) -> &Arc<dyn BatchBackendFactory> {
+        &self.inner.batch_factory
+    }
+
+    /// Resolves the [`BatchBackend`] bound to `provider` for `tenant_id`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the factory's structured [`ApiError`] when the provider is
+    /// unknown, unconfigured, or its credential cannot be decrypted.
+    pub async fn resolve_batch_backend(
+        &self,
+        tenant_id: Uuid,
+        provider: &str,
+    ) -> Result<Arc<dyn BatchBackend>, ApiError> {
+        self.inner
+            .batch_factory
+            .backend(self, tenant_id, provider)
+            .await
     }
 
     /// The per-key request/token rate limiter (in-process, per replica).

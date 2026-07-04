@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO model_prices (\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                currency, effective_from\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            ON CONFLICT ON CONSTRAINT uq_model_prices_version\n            DO UPDATE SET\n                input_per_mtok = EXCLUDED.input_per_mtok,\n                output_per_mtok = EXCLUDED.output_per_mtok,\n                cache_write_per_mtok = EXCLUDED.cache_write_per_mtok,\n                cache_read_per_mtok = EXCLUDED.cache_read_per_mtok,\n                server_tool_prices = EXCLUDED.server_tool_prices,\n                currency = EXCLUDED.currency\n            RETURNING\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                currency, effective_from, created_at\n            ",
+  "query": "\n            INSERT INTO model_prices (\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                batch_multiplier, currency, effective_from\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            ON CONFLICT ON CONSTRAINT uq_model_prices_version\n            DO UPDATE SET\n                input_per_mtok = EXCLUDED.input_per_mtok,\n                output_per_mtok = EXCLUDED.output_per_mtok,\n                cache_write_per_mtok = EXCLUDED.cache_write_per_mtok,\n                cache_read_per_mtok = EXCLUDED.cache_read_per_mtok,\n                server_tool_prices = EXCLUDED.server_tool_prices,\n                batch_multiplier = EXCLUDED.batch_multiplier,\n                currency = EXCLUDED.currency\n            RETURNING\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                batch_multiplier, currency, effective_from, created_at\n            ",
   "describe": {
     "columns": [
       {
@@ -45,16 +45,21 @@
       },
       {
         "ordinal": 8,
+        "name": "batch_multiplier",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
         "name": "currency",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "effective_from",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -69,6 +74,7 @@
         "Numeric",
         "Numeric",
         "Jsonb",
+        "Numeric",
         "Text",
         "Timestamptz"
       ]
@@ -84,8 +90,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "732a206ee6a31e6cef21793858a6aa32c1650e532b517d78a90b82d07d4eb9bf"
+  "hash": "89fd6d085f522b59c67c121ba59ebb0f4c9e7c9640c9031bc864985533c33d9a"
 }

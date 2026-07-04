@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE batch_jobs\n            SET provider_batch_id = $2,\n                status = 'in_progress',\n                processing_count = $3,\n                succeeded_count = $4,\n                errored_count = $5,\n                canceled_count = $6,\n                expired_count = $7,\n                error = NULL,\n                updated_at = now()\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab5d9deadf7e2d443716c6b29c09b2174f9335279404cf3087c672cabfe2f971"
+}

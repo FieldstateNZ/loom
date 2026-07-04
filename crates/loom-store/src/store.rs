@@ -13,9 +13,10 @@ use rust_decimal::Decimal;
 
 use crate::error::Result;
 use crate::model::{
-    Budget, McpServer, ModelPrice, NewMcpServer, NewModelPrice, NewProviderCredential, NewTenant,
-    NewUsageEvent, NewVirtualKey, OutboxEntry, ProviderCredential, RateLimit, RollupGroup, Tenant,
-    UsageEvent, UsageRollup, UsageRollupRow, VirtualKey,
+    BatchCounts, BatchItem, BatchItemStatus, BatchJob, BatchStatus, Budget, McpServer, ModelPrice,
+    NewBatchJob, NewMcpServer, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent,
+    NewVirtualKey, OutboxEntry, ProviderCredential, RateLimit, RollupGroup, Tenant, UsageEvent,
+    UsageRollup, UsageRollupRow, VirtualKey,
 };
 use loom_core::{Conversation, Message};
 
@@ -236,6 +237,93 @@ pub trait BudgetStore {
         key_id: Option<Uuid>,
         since: Option<DateTime<Utc>>,
     ) -> Result<Decimal>;
+}
+
+/// Persistence for asynchronous batch jobs and their per-item results.
+///
+/// A batch job is a set of stateless turn requests processed asynchronously at
+/// the provider's discounted batch tier. Tenant-facing accessors
+/// ([`create_batch_job`](Self::create_batch_job),
+/// [`get_batch_job`](Self::get_batch_job),
+/// [`list_batch_items`](Self::list_batch_items),
+/// [`request_batch_cancel`](Self::request_batch_cancel)) are scoped to a
+/// `tenant_id`. The poll-worker accessors
+/// ([`list_active_batch_jobs`](Self::list_active_batch_jobs),
+/// [`get_batch_items`](Self::get_batch_items) and the update methods) are
+/// gateway-wide — the worker advances every tenant's jobs — and are keyed by the
+/// job's own id, which is an unguessable UUID.
+///
+/// Per-item results are **stored**, not fetched-through: when a batch ends the
+/// worker retrieves the provider's results once and persists each into
+/// [`BatchItem::result`], so reads never depend on the provider's results-URL
+/// retention.
+#[async_trait]
+pub trait BatchStore {
+    /// Creates a batch job together with its items in one transaction, and
+    /// returns the persisted job (status `created`).
+    async fn create_batch_job(&self, new: NewBatchJob) -> Result<BatchJob>;
+
+    /// Fetches a job by id, scoped to a tenant. Returns `None` if it does not
+    /// exist or belongs to another tenant.
+    async fn get_batch_job(&self, tenant_id: Uuid, id: Uuid) -> Result<Option<BatchJob>>;
+
+    /// Lists a job's items in submission order, scoped to a tenant. Returns an
+    /// empty vector if the job does not exist or belongs to another tenant.
+    async fn list_batch_items(&self, tenant_id: Uuid, batch_id: Uuid) -> Result<Vec<BatchItem>>;
+
+    /// Lists jobs that are still advancing (status other than `ended`),
+    /// oldest-first, capped by `limit`. Gateway-wide — for the poll worker only.
+    async fn list_active_batch_jobs(&self, limit: i64) -> Result<Vec<BatchJob>>;
+
+    /// Lists a job's items in submission order by job id (not tenant-scoped) —
+    /// for the poll worker building the provider submission.
+    async fn get_batch_items(&self, batch_id: Uuid) -> Result<Vec<BatchItem>>;
+
+    /// Records that a job was submitted to the provider: stores the
+    /// provider-native batch id and initial counts and moves the job to
+    /// `in_progress`. Clears any prior transient error.
+    async fn mark_batch_submitted(
+        &self,
+        id: Uuid,
+        provider_batch_id: &str,
+        counts: BatchCounts,
+    ) -> Result<()>;
+
+    /// Applies a poll result: updates counts and status, and — when the job has
+    /// ended — records the `results_url` and `ended_at`. Clears any prior
+    /// transient error.
+    async fn update_batch_progress(
+        &self,
+        id: Uuid,
+        status: BatchStatus,
+        counts: BatchCounts,
+        results_url: Option<&str>,
+        ended_at: Option<DateTime<Utc>>,
+    ) -> Result<()>;
+
+    /// Persists one item's resolved result (status + payload), keyed by
+    /// `(batch_id, custom_id)`.
+    async fn save_batch_item_result(
+        &self,
+        batch_id: Uuid,
+        custom_id: &str,
+        status: BatchItemStatus,
+        result: &serde_json::Value,
+    ) -> Result<()>;
+
+    /// Requests cancellation of a tenant's job.
+    ///
+    /// A job that has not yet been submitted (`created`, no provider batch id)
+    /// is finalised immediately as `ended` with every item canceled. A job the
+    /// provider is already running moves to `canceling` so the worker can relay
+    /// the cancellation. Returns the updated job, or `None` if it does not exist
+    /// or belongs to another tenant. An already-`ended` job is returned
+    /// unchanged (idempotent).
+    async fn request_batch_cancel(&self, tenant_id: Uuid, id: Uuid) -> Result<Option<BatchJob>>;
+
+    /// Records a transient provider/poll error against a job **without** changing
+    /// its status, so a provider fault never corrupts the lifecycle.
+    async fn set_batch_error(&self, id: Uuid, error: &str) -> Result<()>;
 }
 
 /// Persistence for the usage outbox — the failure-mode safety net.

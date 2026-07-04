@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id, tenant_id, virtual_key_id, conversation_id, provider, model,\n                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,\n                server_tool_counts, cost, raw_usage, created_at\n            FROM usage_events\n            WHERE tenant_id = $1\n            ORDER BY created_at DESC, id DESC\n            LIMIT $2\n            ",
+  "query": "\n            SELECT\n                id, tenant_id, virtual_key_id, conversation_id, provider, model,\n                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,\n                server_tool_counts, cost, is_batch, raw_usage, created_at\n            FROM usage_events\n            WHERE tenant_id = $1\n            ORDER BY created_at DESC, id DESC\n            LIMIT $2\n            ",
   "describe": {
     "columns": [
       {
@@ -65,11 +65,16 @@
       },
       {
         "ordinal": 12,
+        "name": "is_batch",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
         "name": "raw_usage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -93,9 +98,10 @@
       false,
       false,
       true,
+      false,
       true,
       false
     ]
   },
-  "hash": "289f36f384b6a49217a21ae932e59a5b0a32fad394fbe53ff1f571b87aaedf65"
+  "hash": "4272fc3691ff3df7a93e52d9a08117f34eccae0ff756937ff11c3d975034fc0c"
 }

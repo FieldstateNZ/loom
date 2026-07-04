@@ -334,6 +334,12 @@ pub struct NewUsageEvent {
     pub usage: loom_core::Usage,
     /// The computed monetary cost, if pricing was available.
     pub cost: Option<Decimal>,
+    /// Whether this usage was served through the asynchronous batch path (and
+    /// therefore priced at the discounted batch tier). Defaults to `false` so
+    /// interactive turns — and outbox payloads written before this field
+    /// existed — deserialise unchanged.
+    #[serde(default)]
+    pub is_batch: bool,
 }
 
 /// A persisted usage event.
@@ -363,6 +369,8 @@ pub struct UsageEvent {
     pub server_tool_counts: serde_json::Value,
     /// The computed monetary cost, if pricing was available.
     pub cost: Option<Decimal>,
+    /// Whether this usage was served through the asynchronous batch path.
+    pub is_batch: bool,
     /// The provider's raw usage payload, preserved verbatim.
     pub raw_usage: Option<serde_json::Value>,
     /// When the event was recorded.
@@ -453,6 +461,11 @@ pub struct ModelPrice {
     /// Per-request prices for provider-executed server tools, keyed by the
     /// usage field name (e.g. `{"web_search_requests": 0.01}`).
     pub server_tool_prices: serde_json::Value,
+    /// The multiplier applied to token charges when the usage was served
+    /// through the asynchronous batch path — the batch discount. `1.0` means no
+    /// discount; Anthropic's Message Batches tier is `0.5` (50% off). Applied
+    /// only to token charges, never to per-request server-tool charges.
+    pub batch_multiplier: Decimal,
     /// ISO 4217 currency code (e.g. `"USD"`).
     pub currency: String,
     /// The instant from which this price is in effect.
@@ -478,6 +491,9 @@ pub struct NewModelPrice {
     pub cache_read_per_mtok: Decimal,
     /// Per-request server-tool prices as JSON.
     pub server_tool_prices: serde_json::Value,
+    /// The batch-tier token-charge multiplier (`1.0` = no discount, `0.5` =
+    /// Anthropic's 50%-off batch tier).
+    pub batch_multiplier: Decimal,
     /// ISO 4217 currency code.
     pub currency: String,
     /// The instant from which this price is in effect.
@@ -502,5 +518,199 @@ pub struct OutboxEntry {
     /// The last error observed while draining, if any.
     pub last_error: Option<String>,
     /// When the entry was parked.
+    pub created_at: DateTime<Utc>,
+}
+
+/// The lifecycle status of a [`BatchJob`].
+///
+/// The happy path is [`Created`](Self::Created) →
+/// [`InProgress`](Self::InProgress) → [`Ended`](Self::Ended); a cancel request
+/// moves an in-flight job through [`Canceling`](Self::Canceling) before it
+/// settles at `Ended`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchStatus {
+    /// Accepted and persisted, not yet submitted to the provider.
+    Created,
+    /// Submitted to the provider and being processed.
+    InProgress,
+    /// A cancellation has been requested; the provider is winding the batch
+    /// down.
+    Canceling,
+    /// Terminal: every item has a result (succeeded, errored, canceled or
+    /// expired).
+    Ended,
+}
+
+impl BatchStatus {
+    /// The stored text form.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::InProgress => "in_progress",
+            Self::Canceling => "canceling",
+            Self::Ended => "ended",
+        }
+    }
+
+    /// Parses the stored text form, or `None` if it is not a known status.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "created" => Some(Self::Created),
+            "in_progress" => Some(Self::InProgress),
+            "canceling" => Some(Self::Canceling),
+            "ended" => Some(Self::Ended),
+            _ => None,
+        }
+    }
+
+    /// Whether the job is still advancing (a poll pass should visit it).
+    #[must_use]
+    pub fn is_active(self) -> bool {
+        !matches!(self, Self::Ended)
+    }
+}
+
+/// The per-item terminal outcome within a batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchItemStatus {
+    /// Not yet resolved (the batch is still processing).
+    Pending,
+    /// The item completed successfully; its `result` holds the message.
+    Succeeded,
+    /// The item failed; its `result` holds the provider error.
+    Errored,
+    /// The item was canceled before completion.
+    Canceled,
+    /// The item expired before the provider completed it.
+    Expired,
+}
+
+impl BatchItemStatus {
+    /// The stored text form.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Succeeded => "succeeded",
+            Self::Errored => "errored",
+            Self::Canceled => "canceled",
+            Self::Expired => "expired",
+        }
+    }
+
+    /// Parses the stored text form, defaulting unknown values to
+    /// [`Pending`](Self::Pending).
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "succeeded" => Self::Succeeded,
+            "errored" => Self::Errored,
+            "canceled" => Self::Canceled,
+            "expired" => Self::Expired,
+            _ => Self::Pending,
+        }
+    }
+}
+
+/// Aggregate per-status item counts for a batch, mirroring the provider's
+/// `request_counts`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchCounts {
+    /// Items still being processed.
+    pub processing: i32,
+    /// Items that completed successfully.
+    pub succeeded: i32,
+    /// Items that failed.
+    pub errored: i32,
+    /// Items that were canceled.
+    pub canceled: i32,
+    /// Items that expired.
+    pub expired: i32,
+}
+
+/// A persisted batch job: a set of stateless turn requests processed
+/// asynchronously at the provider's discounted batch tier.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchJob {
+    /// The job's unique identifier.
+    pub id: Uuid,
+    /// The owning tenant.
+    pub tenant_id: Uuid,
+    /// The virtual key that created the job, if known.
+    pub virtual_key_id: Option<Uuid>,
+    /// The provider the job runs against (e.g. `"anthropic"`).
+    pub provider: String,
+    /// The job's lifecycle status.
+    pub status: BatchStatus,
+    /// The provider-native batch identifier, once submitted.
+    pub provider_batch_id: Option<String>,
+    /// The provider's results URL, once the batch has ended.
+    pub results_url: Option<String>,
+    /// The total number of items in the job.
+    pub total_items: i32,
+    /// Per-status item counts.
+    pub counts: BatchCounts,
+    /// The last provider/poll error observed, if any (does not corrupt state).
+    pub error: Option<String>,
+    /// When the job was created.
+    pub created_at: DateTime<Utc>,
+    /// When the job was last updated.
+    pub updated_at: DateTime<Utc>,
+    /// When the job reached a terminal state, if it has.
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+/// The fields required to create a [`BatchJob`], together with its items.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewBatchJob {
+    /// The owning tenant.
+    pub tenant_id: Uuid,
+    /// The virtual key creating the job, if known.
+    pub virtual_key_id: Option<Uuid>,
+    /// The provider the job runs against.
+    pub provider: String,
+    /// The job's items, in submission order.
+    pub items: Vec<NewBatchItem>,
+}
+
+/// The fields required to create one item of a [`BatchJob`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewBatchItem {
+    /// The caller-facing per-item correlation id (unique within the job).
+    pub custom_id: String,
+    /// The model the item runs against.
+    pub model: String,
+    /// The verbatim per-item request (the inline stateless-turn shape).
+    pub request: serde_json::Value,
+}
+
+/// A persisted batch item: one request within a [`BatchJob`], plus its result
+/// once resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchItem {
+    /// The item's unique identifier.
+    pub id: Uuid,
+    /// The owning batch job.
+    pub batch_id: Uuid,
+    /// The owning tenant (denormalised for tenant-scoped reads).
+    pub tenant_id: Uuid,
+    /// The caller-facing per-item correlation id.
+    pub custom_id: String,
+    /// The item's position within the job.
+    pub seq: i32,
+    /// The model the item runs against.
+    pub model: String,
+    /// The item's lifecycle status.
+    pub status: BatchItemStatus,
+    /// The verbatim per-item request.
+    pub request: serde_json::Value,
+    /// The per-item result once resolved (the assistant message on success, or
+    /// the provider error on failure), or `None` while still pending.
+    pub result: Option<serde_json::Value>,
+    /// When the item was created.
     pub created_at: DateTime<Utc>,
 }

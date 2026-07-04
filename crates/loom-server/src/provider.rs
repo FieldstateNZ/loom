@@ -83,7 +83,7 @@ impl ProviderFactory for DefaultProviderFactory {
 
 /// Loads the credential for `(tenant_id, provider)`, falling back to the
 /// gateway-global credential, or fails with a structured `422`.
-async fn load_credential(
+pub(crate) async fn load_credential(
     state: &AppState,
     tenant_id: Uuid,
     provider: &str,
@@ -115,7 +115,10 @@ async fn load_credential(
 /// The AEAD associated data is rebuilt from the loaded row's own identity via
 /// [`credential_aad`], so a ciphertext that was relocated into a different
 /// `(tenant, provider)` row fails to decrypt rather than being silently used.
-fn decrypt_api_key(state: &AppState, credential: &ProviderCredential) -> Result<String, ApiError> {
+pub(crate) fn decrypt_api_key(
+    state: &AppState,
+    credential: &ProviderCredential,
+) -> Result<String, ApiError> {
     let nonce = credential.nonce.as_deref().ok_or_else(|| {
         tracing::error!("stored credential is missing its encryption nonce");
         ApiError::internal()

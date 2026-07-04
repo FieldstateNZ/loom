@@ -200,6 +200,7 @@ async fn seed_spend(store: &PgStore, tenant_id: Uuid, key_id: Option<Uuid>, cost
             model: MODEL.to_owned(),
             usage,
             cost: Some(Decimal::from(cost)),
+            is_batch: false,
         })
         .await
         .expect("seed usage event");

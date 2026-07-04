@@ -13,8 +13,9 @@ use loom_core::{
     Usage,
 };
 use loom_store::{
-    drain_usage_outbox, run_migrations, BudgetAction, BudgetStore, BudgetWindow, ConversationStore,
-    CredentialStore, KeyBudget, KeyStore, McpServerStore, NewMcpServer, NewModelPrice,
+    drain_usage_outbox, run_migrations, BatchCounts, BatchItemStatus, BatchStatus, BatchStore,
+    BudgetAction, BudgetStore, BudgetWindow, ConversationStore, CredentialStore, KeyBudget,
+    KeyStore, McpServerStore, NewBatchItem, NewBatchJob, NewMcpServer, NewModelPrice,
     NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, OutboxStore, PgStore, Pricer,
     PricingStore, RateLimit, RollupGroup, TenantStore, UsageStore,
 };
@@ -574,6 +575,7 @@ async fn usage_events_record_and_rollup() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: Some(Decimal::new(1234, 4)),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -586,6 +588,7 @@ async fn usage_events_record_and_rollup() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: None,
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -599,6 +602,7 @@ async fn usage_events_record_and_rollup() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: None,
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -658,6 +662,7 @@ async fn server_tool_usage_is_priced_into_a_rollup() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: Some(cost),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -705,6 +710,7 @@ async fn pricing_is_versioned_by_effective_from() {
             cache_write_per_mtok: Decimal::new(1125, 2),
             cache_read_per_mtok: Decimal::new(90, 2),
             server_tool_prices: json!({ "web_search_requests": 0.02 }),
+            batch_multiplier: rust_decimal::Decimal::ONE,
             currency: "USD".to_owned(),
             effective_from: bump_from,
         })
@@ -800,6 +806,7 @@ async fn grouped_rollups_aggregate_per_dimension() {
                 model: "claude-opus-4-8".to_owned(),
                 usage: usage.clone(),
                 cost: Some(cost),
+                is_batch: false,
             })
             .await
             .unwrap();
@@ -814,6 +821,7 @@ async fn grouped_rollups_aggregate_per_dimension() {
             model: "claude-sonnet-5".to_owned(),
             usage: usage.clone(),
             cost: Some(Decimal::from(4)),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -827,6 +835,7 @@ async fn grouped_rollups_aggregate_per_dimension() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: Some(Decimal::from(100)),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -909,6 +918,7 @@ async fn outbox_enqueue_and_drain() {
         model: "claude-opus-4-8".to_owned(),
         usage: usage.clone(),
         cost: Some(Decimal::from(1)),
+        is_batch: false,
     };
     // An event that will fail on replay: its tenant does not exist (FK violation).
     let doomed = NewUsageEvent {
@@ -1018,6 +1028,7 @@ async fn budgets_and_spend_scope_correctly() {
             model: "claude-opus-4-8".to_owned(),
             usage: usage.clone(),
             cost: Some(Decimal::from(7)),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -1030,6 +1041,7 @@ async fn budgets_and_spend_scope_correctly() {
             model: "claude-opus-4-8".to_owned(),
             usage,
             cost: Some(Decimal::from(5)),
+            is_batch: false,
         })
         .await
         .unwrap();
@@ -1055,4 +1067,171 @@ async fn budgets_and_spend_scope_correctly() {
             .unwrap(),
         Decimal::ZERO
     );
+}
+
+/// The batch store round-trips a job through its lifecycle: create with items,
+/// submit, persist per-item results, finalise, and read back — all tenant-scoped.
+#[tokio::test]
+async fn batch_job_lifecycle_and_tenant_scope() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("batch", "Batch Tenant"))
+        .await
+        .unwrap();
+    let other = store
+        .create_tenant(NewTenant::new("other-batch", "Other"))
+        .await
+        .unwrap();
+
+    let job = store
+        .create_batch_job(NewBatchJob {
+            tenant_id: tenant.id,
+            virtual_key_id: None,
+            provider: "anthropic".to_owned(),
+            items: vec![
+                NewBatchItem {
+                    custom_id: "a".to_owned(),
+                    model: "claude-opus-4-8".to_owned(),
+                    request: json!({ "provider": "anthropic", "model": "claude-opus-4-8" }),
+                },
+                NewBatchItem {
+                    custom_id: "b".to_owned(),
+                    model: "claude-opus-4-8".to_owned(),
+                    request: json!({ "provider": "anthropic", "model": "claude-opus-4-8" }),
+                },
+            ],
+        })
+        .await
+        .unwrap();
+    assert_eq!(job.status, BatchStatus::Created);
+    assert_eq!(job.total_items, 2);
+
+    // Items land pending, in submission order.
+    let items = store.get_batch_items(job.id).await.unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].custom_id, "a");
+    assert_eq!(items[0].status, BatchItemStatus::Pending);
+
+    // The worker sees it as active until it ends.
+    let active = store.list_active_batch_jobs(10).await.unwrap();
+    assert_eq!(active.len(), 1);
+
+    // Submit → in_progress.
+    store
+        .mark_batch_submitted(
+            job.id,
+            "msgbatch_1",
+            BatchCounts {
+                processing: 2,
+                ..BatchCounts::default()
+            },
+        )
+        .await
+        .unwrap();
+    let submitted = store
+        .get_batch_job(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(submitted.status, BatchStatus::InProgress);
+    assert_eq!(submitted.provider_batch_id.as_deref(), Some("msgbatch_1"));
+    assert_eq!(submitted.counts.processing, 2);
+
+    // Persist results and finalise.
+    for cid in ["a", "b"] {
+        store
+            .save_batch_item_result(
+                job.id,
+                cid,
+                BatchItemStatus::Succeeded,
+                &json!({ "type": "succeeded" }),
+            )
+            .await
+            .unwrap();
+    }
+    store
+        .update_batch_progress(
+            job.id,
+            BatchStatus::Ended,
+            BatchCounts {
+                succeeded: 2,
+                ..BatchCounts::default()
+            },
+            Some("https://example/results"),
+            Some(Utc::now()),
+        )
+        .await
+        .unwrap();
+
+    let ended = store
+        .get_batch_job(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(ended.status, BatchStatus::Ended);
+    assert_eq!(ended.counts.succeeded, 2);
+    assert!(ended.ended_at.is_some());
+    assert!(store.list_active_batch_jobs(10).await.unwrap().is_empty());
+
+    // Tenant-scoped reads: a foreign tenant sees nothing.
+    let scoped = store.list_batch_items(tenant.id, job.id).await.unwrap();
+    assert_eq!(scoped.len(), 2);
+    assert!(scoped.iter().all(|i| i.result.is_some()));
+    assert!(store
+        .get_batch_job(other.id, job.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .list_batch_items(other.id, job.id)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+/// Cancelling a job that was never submitted finalises it immediately, marking
+/// every item canceled without any provider round-trip.
+#[tokio::test]
+async fn batch_cancel_before_submission_finalises_locally() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("precancel", "Pre-cancel"))
+        .await
+        .unwrap();
+    let job = store
+        .create_batch_job(NewBatchJob {
+            tenant_id: tenant.id,
+            virtual_key_id: None,
+            provider: "anthropic".to_owned(),
+            items: vec![NewBatchItem {
+                custom_id: "only".to_owned(),
+                model: "claude-opus-4-8".to_owned(),
+                request: json!({ "provider": "anthropic", "model": "claude-opus-4-8" }),
+            }],
+        })
+        .await
+        .unwrap();
+
+    let canceled = store
+        .request_batch_cancel(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(canceled.status, BatchStatus::Ended);
+    assert_eq!(canceled.counts.canceled, 1);
+    assert!(canceled.ended_at.is_some());
+
+    let items = store.get_batch_items(job.id).await.unwrap();
+    assert_eq!(items[0].status, BatchItemStatus::Canceled);
+
+    // A foreign tenant cannot cancel it.
+    let intruder = store
+        .create_tenant(NewTenant::new("intruder-b", "Intruder"))
+        .await
+        .unwrap();
+    assert!(store
+        .request_batch_cancel(intruder.id, job.id)
+        .await
+        .unwrap()
+        .is_none());
 }
