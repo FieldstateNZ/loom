@@ -1,0 +1,77 @@
+# Production profile — DigitalOcean Kubernetes (DOKS) with an EXTERNAL managed
+# PostgreSQL. No secrets live here; everything sensitive comes from the Secret
+# named below, which you create out-of-band (see deploy/README.md).
+#
+# Usage:
+#   helm upgrade --install loom deploy/chart/loom \
+#     -n loom --create-namespace \
+#     -f deploy/chart/loom/values-production.yaml \
+#     --set image.tag=v0.1.0
+
+# Single replica: strict per-tenant rate/budget enforcement (in-process, per
+# replica — issue #10). Scale up only when you accept approximate global limits.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/pukekos/loom
+  # Always pin an immutable tag/digest in production.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+config:
+  runMigrations: true
+  rustLog: "info"
+
+# External managed PostgreSQL — the bundled DB is OFF.
+postgresql:
+  enabled: false
+
+secrets:
+  existingSecret: "loom-secrets"
+  keys:
+    databaseUrl: "DATABASE_URL"       # e.g. the DOKS managed-DB connection URI (sslmode=require)
+    encryptionKey: "LOOM_ENCRYPTION_KEY"
+    rootAdminToken: "LOOM_ROOT_ADMIN_TOKEN"
+    # keyPepper left empty -> derived from the encryption key.
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Public ingress via ingress-nginx. SSE annotations are mandatory (see below):
+# without proxy-buffering off + long timeouts, streamed turns stall or drop.
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    # TLS via cert-manager (adjust issuer to your setup).
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: loom.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: loom-tls
+      hosts:
+        - loom.example.com
+
+otel:
+  enabled: false
+  # endpoint: "http://otel-collector.observability.svc:4317"
+  # protocol: "grpc"
+  # resourceAttributes: "deployment.environment=production"
+
+podDisruptionBudget:
+  enabled: false

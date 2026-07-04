@@ -1,0 +1,247 @@
+# Default values for the Loom Helm chart.
+#
+# This file NEVER contains secrets. All sensitive material (DATABASE_URL,
+# LOOM_ENCRYPTION_KEY, LOOM_ROOT_ADMIN_TOKEN, LOOM_KEY_PEPPER, and optionally the
+# OTLP endpoint) is read from an existing Kubernetes Secret that you create
+# out-of-band. See `secrets.existingSecret` below and deploy/README.md.
+
+# -- Number of loom-server replicas.
+#
+# IMPORTANT (see issue #10): Loom's rate limiters and budget caches are
+# *in-process* and therefore *per-replica*. Running replicas > 1 means each
+# replica enforces limits against only the share of traffic it sees, so the
+# effective global limit is roughly (limit x replicas) and short bursts can
+# briefly exceed a tenant's configured ceiling. Budgets are ultimately
+# reconciled against PostgreSQL, but the fast-path cache is local. Until a
+# shared/distributed limiter lands, keep this at 1 for strict enforcement.
+# Horizontal scaling for throughput is safe; strict per-tenant limiting is not.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/pukekos/loom
+  # -- Image tag. Defaults to the chart's appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Secrets for pulling the image from a private registry (list of {name:}).
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount for the pods.
+  create: true
+  # -- Name to use; generated from the release when empty.
+  name: ""
+  annotations: {}
+
+# -- Extra pod annotations (e.g. to force a rollout, or Prometheus scrape hints).
+podAnnotations: {}
+# -- Extra pod labels.
+podLabels: {}
+
+# Pod-level and container-level security hardening. The image already runs as a
+# non-root user (uid 10001) with a read-only-friendly binary.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resource requests/limits. Tuned SMALL: loom-server is a lean async Rust
+# binary that sits comfortably in ~256Mi. Raise `limits.memory` for very high
+# concurrency. CPU limit is intentionally omitted by default to avoid throttling
+# latency-sensitive SSE streams (requests still reserve a fair share).
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# -- Node scheduling controls.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Graceful shutdown: loom-server handles SIGTERM and drains in-flight requests
+# (see main.rs shutdown_signal). Give long-lived SSE streams time to finish.
+terminationGracePeriodSeconds: 30
+
+# ---------------------------------------------------------------------------
+# Application configuration (non-secret). Rendered as plain env vars. Secrets
+# are wired separately via `secrets` below.
+# ---------------------------------------------------------------------------
+config:
+  # -- Address the server binds inside the pod. Must match containerPort.
+  bindAddr: "0.0.0.0:8080"
+
+  # -- Run database migrations on boot. The server applies migrations itself
+  # when true (default), so no separate migration Job/initContainer is needed.
+  # For multi-replica rollouts migrations are idempotent, but consider setting
+  # this false on all but a single "migrator" rollout if you are cautious;
+  # sqlx migrations take an advisory lock so concurrent runs are safe.
+  runMigrations: true
+
+  # -- Seconds between async batch poll-worker passes. "0" disables the worker.
+  # Leave empty to use the server default (5s).
+  batchPollIntervalSecs: ""
+
+  # -- Rust log filter (RUST_LOG). Empty leaves the server default.
+  rustLog: "info,loom_server=info"
+
+# OpenTelemetry export (opt-in). When enabled, OTEL_* env vars are set. The
+# endpoint may be a plain value here OR sourced from the app Secret (set
+# `secrets.keys.otlpEndpoint`), which takes precedence when present.
+otel:
+  enabled: false
+  # -- OTLP collector endpoint (e.g. http://otel-collector:4317). Ignored if the
+  # Secret provides one via `secrets.keys.otlpEndpoint`.
+  endpoint: ""
+  # -- OTLP transport: "grpc" (default) or "http/protobuf".
+  protocol: "grpc"
+  serviceName: "loom-server"
+  # -- Standard OTEL_RESOURCE_ATTRIBUTES string, e.g. "deployment.environment=prod".
+  resourceAttributes: ""
+  # -- Attach prompt/completion CONTENT to spans. Privacy-sensitive; keep off
+  # unless the collector is inside your trust boundary.
+  captureContent: false
+
+# -- Arbitrary extra env vars appended verbatim to the container (list of
+# EnvVar). Use for anything not modelled above.
+extraEnv: []
+# - name: SOME_FLAG
+#   value: "1"
+
+# ---------------------------------------------------------------------------
+# Secrets. NOTHING sensitive is templated from this file — you reference an
+# existing Secret by name. Create it out-of-band, e.g.:
+#
+#   kubectl create secret generic loom-secrets \
+#     --from-literal=DATABASE_URL='postgres://user:pass@host:25060/db?sslmode=require' \
+#     --from-literal=LOOM_ENCRYPTION_KEY='<64 hex chars>' \
+#     --from-literal=LOOM_ROOT_ADMIN_TOKEN='<random>'
+# ---------------------------------------------------------------------------
+secrets:
+  # -- Name of the pre-existing Secret holding Loom's sensitive values.
+  # REQUIRED in production. In dev with `postgresql.enabled=true`, DATABASE_URL
+  # is sourced from the bundled DB Secret instead, but the encryption key and
+  # admin token still come from this Secret.
+  existingSecret: "loom-secrets"
+  keys:
+    # -- Key within the Secret for the PostgreSQL connection URL. Ignored when
+    # `postgresql.enabled=true` (the bundled DB Secret supplies it).
+    databaseUrl: "DATABASE_URL"
+    # -- Key for the AES-256-GCM credential-encryption key (64 hex chars).
+    encryptionKey: "LOOM_ENCRYPTION_KEY"
+    # -- Key for the /admin bearer token.
+    rootAdminToken: "LOOM_ROOT_ADMIN_TOKEN"
+    # -- Key for the virtual-key HMAC pepper. Optional: leave empty to let the
+    # server derive it deterministically from the encryption key.
+    keyPepper: ""
+    # -- Key for the OTLP endpoint, if you prefer it secret. Optional.
+    otlpEndpoint: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  # -- Port on the container the Service targets. Matches config.bindAddr.
+  targetPort: 8080
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress (optional). Loom streams responses with Server-Sent Events (SSE), so
+# the ingress MUST NOT buffer responses and MUST allow long-lived reads.
+# The defaults below carry the correct nginx annotations. For other ingress
+# controllers, translate these: the goal is (1) response buffering OFF and
+# (2) a read/send timeout of minutes, not seconds.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: "nginx"
+  # SSE-friendly annotations for ingress-nginx. Merged with `ingress.annotations`.
+  annotations:
+    # Do not buffer upstream responses — required for token-by-token SSE.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # Give streams up to an hour before the proxy times the connection out.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # SSE responses are chunked; disable request buffering too for good measure.
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+  hosts:
+    - host: loom.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: loom-tls
+  #    hosts:
+  #      - loom.example.com
+
+# Health probes. Liveness -> /healthz (process up), readiness -> /readyz (DB
+# reachable). `startupProbe` covers the on-boot migration window so a slow
+# first start is not killed by the liveness probe.
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    enabled: true
+    path: /healthz
+    periodSeconds: 5
+    # 30 * 5s = 150s budget for migrations + first boot.
+    failureThreshold: 30
+
+# -- Optional PodDisruptionBudget. Only meaningful with replicaCount > 1.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Bundled PostgreSQL — DEV/STAGING ONLY.
+#
+# When enabled, the chart deploys a single, minimal PostgreSQL 16 pod plus a
+# Secret containing its DATABASE_URL, which the server consumes automatically.
+# This is a convenience for k3s / laptops — it is NOT highly available, its
+# storage is a single PVC, and it must NOT be used in production. For DOKS/prod,
+# keep this false and point DATABASE_URL at a managed database.
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: false
+  image: postgres:16
+  auth:
+    username: loom
+    database: loom
+    # -- Password for the bundled DB. If empty, the chart generates one on first
+    # install and preserves it across upgrades (see templates/postgresql.yaml).
+    password: ""
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

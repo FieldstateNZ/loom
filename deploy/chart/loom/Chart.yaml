@@ -1,0 +1,31 @@
+apiVersion: v2
+name: loom
+description: |
+  Loom — a multi-tenant Anthropic gateway. A single stateless container
+  (the loom-server image) fronting an external PostgreSQL database.
+type: application
+
+# Chart version. Bump on any change to the chart itself.
+version: 0.1.0
+
+# The default application version this chart deploys. Overridable via
+# `image.tag`; kept in sync with the loom-server release it targets.
+appVersion: "0.1.0"
+
+home: https://github.com/pukekos/loom
+sources:
+  - https://github.com/pukekos/loom
+keywords:
+  - anthropic
+  - gateway
+  - llm
+  - multi-tenant
+maintainers:
+  - name: Loom maintainers
+
+# NOTE: PostgreSQL is intentionally NOT declared as a subchart dependency.
+# The optional bundled database (values `postgresql.enabled=true`) is a
+# self-contained, dev-only Deployment shipped in templates/postgresql.yaml so
+# `helm template`/`helm lint` stay fully offline and hermetic (no `helm
+# dependency update` network fetch). Production is expected to use an external
+# managed PostgreSQL (e.g. DigitalOcean Managed Databases) — see deploy/README.md.

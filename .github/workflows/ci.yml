@@ -50,6 +50,40 @@ jobs:
       - run: cargo build --workspace --all-targets
       - run: cargo test --workspace --all-features
 
+  helm:
+    name: helm chart (lint + render)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: helm lint (default + staging + production values)
+        run: |
+          helm lint deploy/chart/loom
+          helm lint deploy/chart/loom -f deploy/chart/loom/values-staging.yaml
+          helm lint deploy/chart/loom -f deploy/chart/loom/values-production.yaml
+      - name: helm template (render) + validate manifests
+        run: |
+          mkdir -p rendered
+          # Bundled-DB staging profile. A fixed DB password keeps the render
+          # deterministic (otherwise the chart generates a random one).
+          helm template loom deploy/chart/loom \
+            --namespace loom \
+            -f deploy/chart/loom/values-staging.yaml \
+            --set postgresql.auth.password=ci-fixed-password \
+            > rendered/staging.yaml
+          # External-DB production profile.
+          helm template loom deploy/chart/loom \
+            --namespace loom \
+            -f deploy/chart/loom/values-production.yaml \
+            --set image.tag=v0.0.0-ci \
+            > rendered/production.yaml
+          # Default values (no overrides) must also render.
+          helm template loom deploy/chart/loom --namespace loom > rendered/default.yaml
+          python3 deploy/ci/validate_render.py \
+            rendered/default.yaml rendered/staging.yaml rendered/production.yaml
+
   console:
     name: console (typecheck + build)
     runs-on: ubuntu-latest

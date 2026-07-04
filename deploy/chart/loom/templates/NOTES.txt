@@ -1,0 +1,42 @@
+Loom has been deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image: {{ include "loom.image" . }}
+Replicas: {{ .Values.replicaCount }}
+{{- if gt (int .Values.replicaCount) 1 }}
+
+  WARNING: replicaCount > 1. Loom's rate limiters and budget caches are
+  in-process (per-replica). Global rate/budget enforcement is approximate
+  across replicas — see issue #10 and values.yaml. Use 1 replica for strict
+  per-tenant limiting.
+{{- end }}
+
+Check health:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "loom.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "loom.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s localhost:8080/healthz   # -> ok
+  curl -s localhost:8080/readyz    # -> {"status":"ready"} once the DB is reachable
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+  (SSE-friendly annotations applied: proxy buffering off + long read/send timeouts.)
+{{- else }}
+
+Ingress is disabled. Expose the Service via port-forward, a LoadBalancer, or
+enable `ingress.enabled=true` (see values.yaml for the SSE annotations).
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+NOTE: The bundled dev PostgreSQL is enabled. This is NOT for production — it is
+a single, non-HA pod. For DOKS/production set `postgresql.enabled=false` and
+point DATABASE_URL at a managed database.
+{{- end }}
+
+Secrets are read from the existing Secret "{{ .Values.secrets.existingSecret }}".
+Confirm it exists and carries the expected keys (LOOM_ENCRYPTION_KEY,
+LOOM_ROOT_ADMIN_TOKEN{{ if not .Values.postgresql.enabled }}, {{ .Values.secrets.keys.databaseUrl }}{{ end }}).

@@ -1,0 +1,138 @@
+{{- if .Values.postgresql.enabled -}}
+{{/*
+  DEV/STAGING-ONLY bundled PostgreSQL. Single replica, single PVC, no HA.
+  Not a subchart — kept self-contained so `helm template`/`helm lint` need no
+  network. DO NOT use in production; point DATABASE_URL at a managed DB instead.
+
+  Password resolution (in priority order):
+    1. explicit .Values.postgresql.auth.password
+    2. the password already stored in this Secret (preserved across upgrades)
+    3. a freshly generated random password (first install)
+*/}}
+{{- $secretName := include "loom.postgresql.secretName" . -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- $user := .Values.postgresql.auth.username -}}
+{{- $db := .Values.postgresql.auth.database -}}
+{{- $password := "" -}}
+{{- if .Values.postgresql.auth.password -}}
+{{- $password = .Values.postgresql.auth.password -}}
+{{- else if and $existing $existing.data (index $existing.data "POSTGRES_PASSWORD") -}}
+{{- $password = index $existing.data "POSTGRES_PASSWORD" | b64dec -}}
+{{- else -}}
+{{- $password = randAlphaNum 24 -}}
+{{- end -}}
+{{- $host := printf "%s-postgresql" (include "loom.fullname" .) -}}
+{{- $url := printf "postgres://%s:%s@%s:5432/%s" $user $password $host $db -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "loom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+type: Opaque
+stringData:
+  POSTGRES_USER: {{ $user | quote }}
+  POSTGRES_DB: {{ $db | quote }}
+  POSTGRES_PASSWORD: {{ $password | quote }}
+  DATABASE_URL: {{ $url | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $host }}
+  labels:
+    {{- include "loom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "loom.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- if .Values.postgresql.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $host }}
+  labels:
+    {{- include "loom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.postgresql.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size | quote }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $host }}
+  labels:
+    {{- include "loom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ $host }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "loom.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "loom.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: {{ .Values.postgresql.image | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: {{ $secretName }}
+          env:
+            # postgres writes to a subdir so the mounted volume root can hold
+            # lost+found without upsetting initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ $user | quote }}, "-d", {{ $db | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ $user | quote }}, "-d", {{ $db | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+        {{- if .Values.postgresql.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $host }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+{{- end }}
