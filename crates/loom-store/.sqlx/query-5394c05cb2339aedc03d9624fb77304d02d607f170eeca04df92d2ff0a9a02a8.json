@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE virtual_keys\n            SET status = 'revoked'\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5394c05cb2339aedc03d9624fb77304d02d607f170eeca04df92d2ff0a9a02a8"
+}

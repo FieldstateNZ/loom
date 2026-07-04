@@ -1,0 +1,222 @@
+//! Row and input types exchanged with the store traits.
+//!
+//! These are plain data types: the "New*" structs describe an insertion, and
+//! the remaining structs mirror a persisted row. Conversation history is not
+//! modelled here — it round-trips the [`loom_core`] domain model directly.
+
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// A persisted tenant — the unit of multi-tenant isolation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tenant {
+    /// The tenant's unique identifier.
+    pub id: Uuid,
+    /// A stable, URL-safe unique handle for the tenant.
+    pub slug: String,
+    /// A human-readable display name.
+    pub name: String,
+    /// Lifecycle status (e.g. `"active"`, `"suspended"`).
+    pub status: String,
+    /// When the tenant was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// The fields required to create a [`Tenant`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewTenant {
+    /// A stable, URL-safe unique handle for the tenant.
+    pub slug: String,
+    /// A human-readable display name.
+    pub name: String,
+    /// Lifecycle status. Use `"active"` for a normal tenant.
+    pub status: String,
+}
+
+impl NewTenant {
+    /// Constructs a new tenant description with `status` defaulted to
+    /// `"active"`.
+    #[must_use]
+    pub fn new(slug: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            slug: slug.into(),
+            name: name.into(),
+            status: "active".to_owned(),
+        }
+    }
+}
+
+/// A spend budget attached to a [`VirtualKey`].
+///
+/// All three fields are stored together: a key either has a complete budget or
+/// none at all.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KeyBudget {
+    /// The spend limit, in the gateway's accounting currency.
+    pub limit_amount: Decimal,
+    /// The rolling window the limit applies over (e.g. `"monthly"`).
+    pub window: String,
+    /// What to do when the limit is exceeded (e.g. `"block"`, `"warn"`).
+    pub action: String,
+}
+
+/// A persisted virtual API key belonging to a tenant.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VirtualKey {
+    /// The key's unique identifier.
+    pub id: Uuid,
+    /// The owning tenant.
+    pub tenant_id: Uuid,
+    /// A cryptographic hash of the secret key material (never the secret).
+    pub key_hash: String,
+    /// A short, non-secret prefix used to identify the key in logs and UIs.
+    pub key_prefix: String,
+    /// A human-readable label.
+    pub name: String,
+    /// Lifecycle status (e.g. `"active"`, `"revoked"`).
+    pub status: String,
+    /// The authorisation scopes granted to the key.
+    pub scopes: Vec<String>,
+    /// An optional spend budget.
+    pub budget: Option<KeyBudget>,
+    /// When the key was created.
+    pub created_at: DateTime<Utc>,
+    /// When the key was last used to authenticate a request, if ever.
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+/// The fields required to create a [`VirtualKey`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewVirtualKey {
+    /// The owning tenant.
+    pub tenant_id: Uuid,
+    /// A cryptographic hash of the secret key material.
+    pub key_hash: String,
+    /// A short, non-secret prefix identifying the key.
+    pub key_prefix: String,
+    /// A human-readable label.
+    pub name: String,
+    /// The authorisation scopes granted to the key.
+    pub scopes: Vec<String>,
+    /// An optional spend budget.
+    pub budget: Option<KeyBudget>,
+}
+
+/// A persisted provider credential.
+///
+/// A `None` [`tenant_id`](Self::tenant_id) denotes a gateway-global credential
+/// shared by all tenants that do not supply their own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderCredential {
+    /// The credential's unique identifier.
+    pub id: Uuid,
+    /// The owning tenant, or `None` for a gateway-global credential.
+    pub tenant_id: Option<Uuid>,
+    /// The provider this credential authenticates against (e.g. `"anthropic"`).
+    pub provider: String,
+    /// The encrypted secret bytes (ciphertext).
+    pub encrypted_secret: Vec<u8>,
+    /// The AEAD nonce used to encrypt the secret, if applicable.
+    pub nonce: Option<Vec<u8>>,
+    /// The additional authenticated data bound to the ciphertext, if any.
+    pub aad: Option<Vec<u8>>,
+    /// An optional provider base URL override.
+    pub base_url: Option<String>,
+    /// When the credential was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// The fields required to create (or replace) a [`ProviderCredential`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewProviderCredential {
+    /// The owning tenant, or `None` for a gateway-global credential.
+    pub tenant_id: Option<Uuid>,
+    /// The provider this credential authenticates against.
+    pub provider: String,
+    /// The encrypted secret bytes (ciphertext).
+    pub encrypted_secret: Vec<u8>,
+    /// The AEAD nonce used to encrypt the secret, if applicable.
+    pub nonce: Option<Vec<u8>>,
+    /// The additional authenticated data bound to the ciphertext, if any.
+    pub aad: Option<Vec<u8>>,
+    /// An optional provider base URL override.
+    pub base_url: Option<String>,
+}
+
+/// A usage event to record for billing and attribution.
+///
+/// Token figures and the raw payload are taken from a loom-core [`Usage`]
+/// snapshot; the surrounding fields attribute the spend to a tenant, key,
+/// conversation, provider and model.
+///
+/// [`Usage`]: loom_core::Usage
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewUsageEvent {
+    /// The tenant the usage is attributed to.
+    pub tenant_id: Uuid,
+    /// The virtual key that authorised the request, if known.
+    pub virtual_key_id: Option<Uuid>,
+    /// The conversation the usage belongs to, if any.
+    pub conversation_id: Option<Uuid>,
+    /// The provider that served the request.
+    pub provider: String,
+    /// The model that served the request.
+    pub model: String,
+    /// The provider-reported usage snapshot.
+    pub usage: loom_core::Usage,
+    /// The computed monetary cost, if pricing was available.
+    pub cost: Option<Decimal>,
+}
+
+/// A persisted usage event.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageEvent {
+    /// The event's unique identifier.
+    pub id: Uuid,
+    /// The tenant the usage is attributed to.
+    pub tenant_id: Uuid,
+    /// The virtual key that authorised the request, if known.
+    pub virtual_key_id: Option<Uuid>,
+    /// The conversation the usage belongs to, if any.
+    pub conversation_id: Option<Uuid>,
+    /// The provider that served the request.
+    pub provider: String,
+    /// The model that served the request.
+    pub model: String,
+    /// Input (prompt) tokens billed at the full rate.
+    pub input_tokens: i64,
+    /// Output (completion) tokens generated.
+    pub output_tokens: i64,
+    /// Input tokens served from the provider's prompt cache.
+    pub cache_read_tokens: i64,
+    /// Input tokens written to the provider's prompt cache.
+    pub cache_write_tokens: i64,
+    /// Per-tool invocation counts for provider-executed tools.
+    pub server_tool_counts: serde_json::Value,
+    /// The computed monetary cost, if pricing was available.
+    pub cost: Option<Decimal>,
+    /// The provider's raw usage payload, preserved verbatim.
+    pub raw_usage: Option<serde_json::Value>,
+    /// When the event was recorded.
+    pub created_at: DateTime<Utc>,
+}
+
+/// An aggregated summary of usage over a set of events.
+///
+/// This is the minimal rollup shape needed by the persistence layer; richer
+/// spend reporting is layered on top in later work.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UsageRollup {
+    /// The number of events summarised.
+    pub event_count: i64,
+    /// Total input tokens.
+    pub input_tokens: i64,
+    /// Total output tokens.
+    pub output_tokens: i64,
+    /// Total cache-read tokens.
+    pub cache_read_tokens: i64,
+    /// Total cache-write tokens.
+    pub cache_write_tokens: i64,
+}
