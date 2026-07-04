@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
-import { BlockFrame, JsonPre } from "./blockBase.tsx";
-import { Icon } from "../core/Icon.tsx";
+import { BlockFrame, JsonPre } from "./block-base.tsx";
+import { Icon } from "../core/icon.tsx";
 
 export interface BlockToolUseProps {
   name: string;

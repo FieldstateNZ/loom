@@ -1,6 +1,6 @@
 // blockBase — shared chrome for transcript content blocks.
 import { useState, type ReactNode } from "react";
-import { Icon, type IconName } from "../core/Icon.tsx";
+import { Icon, type IconName } from "../core/icon.tsx";
 
 export function JsonPre({ data, label, maxHeight }: { data: unknown; label?: string; maxHeight?: number | string }) {
   const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);

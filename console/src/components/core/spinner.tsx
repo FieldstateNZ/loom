@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Icon } from "./Icon.tsx";
+import { Icon } from "./icon.tsx";
 
 export interface SpinnerProps {
   size?: number;

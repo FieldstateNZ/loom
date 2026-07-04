@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Sparkline } from "./Sparkline.tsx";
-import { DeltaTag } from "./DeltaTag.tsx";
+import { Sparkline } from "./sparkline.tsx";
+import { DeltaTag } from "./delta-tag.tsx";
 
 export interface StatTileProps {
   label: ReactNode;

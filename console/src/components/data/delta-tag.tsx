@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Icon } from "../core/Icon.tsx";
+import { Icon } from "../core/icon.tsx";
 
 export interface DeltaTagProps {
   value: number | null | undefined;

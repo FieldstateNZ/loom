@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Icon, type IconName } from "./Icon.tsx";
+import { Icon, type IconName } from "./icon.tsx";
 
 export type BadgeTone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent";
 

@@ -1,5 +1,5 @@
 import type { CSSProperties, KeyboardEvent } from "react";
-import { Icon, type IconName } from "../core/Icon.tsx";
+import { Icon, type IconName } from "../core/icon.tsx";
 
 export interface InputProps {
   value?: string;

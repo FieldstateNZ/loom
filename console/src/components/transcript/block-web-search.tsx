@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { BlockFrame } from "./blockBase.tsx";
+import { BlockFrame } from "./block-base.tsx";
 import type { WebSearchResult } from "../../api/types.ts";
 
 export interface BlockWebSearchProps {

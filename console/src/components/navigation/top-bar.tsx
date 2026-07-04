@@ -1,5 +1,5 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
-import { Icon } from "../core/Icon.tsx";
+import { Icon } from "../core/icon.tsx";
 
 export interface Crumb {
   label: string;

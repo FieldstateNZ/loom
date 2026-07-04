@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Icon, type IconName } from "./Icon.tsx";
+import { Icon, type IconName } from "./icon.tsx";
 
 export interface SegmentOption {
   value: string;

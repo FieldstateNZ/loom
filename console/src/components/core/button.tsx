@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Icon, type IconName } from "./Icon.tsx";
-import { Spinner } from "./Spinner.tsx";
+import { Icon, type IconName } from "./icon.tsx";
+import { Spinner } from "./spinner.tsx";
 
 export type ButtonVariant =
   | "primary"

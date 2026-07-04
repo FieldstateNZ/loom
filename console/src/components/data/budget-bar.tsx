@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Icon } from "../core/Icon.tsx";
+import { Icon } from "../core/icon.tsx";
 import { formatMoney } from "../../lib/format.ts";
 
 export interface BudgetBarProps {

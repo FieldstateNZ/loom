@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { BlockFrame, JsonPre } from "./blockBase.tsx";
+import { BlockFrame, JsonPre } from "./block-base.tsx";
 
 export interface BlockUnknownProps {
   type: string;

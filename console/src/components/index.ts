@@ -2,52 +2,52 @@
 // here, mirroring the `NS` namespace the prototype used.
 
 // core
-export { Icon, ICON_NAMES, type IconName } from "./core/Icon.tsx";
-export { Spinner } from "./core/Spinner.tsx";
-export { Badge, type BadgeTone } from "./core/Badge.tsx";
-export { Button, type ButtonVariant } from "./core/Button.tsx";
-export { IconButton } from "./core/IconButton.tsx";
-export { Kbd } from "./core/Kbd.tsx";
-export { SegmentedControl, type SegmentOption } from "./core/SegmentedControl.tsx";
-export { StatusDot, type StatusTone } from "./core/StatusDot.tsx";
-export { Card } from "./core/Card.tsx";
+export { Icon, ICON_NAMES, type IconName } from "./core/icon.tsx";
+export { Spinner } from "./core/spinner.tsx";
+export { Badge, type BadgeTone } from "./core/badge.tsx";
+export { Button, type ButtonVariant } from "./core/button.tsx";
+export { IconButton } from "./core/icon-button.tsx";
+export { Kbd } from "./core/kbd.tsx";
+export { SegmentedControl, type SegmentOption } from "./core/segmented-control.tsx";
+export { StatusDot, type StatusTone } from "./core/status-dot.tsx";
+export { Card } from "./core/card.tsx";
 
 // data
-export { Sparkline } from "./data/Sparkline.tsx";
-export { DeltaTag } from "./data/DeltaTag.tsx";
-export { StatTile } from "./data/StatTile.tsx";
-export { BudgetBar } from "./data/BudgetBar.tsx";
-export { BarList } from "./data/BarList.tsx";
-export { FilterChip } from "./data/FilterChip.tsx";
-export { LineChart, ChartLegend, type ChartSeries } from "./data/LineChart.tsx";
-export { BarChart } from "./data/BarChart.tsx";
-export { DataTable, type Column } from "./data/DataTable.tsx";
+export { Sparkline } from "./data/sparkline.tsx";
+export { DeltaTag } from "./data/delta-tag.tsx";
+export { StatTile } from "./data/stat-tile.tsx";
+export { BudgetBar } from "./data/budget-bar.tsx";
+export { BarList } from "./data/bar-list.tsx";
+export { FilterChip } from "./data/filter-chip.tsx";
+export { LineChart, ChartLegend, type ChartSeries } from "./data/line-chart.tsx";
+export { BarChart } from "./data/bar-chart.tsx";
+export { DataTable, type Column } from "./data/data-table.tsx";
 
 // forms
-export { Field } from "./forms/Field.tsx";
-export { Input } from "./forms/Input.tsx";
-export { Select } from "./forms/Select.tsx";
-export { Switch } from "./forms/Switch.tsx";
-export { SecretInput } from "./forms/SecretInput.tsx";
+export { Field } from "./forms/field.tsx";
+export { Input } from "./forms/input.tsx";
+export { Select } from "./forms/select.tsx";
+export { Switch } from "./forms/switch.tsx";
+export { SecretInput } from "./forms/secret-input.tsx";
 
 // feedback
-export { Banner } from "./feedback/Banner.tsx";
-export { Dialog } from "./feedback/Dialog.tsx";
-export { EmptyState } from "./feedback/EmptyState.tsx";
-export { RevealOnce } from "./feedback/RevealOnce.tsx";
+export { Banner } from "./feedback/banner.tsx";
+export { Dialog } from "./feedback/dialog.tsx";
+export { EmptyState } from "./feedback/empty-state.tsx";
+export { RevealOnce } from "./feedback/reveal-once.tsx";
 
 // navigation
-export { SideNav, type NavSection, type NavItem } from "./navigation/SideNav.tsx";
-export { TopBar, type Crumb } from "./navigation/TopBar.tsx";
+export { SideNav, type NavSection, type NavItem } from "./navigation/side-nav.tsx";
+export { TopBar, type Crumb } from "./navigation/top-bar.tsx";
 
 // transcript
-export { Transcript } from "./transcript/Transcript.tsx";
-export { Turn } from "./transcript/Turn.tsx";
-export { BlockFrame, JsonPre } from "./transcript/blockBase.tsx";
-export { BlockText } from "./transcript/BlockText.tsx";
-export { BlockThinking } from "./transcript/BlockThinking.tsx";
-export { BlockToolUse } from "./transcript/BlockToolUse.tsx";
-export { BlockWebSearch } from "./transcript/BlockWebSearch.tsx";
-export { BlockCodeExec } from "./transcript/BlockCodeExec.tsx";
-export { BlockUnknown } from "./transcript/BlockUnknown.tsx";
-export { CacheMarker } from "./transcript/CacheMarker.tsx";
+export { Transcript } from "./transcript/transcript.tsx";
+export { Turn } from "./transcript/turn.tsx";
+export { BlockFrame, JsonPre } from "./transcript/block-base.tsx";
+export { BlockText } from "./transcript/block-text.tsx";
+export { BlockThinking } from "./transcript/block-thinking.tsx";
+export { BlockToolUse } from "./transcript/block-tool-use.tsx";
+export { BlockWebSearch } from "./transcript/block-web-search.tsx";
+export { BlockCodeExec } from "./transcript/block-code-exec.tsx";
+export { BlockUnknown } from "./transcript/block-unknown.tsx";
+export { CacheMarker } from "./transcript/cache-marker.tsx";

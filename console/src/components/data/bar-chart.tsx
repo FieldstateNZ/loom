@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { ChartLegend, type ChartSeries } from "./LineChart.tsx";
+import { ChartLegend, type ChartSeries } from "./line-chart.tsx";
 
 const W = 600, H = 100, PAD_TOP = 6;
 

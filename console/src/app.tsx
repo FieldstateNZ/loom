@@ -14,14 +14,14 @@ import { LoomProvider, resolveLoomClient } from "./api/context.tsx";
 import type { LoomClient } from "./api/client.ts";
 import type { LoomSnapshot } from "./api/types.ts";
 
-import { DashboardScreen } from "./screens/DashboardScreen.tsx";
-import { KeysScreen } from "./screens/KeysScreen.tsx";
-import { UsageScreen } from "./screens/UsageScreen.tsx";
-import { ConversationsScreen } from "./screens/ConversationsScreen.tsx";
-import { TenantsScreen } from "./screens/TenantsScreen.tsx";
-import { BudgetsScreen } from "./screens/BudgetsScreen.tsx";
-import { McpScreen } from "./screens/McpScreen.tsx";
-import { ProvidersScreen } from "./screens/ProvidersScreen.tsx";
+import { DashboardScreen } from "./screens/dashboard-screen.tsx";
+import { KeysScreen } from "./screens/keys-screen.tsx";
+import { UsageScreen } from "./screens/usage-screen.tsx";
+import { ConversationsScreen } from "./screens/conversations-screen.tsx";
+import { TenantsScreen } from "./screens/tenants-screen.tsx";
+import { BudgetsScreen } from "./screens/budgets-screen.tsx";
+import { McpScreen } from "./screens/mcp-screen.tsx";
+import { ProvidersScreen } from "./screens/providers-screen.tsx";
 
 type ScreenId =
   | "overview" | "usage" | "conversations" | "keys"

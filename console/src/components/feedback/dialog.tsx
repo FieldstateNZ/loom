@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
-import { Icon, type IconName } from "../core/Icon.tsx";
-import { IconButton } from "../core/IconButton.tsx";
+import { Icon, type IconName } from "../core/icon.tsx";
+import { IconButton } from "../core/icon-button.tsx";
 
 export interface DialogProps {
   open: boolean;

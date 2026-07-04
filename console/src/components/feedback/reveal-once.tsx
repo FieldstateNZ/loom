@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
-import { Icon } from "../core/Icon.tsx";
-import { Button } from "../core/Button.tsx";
+import { Icon } from "../core/icon.tsx";
+import { Button } from "../core/button.tsx";
 
 export interface RevealOnceProps {
   secret: string;

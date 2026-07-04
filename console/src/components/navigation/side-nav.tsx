@@ -1,5 +1,5 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
-import { Icon, type IconName } from "../core/Icon.tsx";
+import { Icon, type IconName } from "../core/icon.tsx";
 
 export interface NavItem {
   id: string;

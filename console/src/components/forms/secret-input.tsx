@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from "react";
-import { Icon } from "../core/Icon.tsx";
-import { Button } from "../core/Button.tsx";
-import { Input } from "./Input.tsx";
+import { Icon } from "../core/icon.tsx";
+import { Button } from "../core/button.tsx";
+import { Input } from "./input.tsx";
 
 export interface SecretInputProps {
   isSet?: boolean;
