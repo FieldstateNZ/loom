@@ -47,6 +47,14 @@ pub struct AnthropicProvider {
     version: String,
     max_retries: u32,
     retry_base_delay: Duration,
+    /// Extra `anthropic-beta` tokens always sent, on top of the ones derived
+    /// from the request's features. Lets an operator adopt a new beta (or
+    /// pin an updated token) without a Loom release.
+    betas: Vec<String>,
+    /// Whether to auto-derive `anthropic-beta` tokens from the request's
+    /// features (server tools, …). Defaults to `true`; disable to take full
+    /// control of the header via [`with_beta`](Self::with_beta).
+    auto_beta_headers: bool,
 }
 
 impl AnthropicProvider {
@@ -76,6 +84,8 @@ impl AnthropicProvider {
             version: DEFAULT_ANTHROPIC_VERSION.to_owned(),
             max_retries: DEFAULT_MAX_RETRIES,
             retry_base_delay: DEFAULT_RETRY_BASE_DELAY,
+            betas: Vec::new(),
+            auto_beta_headers: true,
         }
     }
 
@@ -107,6 +117,48 @@ impl AnthropicProvider {
         self
     }
 
+    /// Adds an `anthropic-beta` token that is sent on every request, in addition
+    /// to any derived from the request's features.
+    ///
+    /// This is the config-level override: an operator can adopt a new beta — or
+    /// pin an updated token when Anthropic bumps a feature's beta — without a
+    /// Loom release. Callers can also add betas per request through
+    /// `provider_options["anthropic"]["betas"]`.
+    #[must_use]
+    pub fn with_beta(mut self, beta: impl Into<String>) -> Self {
+        self.betas.push(beta.into());
+        self
+    }
+
+    /// Controls whether `anthropic-beta` tokens are auto-derived from a
+    /// request's features (default `true`).
+    ///
+    /// Disable it to suppress the catalogue-driven defaults and drive the header
+    /// entirely from [`with_beta`](Self::with_beta) — the full-override path when
+    /// a default token has gone stale.
+    #[must_use]
+    pub fn with_auto_beta_headers(mut self, enabled: bool) -> Self {
+        self.auto_beta_headers = enabled;
+        self
+    }
+
+    /// Computes the deterministic, de-duplicated set of `anthropic-beta` tokens
+    /// to send for a request: the feature-derived tokens (when
+    /// [`auto_beta_headers`](Self::auto_beta_headers) is set) plus the tokens
+    /// configured on the provider.
+    fn beta_headers(
+        &self,
+        conversation: &Conversation,
+        options: &ConversationOptions,
+    ) -> Vec<String> {
+        let mut betas: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        if self.auto_beta_headers {
+            betas.extend(translate::required_betas(conversation, options));
+        }
+        betas.extend(self.betas.iter().cloned());
+        betas.into_iter().collect()
+    }
+
     /// Resolves a model from the catalogue, or fails with
     /// [`ProviderError::ModelNotFound`].
     fn model(&self, id: &str) -> Result<ModelDescriptor, ProviderError> {
@@ -121,19 +173,20 @@ impl AnthropicProvider {
 
     /// POSTs `body` to `/v1/messages`, retrying retryable failures with
     /// exponential backoff, and returns the parsed native response.
-    async fn send(&self, body: &Value) -> Result<Value, ProviderError> {
+    async fn send(&self, body: &Value, betas: &[String]) -> Result<Value, ProviderError> {
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let mut attempt: u32 = 0;
         loop {
-            let outcome = self
+            let mut request = self
                 .http
                 .post(&url)
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", &self.version)
-                .header("content-type", "application/json")
-                .json(body)
-                .send()
-                .await;
+                .header("content-type", "application/json");
+            if !betas.is_empty() {
+                request = request.header("anthropic-beta", betas.join(","));
+            }
+            let outcome = request.json(body).send().await;
 
             match outcome {
                 Ok(response) => {
@@ -175,20 +228,25 @@ impl AnthropicProvider {
     /// Retries apply only to establishing the response (status/transport); once
     /// a `2xx` stream is open, mid-stream failures are surfaced through the
     /// event stream itself rather than retried, so partial output is not lost.
-    async fn send_stream(&self, body: &Value) -> Result<reqwest::Response, ProviderError> {
+    async fn send_stream(
+        &self,
+        body: &Value,
+        betas: &[String],
+    ) -> Result<reqwest::Response, ProviderError> {
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let mut attempt: u32 = 0;
         loop {
-            let outcome = self
+            let mut request = self
                 .http
                 .post(&url)
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", &self.version)
                 .header("content-type", "application/json")
-                .header("accept", "text/event-stream")
-                .json(body)
-                .send()
-                .await;
+                .header("accept", "text/event-stream");
+            if !betas.is_empty() {
+                request = request.header("anthropic-beta", betas.join(","));
+            }
+            let outcome = request.json(body).send().await;
 
             match outcome {
                 Ok(response) => {
@@ -290,7 +348,8 @@ impl Provider for AnthropicProvider {
 
         let body = translate::translate_request(conversation, options);
         let body = self.negotiate_cache(&model, conversation, options, body)?;
-        let native = self.send(&body).await?;
+        let betas = self.beta_headers(conversation, options);
+        let native = self.send(&body, &betas).await?;
         Ok(translate::translate_response(&native))
     }
 
@@ -310,7 +369,8 @@ impl Provider for AnthropicProvider {
             map.insert("stream".into(), json!(true));
         }
 
-        let response = self.send_stream(&body).await?;
+        let betas = self.beta_headers(conversation, options);
+        let response = self.send_stream(&body, &betas).await?;
         Ok(streaming::event_stream(response))
     }
 

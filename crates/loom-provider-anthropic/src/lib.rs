@@ -37,7 +37,7 @@ mod provider;
 mod streaming;
 pub mod translate;
 
-pub use catalogue::{catalogue, PROVIDER_NAME};
+pub use catalogue::{catalogue, feature_beta, BetaFeature, PROVIDER_NAME};
 pub use provider::AnthropicProvider;
 pub use streaming::SseAccumulator;
 

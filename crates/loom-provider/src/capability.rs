@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use loom_core::{ContentPart, Conversation, ConversationOptions};
+use loom_core::{ContentPart, Conversation, ConversationOptions, ServerTool};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ProviderError;
@@ -135,6 +135,21 @@ pub fn required_capabilities(
         required.insert(Capability::ClientTools);
     }
 
+    // Server-side tools the caller offers require their provider-hosted
+    // capability. A `Raw` passthrough is forward-compat — Loom cannot infer
+    // which capability it exercises, so it is left to the provider.
+    for tool in &options.server_tools {
+        match tool {
+            ServerTool::WebSearch { .. } => {
+                required.insert(Capability::ServerToolWebSearch);
+            }
+            ServerTool::CodeExecution { .. } => {
+                required.insert(Capability::ServerToolCodeExecution);
+            }
+            _ => {}
+        }
+    }
+
     for message in &conversation.messages {
         for part in &message.content {
             match part {
@@ -195,4 +210,64 @@ pub fn ensure_supported(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use loom_core::{ProviderBinding, ServerTool};
+    use uuid::Uuid;
+
+    fn conversation() -> Conversation {
+        Conversation::new(Uuid::new_v4(), ProviderBinding::new("anthropic", "m"))
+    }
+
+    #[test]
+    fn offered_server_tools_require_their_hosted_capability() {
+        let mut options = ConversationOptions::new();
+        options.server_tools = vec![
+            ServerTool::WebSearch {
+                max_uses: None,
+                allowed_domains: None,
+                blocked_domains: None,
+            },
+            ServerTool::CodeExecution {},
+        ];
+        let required = required_capabilities(&conversation(), &options);
+        assert!(required.contains(&Capability::ServerToolWebSearch));
+        assert!(required.contains(&Capability::ServerToolCodeExecution));
+    }
+
+    #[test]
+    fn raw_server_tool_requires_no_inferred_capability() {
+        let mut options = ConversationOptions::new();
+        options.server_tools = vec![ServerTool::Raw(serde_json::json!({
+            "type": "web_fetch_20250910",
+            "name": "web_fetch"
+        }))];
+        // Loom cannot infer a Raw passthrough's capability; it is left to the
+        // provider rather than blocking the request here.
+        assert!(required_capabilities(&conversation(), &options).is_empty());
+    }
+
+    #[test]
+    fn negotiation_rejects_a_model_missing_a_server_tool_capability() {
+        let mut options = ConversationOptions::new();
+        options.server_tools = vec![ServerTool::WebSearch {
+            max_uses: None,
+            allowed_domains: None,
+            blocked_domains: None,
+        }];
+        // A model that streams and calls client tools but hosts no web search.
+        let model = ModelDescriptor::new("m", [Capability::ClientTools]);
+        let required = required_capabilities(&conversation(), &options);
+        let error = ensure_supported("anthropic", &model, &required)
+            .expect_err("web search unsupported must fail fast");
+        match error {
+            ProviderError::CapabilityUnsupported { capability, .. } => {
+                assert_eq!(capability, Capability::ServerToolWebSearch);
+            }
+            other => panic!("expected CapabilityUnsupported, got {other:?}"),
+        }
+    }
 }

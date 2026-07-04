@@ -1,0 +1,48 @@
+{
+  "id": "msg_ws",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-8",
+  "content": [
+    { "type": "text", "text": "Let me search the web." },
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_ws",
+      "name": "web_search",
+      "input": { "query": "loom gateway release notes" }
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_ws",
+      "content": [
+        {
+          "type": "web_search_result",
+          "title": "Loom 0.1 released",
+          "url": "https://example.com/loom-0-1",
+          "encrypted_content": "AbCdEf...opaque...==",
+          "page_age": "2 days ago"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Loom 0.1 shipped two days ago.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://example.com/loom-0-1",
+          "title": "Loom 0.1 released",
+          "cited_text": "Loom 0.1 released",
+          "encrypted_index": "AbCdEf=="
+        }
+      ]
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 57,
+    "server_tool_use": { "web_search_requests": 1 }
+  }
+}

@@ -90,6 +90,53 @@ async fn complete_sends_the_translated_request_body() {
 }
 
 #[tokio::test]
+async fn server_tool_feature_adds_the_catalogue_driven_beta_header() {
+    let server = MockServer::start().await;
+
+    // A code-execution server tool drives the `anthropic-beta` header, keyed off
+    // the catalogue's feature→beta mapping. The mock only matches when that
+    // header is present with the expected token.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("anthropic-beta", "code-execution-2025-05-22"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_fixture()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut options = ConversationOptions::new();
+    options.server_tools = vec![loom_core::ServerTool::CodeExecution {}];
+
+    provider(&server)
+        .complete(&conversation(), &options)
+        .await
+        .expect("code-execution request carries its beta header");
+}
+
+#[tokio::test]
+async fn configured_beta_is_added_without_a_release() {
+    let server = MockServer::start().await;
+
+    // An operator can adopt a new beta via provider config, with no server tool
+    // and no request-shape change.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("anthropic-beta", "experimental-2027-01-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_fixture()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    AnthropicProvider::new("test-key")
+        .expect("build provider")
+        .with_base_url(server.uri())
+        .with_beta("experimental-2027-01-01")
+        .complete(&conversation(), &ConversationOptions::new())
+        .await
+        .expect("configured beta rides the header");
+}
+
+#[tokio::test]
 async fn retries_on_transient_5xx_then_succeeds() {
     let server = MockServer::start().await;
 

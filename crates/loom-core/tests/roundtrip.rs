@@ -5,7 +5,8 @@
 use chrono::{TimeZone, Utc};
 use loom_core::{
     CacheHint, CacheNegotiation, CacheTtl, Citation, ContentPart, Conversation,
-    ConversationOptions, MediaSource, Message, ProviderBinding, Role, ToolDefinition, Usage,
+    ConversationOptions, MediaSource, Message, ProviderBinding, Role, ServerTool, ToolDefinition,
+    Usage,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -182,12 +183,56 @@ fn conversation_options_roundtrips() {
     }];
     options.auto_cache = true;
     options.cache_negotiation = CacheNegotiation::HardFail;
+    options.server_tools = vec![
+        ServerTool::WebSearch {
+            max_uses: Some(5),
+            allowed_domains: Some(vec!["example.com".into()]),
+            blocked_domains: None,
+        },
+        ServerTool::CodeExecution {},
+        // The Raw passthrough carries a native tool definition verbatim.
+        ServerTool::Raw(json!({ "type": "web_search_20250305", "name": "web_search" })),
+    ];
     options.provider_options.insert(
         "anthropic".to_owned(),
         json!({ "tool_choice": { "type": "auto" }, "top_p": 0.9 }),
     );
     assert_json_roundtrip(&options);
     assert_json_roundtrip(&ConversationOptions::new());
+}
+
+#[test]
+fn server_tool_variants_roundtrip_and_are_kind_tagged() {
+    let tools = vec![
+        ServerTool::WebSearch {
+            max_uses: None,
+            allowed_domains: None,
+            blocked_domains: None,
+        },
+        ServerTool::WebSearch {
+            max_uses: Some(3),
+            allowed_domains: None,
+            blocked_domains: Some(vec!["spam.example".into()]),
+        },
+        ServerTool::CodeExecution {},
+        ServerTool::Raw(json!({ "type": "code_execution_20250522", "name": "code_execution" })),
+    ];
+    for tool in &tools {
+        assert_json_roundtrip(tool);
+    }
+
+    // The discriminator is a Loom-owned `kind`, distinct from any provider-native
+    // `type` a Raw payload carries.
+    assert_eq!(
+        serde_json::to_value(ServerTool::CodeExecution {}).unwrap(),
+        json!({ "kind": "code_execution" })
+    );
+    let raw = serde_json::to_value(ServerTool::Raw(
+        json!({ "type": "web_search_20250305", "name": "web_search" }),
+    ))
+    .unwrap();
+    assert_eq!(raw["kind"], json!("raw"));
+    assert_eq!(raw["type"], json!("web_search_20250305"));
 }
 
 #[test]

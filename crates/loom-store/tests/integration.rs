@@ -532,6 +532,62 @@ async fn usage_events_record_and_rollup() {
     assert_eq!(rollup.cache_write_tokens, 6);
 }
 
+/// Server-tool usage (a web-search request count) is priced from the seeded
+/// per-request rate and shows up in a grouped rollup's cost — the end-to-end
+/// "server-tool usage priced in a rollup" path for issue #12.
+#[tokio::test]
+async fn server_tool_usage_is_priced_into_a_rollup() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("srvtool", "Server Tool Tenant"))
+        .await
+        .unwrap();
+
+    // A turn that used the web-search server tool three times, with no tokens so
+    // the whole cost comes from the server-tool charge.
+    let mut usage = Usage::new();
+    usage
+        .server_tool_use
+        .insert("web_search_requests".to_owned(), 3);
+
+    // Price it exactly as the turn runner does: the effective seeded price for
+    // (anthropic, claude-opus-4-8) at the event instant.
+    let at = Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+    let price = store
+        .get_effective_price("anthropic", "claude-opus-4-8", at)
+        .await
+        .unwrap()
+        .expect("seeded opus price");
+    let cost = Pricer::cost(&usage, &price);
+    // Seeded web_search_requests price is 0.01/request → 3 * 0.01 = 0.03.
+    assert_eq!(cost, Decimal::new(3, 2));
+
+    store
+        .record_event(NewUsageEvent {
+            tenant_id: tenant.id,
+            virtual_key_id: None,
+            conversation_id: None,
+            provider: "anthropic".to_owned(),
+            model: "claude-opus-4-8".to_owned(),
+            usage: usage.clone(),
+            cost: Some(cost),
+        })
+        .await
+        .unwrap();
+
+    let rows = store
+        .rollup_grouped(tenant.id, None, None, RollupGroup::Model)
+        .await
+        .unwrap();
+    let opus = rows
+        .iter()
+        .find(|row| row.group.as_deref() == Some("claude-opus-4-8"))
+        .expect("opus rollup row");
+    assert_eq!(opus.event_count, 1);
+    // The server-tool charge is summed into the rollup's cost.
+    assert_eq!(opus.cost, Decimal::new(3, 2));
+}
+
 /// The seeded Anthropic prices load, and a newer price version supersedes the
 /// old one only from its `effective_from` onward — older instants keep the old
 /// price. This is the core of "price versioning affects new events only".

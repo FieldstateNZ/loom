@@ -32,14 +32,25 @@
 //! These functions are pure and free of I/O, so they can be exercised directly
 //! against recorded fixtures.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use loom_core::{
     CacheHint, CacheTtl, Citation, ContentPart, Conversation, ConversationOptions, MediaSource,
-    Message, Role, ToolDefinition, Usage,
+    Message, Role, ServerTool, ToolDefinition, Usage,
 };
 use loom_provider::StopReason;
 use serde_json::{json, Map, Value};
+
+use crate::catalogue::{feature_beta, BetaFeature};
+
+/// The native `type` for Anthropic's web search server tool.
+const WEB_SEARCH_TOOL_TYPE: &str = "web_search_20250305";
+/// The native `type` for Anthropic's code execution server tool.
+const CODE_EXECUTION_TOOL_TYPE: &str = "code_execution_20250522";
+/// The reserved `provider_options["anthropic"]` key carrying caller-supplied
+/// `anthropic-beta` tokens. It is consumed for the request header and never
+/// merged into the request body.
+const RESERVED_BETAS_KEY: &str = "betas";
 
 /// The `max_tokens` used when the caller does not specify one.
 ///
@@ -88,8 +99,11 @@ pub fn translate_request(conversation: &Conversation, options: &ConversationOpti
         .collect();
     root.insert("messages".into(), Value::Array(messages));
 
-    if !options.tools.is_empty() {
-        let tools = options.tools.iter().map(tool_to_native).collect();
+    // Client tools and server (provider-executed) tools share the native
+    // `tools` array; server-tool entries are native versioned tool definitions.
+    let mut tools: Vec<Value> = options.tools.iter().map(tool_to_native).collect();
+    tools.extend(options.server_tools.iter().map(server_tool_to_native));
+    if !tools.is_empty() {
         root.insert("tools".into(), Value::Array(tools));
     }
 
@@ -106,9 +120,14 @@ pub fn translate_request(conversation: &Conversation, options: &ConversationOpti
     }
 
     // Merge the native options bag transparently, last-write-wins, so callers
-    // can pass — or override — anything Anthropic accepts.
+    // can pass — or override — anything Anthropic accepts. The reserved `betas`
+    // key is a header directive, not a body field, so it is skipped here (see
+    // `required_betas`).
     if let Some(Value::Object(bag)) = options.provider_options.get("anthropic") {
         for (key, value) in bag {
+            if key == RESERVED_BETAS_KEY {
+                continue;
+            }
             root.insert(key.clone(), value.clone());
         }
     }
@@ -157,6 +176,63 @@ pub fn strip_cache_control(value: &mut Value) {
         }
         _ => {}
     }
+}
+
+/// Computes the set of `anthropic-beta` tokens a request requires, deterministic
+/// and de-duplicated.
+///
+/// The set is the union of:
+///
+/// - the catalogue-driven default token for each server-tool feature the
+///   request uses (see [`feature_beta`]); and
+/// - any tokens the caller supplied verbatim through the reserved
+///   `provider_options["anthropic"]["betas"]` array.
+///
+/// This is the mechanism that lets a new beta be adopted **without a Loom
+/// release**: a caller adds the token to `betas` (to add), and can override a
+/// stale default by disabling auto-derivation on the provider and supplying the
+/// full set. The [`AnthropicProvider`](crate::AnthropicProvider) merges these
+/// with any betas configured on the provider itself and sends them as the
+/// `anthropic-beta` header.
+#[must_use]
+pub fn required_betas(_conversation: &Conversation, options: &ConversationOptions) -> Vec<String> {
+    let mut betas = BTreeSet::new();
+
+    for tool in &options.server_tools {
+        let feature = match tool {
+            ServerTool::WebSearch { .. } => Some(BetaFeature::WebSearch),
+            ServerTool::CodeExecution { .. } => Some(BetaFeature::CodeExecution),
+            // A `Raw` passthrough's beta (if any) is the caller's responsibility
+            // via the `betas` override; Loom cannot infer it.
+            _ => None,
+        };
+        if let Some(token) = feature.and_then(feature_beta) {
+            betas.insert(token.to_owned());
+        }
+    }
+
+    for token in configured_betas(options) {
+        betas.insert(token);
+    }
+
+    betas.into_iter().collect()
+}
+
+/// Reads caller-supplied `anthropic-beta` tokens from the reserved
+/// `provider_options["anthropic"]["betas"]` array, ignoring non-string entries.
+fn configured_betas(options: &ConversationOptions) -> Vec<String> {
+    options
+        .provider_options
+        .get("anthropic")
+        .and_then(|bag| bag.get(RESERVED_BETAS_KEY))
+        .and_then(Value::as_array)
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Maps a native Anthropic Messages response into an assistant [`Message`],
@@ -342,6 +418,44 @@ fn tool_to_native(tool: &ToolDefinition) -> Value {
         obj.insert("cache_control".into(), cache_hint_to_native(hint));
     }
     Value::Object(obj)
+}
+
+/// Maps a [`ServerTool`] to its native Anthropic versioned tool entry.
+///
+/// [`ServerTool::WebSearch`] and [`ServerTool::CodeExecution`] map to their
+/// native `{ "type": "<versioned>", "name": … }` shapes; [`ServerTool::Raw`]
+/// forwards its wrapped native definition verbatim so a caller can drive a
+/// server tool Loom does not model yet.
+fn server_tool_to_native(tool: &ServerTool) -> Value {
+    match tool {
+        ServerTool::WebSearch {
+            max_uses,
+            allowed_domains,
+            blocked_domains,
+        } => {
+            let mut obj = Map::new();
+            obj.insert("type".into(), json!(WEB_SEARCH_TOOL_TYPE));
+            obj.insert("name".into(), json!("web_search"));
+            if let Some(max_uses) = max_uses {
+                obj.insert("max_uses".into(), json!(max_uses));
+            }
+            if let Some(allowed_domains) = allowed_domains {
+                obj.insert("allowed_domains".into(), json!(allowed_domains));
+            }
+            if let Some(blocked_domains) = blocked_domains {
+                obj.insert("blocked_domains".into(), json!(blocked_domains));
+            }
+            Value::Object(obj)
+        }
+        ServerTool::CodeExecution {} => {
+            json!({ "type": CODE_EXECUTION_TOOL_TYPE, "name": "code_execution" })
+        }
+        // The escape hatch carries the native tool definition verbatim.
+        ServerTool::Raw(definition) => definition.clone(),
+        // `ServerTool` is `#[non_exhaustive]`; a future variant Loom does not
+        // yet map is emitted as an empty object rather than panicking.
+        _ => json!({}),
+    }
 }
 
 /// Serialises a [`MediaSource`] to its native Anthropic `source` object.
