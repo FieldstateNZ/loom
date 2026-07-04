@@ -231,10 +231,10 @@ async fn non_streaming_turn_records_priced_usage_with_cache_split() {
     let turn_json: Value = serde_json::from_str(&turn_body).expect("turn body is JSON");
     let turn_cost_amount = turn_json["cost"]["amount"]
         .as_str()
-        .map(str::to_owned)
-        .unwrap_or_else(|| turn_json["cost"]["amount"].to_string());
-    assert!(
-        turn_cost_amount.contains("36.75"),
+        .expect("TurnCost.amount serialises as a string");
+    assert_eq!(
+        turn_cost_amount.parse::<Decimal>().unwrap().normalize(),
+        "36.75".parse::<Decimal>().unwrap().normalize(),
         "turn cost was {turn_cost_amount}"
     );
     assert_eq!(turn_json["cost"]["currency"], "USD");
@@ -432,8 +432,9 @@ async fn usage_write_failure_lands_in_outbox_and_drains() {
     let turn_cost_amount = turn_json["cost"]["amount"]
         .as_str()
         .expect("TurnCost.amount serialises as a string");
-    assert!(
-        turn_cost_amount.contains("30"),
+    assert_eq!(
+        turn_cost_amount.parse::<Decimal>().unwrap().normalize(),
+        "30".parse::<Decimal>().unwrap().normalize(),
         "turn cost was {turn_cost_amount}"
     );
     assert_eq!(turn_json["cost"]["currency"], "USD");

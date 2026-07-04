@@ -27,13 +27,23 @@ import { usageSchema } from "./usage.js";
  * shapes are accepted here so an unrecognised reason still parses instead of
  * failing validation.
  */
-export const stopReasonSchema = z.union([
-  z.enum(["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"]),
-  z.object({ other: z.string() }),
-]);
+/**
+ * The known stop reasons, kept as editor hints only. The wire may carry others:
+ * `StopReason` is `#[non_exhaustive]` in Rust and its unit variants serialize as
+ * bare strings, so an unrecognised reason must still parse (see the doc above).
+ */
+type KnownStopReason =
+  | "end_turn"
+  | "max_tokens"
+  | "stop_sequence"
+  | "tool_use"
+  | "pause_turn"
+  | "refusal";
+
+export const stopReasonSchema = z.union([z.string(), z.object({ other: z.string() })]);
 
 /** The reason a provider stopped generating a turn. */
-export type StopReason = z.infer<typeof stopReasonSchema>;
+export type StopReason = KnownStopReason | (string & {}) | { readonly other: string };
 
 /** The normalised, provider-agnostic classification of a {@link TurnEvent}. */
 export const turnEventKindSchema = z.discriminatedUnion("type", [
