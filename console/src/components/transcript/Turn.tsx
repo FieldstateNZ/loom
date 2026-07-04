@@ -4,9 +4,9 @@ import type { TurnUsage } from "../../api/types.ts";
 
 export interface TurnProps {
   role?: "user" | "assistant" | "system";
-  time?: string;
-  model?: string;
-  usage?: TurnUsage;
+  time?: string | undefined;
+  model?: string | undefined;
+  usage?: TurnUsage | undefined;
   children?: ReactNode;
   style?: CSSProperties;
 }

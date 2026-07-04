@@ -4,7 +4,7 @@ export interface SparklineProps {
   data?: number[];
   width?: number | string;
   height?: number | string;
-  color?: string;
+  color?: string | undefined;
   fill?: boolean;
   strokeWidth?: number;
   style?: CSSProperties;

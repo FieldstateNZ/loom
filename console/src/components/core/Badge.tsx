@@ -6,7 +6,7 @@ export type BadgeTone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent"
 export interface BadgeProps {
   tone?: BadgeTone;
   caps?: boolean;
-  icon?: IconName;
+  icon?: IconName | undefined;
   children?: ReactNode;
   style?: CSSProperties;
 }

@@ -17,7 +17,7 @@ export interface BlockFrameProps {
   kind: string;
   name?: ReactNode;
   meta?: ReactNode;
-  tone?: "danger";
+  tone?: "danger" | undefined;
   collapsible?: boolean;
   defaultOpen?: boolean;
   children?: ReactNode;

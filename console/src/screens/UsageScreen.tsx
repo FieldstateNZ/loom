@@ -58,7 +58,7 @@ export function UsageScreen({ data, range }: UsageScreenProps) {
           <LineChart area height={180}
             series={[{ name: "cost", color: "var(--series-1)", data: u.cost }]}
             yFormat={(v) => formatMoney(v, { compact: true })}
-            xLabels={[u.labels[0], "", "", u.labels[3], "", "", u.labels[6]]} />
+            xLabels={[u.labels[0] ?? "", "", "", u.labels[3] ?? "", "", "", u.labels[6] ?? ""]} />
         </Card>
         <Card eyebrow="Tokens — cache split">
           <BarChart height={180}
@@ -69,7 +69,7 @@ export function UsageScreen({ data, range }: UsageScreenProps) {
               { name: "cache write", color: "var(--cache-write)", data: u.cacheWrite },
             ]}
             yFormat={formatTokens}
-            xLabels={[u.labels[0], "", "", u.labels[3], "", "", u.labels[6]]}
+            xLabels={[u.labels[0] ?? "", "", "", u.labels[3] ?? "", "", "", u.labels[6] ?? ""]}
             titles={u.labels} />
         </Card>
       </div>

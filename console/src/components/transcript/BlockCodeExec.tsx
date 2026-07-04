@@ -2,11 +2,11 @@ import type { CSSProperties } from "react";
 import { BlockFrame, JsonPre } from "./blockBase.tsx";
 
 export interface BlockCodeExecProps {
-  lang?: string;
-  code?: string;
-  stdout?: string;
-  stderr?: string;
-  exitCode?: number;
+  lang?: string | undefined;
+  code?: string | undefined;
+  stdout?: string | undefined;
+  stderr?: string | undefined;
+  exitCode?: number | undefined;
   style?: CSSProperties;
 }
 

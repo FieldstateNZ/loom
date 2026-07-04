@@ -46,7 +46,7 @@ function TenantDetail({ data, t }: { data: LoomSnapshot; t: Tenant }) {
         <LineChart area height={150}
           series={[{ name: "spend", color: "var(--series-1)", data: spendSeries }]}
           yFormat={(v) => formatMoney(v, { compact: true })}
-          xLabels={[u.labels[0], "", "", u.labels[3], "", "", u.labels[6]]} />
+          xLabels={[u.labels[0] ?? "", "", "", u.labels[3] ?? "", "", "", u.labels[6] ?? ""]} />
       </Card>
       <Card eyebrow="Keys" flush>
         <DataTable rowKey="id" columns={keyColumns} rows={keys} />

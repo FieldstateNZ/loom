@@ -4,10 +4,10 @@ import { Icon } from "../core/Icon.tsx";
 
 export interface BlockToolUseProps {
   name: string;
-  via?: string;
+  via?: string | undefined;
   input?: unknown;
   result?: unknown;
-  isError?: boolean;
+  isError?: boolean | undefined;
   defaultOpen?: boolean;
   style?: CSSProperties;
 }

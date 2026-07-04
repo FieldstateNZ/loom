@@ -70,9 +70,9 @@ export interface HttpClientOptions {
   /** The gateway's base URL, e.g. `https://gateway.example.com` (no trailing slash needed). */
   baseUrl: string;
   /** The root admin token, for the `/admin` surface (key/tenant provisioning). */
-  adminToken?: string;
+  adminToken?: string | undefined;
   /** A tenant virtual key (`loom_…`), for the tenant-scoped `/v1` surface. */
-  apiKey?: string;
+  apiKey?: string | undefined;
 }
 
 /**
@@ -207,7 +207,7 @@ export function createHttpClient(opts: HttpClientOptions): LoomClient {
     const res = await fetch(`${baseUrl}${path}`, {
       method: init.method ?? "GET",
       headers,
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     });
 
     if (res.status === 404 && init.allow404) return null;
@@ -276,7 +276,7 @@ export function createHttpClient(opts: HttpClientOptions): LoomClient {
             label: r.group ?? "(unknown)",
             value: r.cost,
             display: `$${r.cost.toFixed(2)}`,
-            color: SERIES_COLORS[i % SERIES_COLORS.length],
+            color: SERIES_COLORS[i % SERIES_COLORS.length] ?? "var(--series-1)",
           }));
 
         topKeys = keyRows
@@ -631,8 +631,10 @@ function mapPart(
       } else if (CODE_EXEC_NAMES.test(name)) {
         const block: CodeExecBlock = { type: "code_exec" };
         if (input) {
-          if (str(input.code)) block.code = str(input.code);
-          if (str(input.language)) block.lang = str(input.language);
+          const code = str(input.code);
+          const lang = str(input.language);
+          if (code) block.code = code;
+          if (lang) block.lang = lang;
         }
         if (id) pending.set(id, block);
         blocks.push(block);
@@ -695,8 +697,10 @@ function parseWebSearchResults(content: unknown): WebSearchResult[] {
 function applyCodeExecResult(block: CodeExecBlock, content: unknown): void {
   const r = asRecord(content) ?? asRecord(asRecord(content)?.content);
   if (!r) return;
-  if (str(r.stdout) != null) block.stdout = str(r.stdout);
-  if (str(r.stderr) != null) block.stderr = str(r.stderr);
+  const stdout = str(r.stdout);
+  const stderr = str(r.stderr);
+  if (stdout != null) block.stdout = stdout;
+  if (stderr != null) block.stderr = stderr;
   if (r.return_code != null) block.exitCode = num(r.return_code);
   else if (r.exit_code != null) block.exitCode = num(r.exit_code);
 }

@@ -11,9 +11,9 @@ const LoomContext = createContext<LoomClient | null>(null);
 export interface LoomConfig {
   /** True when a live base URL is configured (env / ?api= / localStorage). */
   live: boolean;
-  baseUrl?: string;
-  adminToken?: string;
-  apiKey?: string;
+  baseUrl?: string | undefined;
+  adminToken?: string | undefined;
+  apiKey?: string | undefined;
 }
 
 function firstNonEmpty(...vals: (string | undefined | null)[]): string | undefined {

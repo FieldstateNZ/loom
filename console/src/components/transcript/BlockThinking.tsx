@@ -2,7 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import { Icon } from "../core/Icon.tsx";
 
 export interface BlockThinkingProps {
-  duration?: string;
+  duration?: string | undefined;
   defaultOpen?: boolean;
   children?: ReactNode;
   style?: CSSProperties;

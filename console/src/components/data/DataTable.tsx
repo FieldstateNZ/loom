@@ -29,7 +29,7 @@ export function DataTable<T>({
   empty,
   style,
 }: DataTableProps<T>) {
-  const cellCls = (col: { align?: string; mono?: boolean; muted?: boolean }) =>
+  const cellCls = (col: { align?: string | undefined; mono?: boolean; muted?: boolean }) =>
     [
       col.align === "right" ? "lm-table__right" : col.align === "center" ? "lm-table__center" : "",
       col.mono ? "lm-table__mono" : "",

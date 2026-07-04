@@ -55,7 +55,7 @@ function CreateKeyDialog({ open, onClose, onCreated, tenants }: CreateKeyDialogP
   };
 
   const scopeRow = (id: string, label: string, hint: string) => (
-    <Switch key={id} checked={scopes[id]} onChange={(v) => setScopes({ ...scopes, [id]: v })}
+    <Switch key={id} checked={scopes[id] ?? false} onChange={(v) => setScopes({ ...scopes, [id]: v })}
       label={<span>{label} <span style={{ color: "var(--fg-3)" }}>— {hint}</span></span>} />
   );
 
