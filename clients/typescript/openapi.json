@@ -8,8 +8,8 @@
       "email": "hello@fieldstate.nz"
     },
     "license": {
-      "name": "AGPL-3.0-only",
-      "identifier": "AGPL-3.0-only"
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
     },
     "version": "0.1.0"
   },
