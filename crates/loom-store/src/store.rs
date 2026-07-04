@@ -279,21 +279,47 @@ pub trait BatchStore {
     /// for the poll worker building the provider submission.
     async fn get_batch_items(&self, batch_id: Uuid) -> Result<Vec<BatchItem>>;
 
-    /// Records that a job was submitted to the provider: stores the
-    /// provider-native batch id and initial counts and moves the job to
-    /// `in_progress`. Clears any prior transient error.
+    /// Atomically claims a `created` job for submission, flipping it to
+    /// `submitting` (`UPDATE … WHERE id = $1 AND status = 'created'`). Returns
+    /// `true` only for the caller that won the claim; a concurrent worker — or a
+    /// cancel that already finalised the job — sees `false` and must not submit.
+    /// This is the guard that makes the `created → provider` transition
+    /// exactly-once even with more than one poll worker (`replicas > 1`).
+    ///
+    /// Scoped to `tenant_id` (the worker carries the job's tenant) for
+    /// defence-in-depth.
+    async fn claim_batch_for_submission(&self, tenant_id: Uuid, id: Uuid) -> Result<bool>;
+
+    /// Records that a claimed job was submitted to the provider: stores the
+    /// provider-native batch id and initial counts and, **only if the job is
+    /// still `submitting`**, moves it to `in_progress`. If a cancellation raced
+    /// in and moved the job to `canceling` while it was submitting, the status
+    /// is left `canceling` (so the worker relays the cancellation to the
+    /// provider) but the provider batch id is still recorded. Guarded on
+    /// `status IN ('submitting', 'canceling')` so a finalised (`ended`) job can
+    /// never be resurrected. Clears any prior transient error. Scoped to
+    /// `tenant_id`.
     async fn mark_batch_submitted(
         &self,
+        tenant_id: Uuid,
         id: Uuid,
         provider_batch_id: &str,
         counts: BatchCounts,
     ) -> Result<()>;
 
+    /// Releases a claim after a failed provider submission: reverts a
+    /// `submitting` job back to `created` (guarded `WHERE status = 'submitting'`)
+    /// and records `error`, so the job is retried on a later pass rather than
+    /// stranded in `submitting`. A no-op if the job is no longer `submitting`
+    /// (e.g. a cancellation moved it to `canceling`). Scoped to `tenant_id`.
+    async fn release_batch_submission(&self, tenant_id: Uuid, id: Uuid, error: &str) -> Result<()>;
+
     /// Applies a poll result: updates counts and status, and — when the job has
     /// ended — records the `results_url` and `ended_at`. Clears any prior
-    /// transient error.
+    /// transient error. Scoped to `tenant_id`.
     async fn update_batch_progress(
         &self,
+        tenant_id: Uuid,
         id: Uuid,
         status: BatchStatus,
         counts: BatchCounts,
@@ -301,10 +327,19 @@ pub trait BatchStore {
         ended_at: Option<DateTime<Utc>>,
     ) -> Result<()>;
 
+    /// Finalises a job as `ended`/canceled locally without any provider
+    /// round-trip: marks every still-pending item canceled and sets
+    /// `canceled_count = total_items`. Used both when a `created` job is
+    /// cancelled before submission and when a cancel-during-submission never
+    /// produced a provider batch. Idempotent (guarded `WHERE status <> 'ended'`)
+    /// and scoped to `tenant_id`.
+    async fn finalize_batch_canceled(&self, tenant_id: Uuid, id: Uuid) -> Result<()>;
+
     /// Persists one item's resolved result (status + payload), keyed by
-    /// `(batch_id, custom_id)`.
+    /// `(batch_id, custom_id)` and scoped to `tenant_id`.
     async fn save_batch_item_result(
         &self,
+        tenant_id: Uuid,
         batch_id: Uuid,
         custom_id: &str,
         status: BatchItemStatus,
@@ -313,17 +348,20 @@ pub trait BatchStore {
 
     /// Requests cancellation of a tenant's job.
     ///
-    /// A job that has not yet been submitted (`created`, no provider batch id)
-    /// is finalised immediately as `ended` with every item canceled. A job the
-    /// provider is already running moves to `canceling` so the worker can relay
-    /// the cancellation. Returns the updated job, or `None` if it does not exist
-    /// or belongs to another tenant. An already-`ended` job is returned
-    /// unchanged (idempotent).
+    /// A `created` job (never submitted) is finalised immediately as `ended`
+    /// with every item canceled. A job that is `submitting` (claimed by the
+    /// worker but not yet live) or `in_progress` moves to `canceling`, so the
+    /// worker relays the cancellation to the provider instead of the job going
+    /// live — critically, a `submitting` job is **not** finalised locally, which
+    /// would let a concurrent `mark_batch_submitted` clobber it back to running.
+    /// Returns the updated job, or `None` if it does not exist or belongs to
+    /// another tenant. An already-`ended` job is returned unchanged (idempotent).
     async fn request_batch_cancel(&self, tenant_id: Uuid, id: Uuid) -> Result<Option<BatchJob>>;
 
     /// Records a transient provider/poll error against a job **without** changing
-    /// its status, so a provider fault never corrupts the lifecycle.
-    async fn set_batch_error(&self, id: Uuid, error: &str) -> Result<()>;
+    /// its status, so a provider fault never corrupts the lifecycle. Scoped to
+    /// `tenant_id`.
+    async fn set_batch_error(&self, tenant_id: Uuid, id: Uuid, error: &str) -> Result<()>;
 }
 
 /// Persistence for the usage outbox — the failure-mode safety net.

@@ -433,6 +433,14 @@ pub struct UsageRollupRow {
     /// Total computed cost across the group's events (events with no computed
     /// cost contribute zero).
     pub cost: Decimal,
+    /// The portion of [`cost`](Self::cost) from batch-tier (asynchronous) usage
+    /// — events with `is_batch = true`. Together with
+    /// [`interactive_cost`](Self::interactive_cost) this splits the group's
+    /// spend so batch and interactive usage can be told apart in a rollup.
+    pub batch_cost: Decimal,
+    /// The portion of [`cost`](Self::cost) from interactive usage — events with
+    /// `is_batch = false`.
+    pub interactive_cost: Decimal,
 }
 
 /// A versioned per-model price row.
@@ -524,14 +532,25 @@ pub struct OutboxEntry {
 /// The lifecycle status of a [`BatchJob`].
 ///
 /// The happy path is [`Created`](Self::Created) →
-/// [`InProgress`](Self::InProgress) → [`Ended`](Self::Ended); a cancel request
-/// moves an in-flight job through [`Canceling`](Self::Canceling) before it
-/// settles at `Ended`.
+/// [`Submitting`](Self::Submitting) → [`InProgress`](Self::InProgress) →
+/// [`Ended`](Self::Ended); a cancel request moves an in-flight job through
+/// [`Canceling`](Self::Canceling) before it settles at `Ended`.
+///
+/// [`Submitting`](Self::Submitting) is a short-lived **claim** state: the poll
+/// worker flips `created → submitting` atomically before it calls the provider,
+/// so exactly one worker (even across replicas) ever submits a given job. See
+/// [`BatchStore::claim_batch_for_submission`](crate::BatchStore::claim_batch_for_submission).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BatchStatus {
     /// Accepted and persisted, not yet submitted to the provider.
     Created,
+    /// Claimed by the poll worker for submission: the `created → submitting`
+    /// transition is an atomic claim, so a concurrent worker cannot also submit
+    /// the same job. Left only by a guarded `mark_batch_submitted`
+    /// (`→ in_progress`) or `release_batch_submission` (`→ created`, on a submit
+    /// failure).
+    Submitting,
     /// Submitted to the provider and being processed.
     InProgress,
     /// A cancellation has been requested; the provider is winding the batch
@@ -548,6 +567,7 @@ impl BatchStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Created => "created",
+            Self::Submitting => "submitting",
             Self::InProgress => "in_progress",
             Self::Canceling => "canceling",
             Self::Ended => "ended",
@@ -559,6 +579,7 @@ impl BatchStatus {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "created" => Some(Self::Created),
+            "submitting" => Some(Self::Submitting),
             "in_progress" => Some(Self::InProgress),
             "canceling" => Some(Self::Canceling),
             "ended" => Some(Self::Ended),

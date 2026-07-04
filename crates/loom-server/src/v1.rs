@@ -416,13 +416,15 @@ async fn stateless_turn(
 }
 
 /// Enforces per-key rate limits and the effective budget before a provider
-/// call, shared by the stateful and stateless turn paths.
+/// call, shared by the stateful and stateless turn paths — and by batch
+/// creation ([`crate::batch::create_batch`]), so an async batch cannot bypass a
+/// tenant's budget block or rate limit.
 ///
 /// Returns `Err` with a `429` (rate limit) or `402` (blocked budget); returns
 /// `Ok(Some(warning))` when a `warn`-action budget is over its soft limit (the
 /// caller surfaces it as the `x-loom-budget-warning` header) and `Ok(None)`
 /// otherwise.
-async fn enforce_limits(
+pub(crate) async fn enforce_limits(
     state: &AppState,
     ctx: &TenantContext,
 ) -> Result<Option<BudgetWarning>, ApiError> {
@@ -467,6 +469,10 @@ struct UsageRollupRowDto {
     cache_write_tokens: i64,
     /// Total computed cost across the group.
     cost: Decimal,
+    /// The portion of `cost` from batch-tier (asynchronous) usage.
+    batch_cost: Decimal,
+    /// The portion of `cost` from interactive usage.
+    interactive_cost: Decimal,
 }
 
 impl From<UsageRollupRow> for UsageRollupRowDto {
@@ -479,6 +485,8 @@ impl From<UsageRollupRow> for UsageRollupRowDto {
             cache_read_tokens: row.cache_read_tokens,
             cache_write_tokens: row.cache_write_tokens,
             cost: row.cost,
+            batch_cost: row.batch_cost,
+            interactive_cost: row.interactive_cost,
         }
     }
 }

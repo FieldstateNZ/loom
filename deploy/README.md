@@ -227,6 +227,20 @@ per-tenant rate/budget enforcement matters.** Both staging and production
 profiles default to `replicaCount: 1` for this reason. The chart's `NOTES.txt`
 re-emits this warning whenever you install with more than one replica.
 
+**The batch poll worker is safe under `replicas > 1`.** Each replica runs a
+worker, but a batch job's `created → provider` submission is an **atomic claim**
+(`UPDATE … WHERE status = 'created'`, flipping the job to `submitting`) — only
+the replica that wins the claim submits, so a job is never submitted to the
+provider twice (no duplicate provider batches, no double billing). A
+cancellation that races an in-flight submission is likewise safe: the job is
+moved to `canceling` rather than finalised locally, so a completing submission
+cannot resurrect a canceled batch into a running one. The multi-replica caveat
+above is therefore only about the in-process rate/budget limiter, **not** about
+batch submission. (One residual edge: a replica that crashes in the narrow
+window between provider-submit and recording the result leaves the job in
+`submitting`; the worker never re-submits such a job — preserving exactly-once —
+so it awaits operator reconciliation rather than risking a double submit.)
+
 ---
 
 ## Verifying a deployment

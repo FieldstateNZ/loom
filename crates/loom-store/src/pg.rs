@@ -997,7 +997,9 @@ impl UsageStore for PgStore {
                     COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
                     COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
                     COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
-                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE is_batch), 0)::numeric AS "batch_cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE NOT is_batch), 0)::numeric AS "interactive_cost!"
                 FROM usage_events
                 WHERE tenant_id = $1
                   AND ($2::timestamptz IS NULL OR created_at >= $2)
@@ -1020,6 +1022,8 @@ impl UsageStore for PgStore {
                 cache_read_tokens: r.cache_read_tokens,
                 cache_write_tokens: r.cache_write_tokens,
                 cost: r.cost,
+                batch_cost: r.batch_cost,
+                interactive_cost: r.interactive_cost,
             })
             .collect(),
             RollupGroup::Model => sqlx::query!(
@@ -1031,7 +1035,9 @@ impl UsageStore for PgStore {
                     COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
                     COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
                     COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
-                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE is_batch), 0)::numeric AS "batch_cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE NOT is_batch), 0)::numeric AS "interactive_cost!"
                 FROM usage_events
                 WHERE tenant_id = $1
                   AND ($2::timestamptz IS NULL OR created_at >= $2)
@@ -1054,6 +1060,8 @@ impl UsageStore for PgStore {
                 cache_read_tokens: r.cache_read_tokens,
                 cache_write_tokens: r.cache_write_tokens,
                 cost: r.cost,
+                batch_cost: r.batch_cost,
+                interactive_cost: r.interactive_cost,
             })
             .collect(),
             RollupGroup::Conversation => sqlx::query!(
@@ -1065,7 +1073,9 @@ impl UsageStore for PgStore {
                     COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
                     COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
                     COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
-                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE is_batch), 0)::numeric AS "batch_cost!",
+                    COALESCE(SUM(cost) FILTER (WHERE NOT is_batch), 0)::numeric AS "interactive_cost!"
                 FROM usage_events
                 WHERE tenant_id = $1
                   AND ($2::timestamptz IS NULL OR created_at >= $2)
@@ -1088,6 +1098,8 @@ impl UsageStore for PgStore {
                 cache_read_tokens: r.cache_read_tokens,
                 cache_write_tokens: r.cache_write_tokens,
                 cost: r.cost,
+                batch_cost: r.batch_cost,
+                interactive_cost: r.interactive_cost,
             })
             .collect(),
             // Tenant grouping is gateway-wide, not tenant-scoped; it is served
@@ -1111,7 +1123,9 @@ impl UsageStore for PgStore {
                 COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
                 COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
                 COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
-                COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                COALESCE(SUM(cost), 0)::numeric AS "cost!",
+                COALESCE(SUM(cost) FILTER (WHERE is_batch), 0)::numeric AS "batch_cost!",
+                COALESCE(SUM(cost) FILTER (WHERE NOT is_batch), 0)::numeric AS "interactive_cost!"
             FROM usage_events
             WHERE ($1::timestamptz IS NULL OR created_at >= $1)
               AND ($2::timestamptz IS NULL OR created_at <= $2)
@@ -1133,6 +1147,8 @@ impl UsageStore for PgStore {
                 cache_read_tokens: r.cache_read_tokens,
                 cache_write_tokens: r.cache_write_tokens,
                 cost: r.cost,
+                batch_cost: r.batch_cost,
+                interactive_cost: r.interactive_cost,
             })
             .collect())
     }
@@ -1634,27 +1650,53 @@ impl BatchStore for PgStore {
             .collect())
     }
 
+    async fn claim_batch_for_submission(&self, tenant_id: Uuid, id: Uuid) -> Result<bool> {
+        // The whole point: only the caller that flips `created → submitting`
+        // wins the claim. A concurrent worker (or a cancel that already moved the
+        // job on) matches zero rows and must not submit.
+        let result = sqlx::query!(
+            r#"
+            UPDATE batch_jobs
+            SET status = 'submitting', updated_at = now()
+            WHERE id = $1 AND tenant_id = $2 AND status = 'created'
+            "#,
+            id,
+            tenant_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn mark_batch_submitted(
         &self,
+        tenant_id: Uuid,
         id: Uuid,
         provider_batch_id: &str,
         counts: BatchCounts,
     ) -> Result<()> {
+        // Record the provider batch id and counts. Promote `submitting →
+        // in_progress`, but if a cancellation raced in and moved the job to
+        // `canceling`, keep it `canceling` (the worker will relay the cancel) —
+        // still recording the provider batch id so the cancel can reach it. The
+        // `status IN ('submitting', 'canceling')` guard means an already-ended
+        // job can never be resurrected here.
         sqlx::query!(
             r#"
             UPDATE batch_jobs
-            SET provider_batch_id = $2,
-                status = 'in_progress',
-                processing_count = $3,
-                succeeded_count = $4,
-                errored_count = $5,
-                canceled_count = $6,
-                expired_count = $7,
+            SET provider_batch_id = $3,
+                status = CASE WHEN status = 'submitting' THEN 'in_progress' ELSE status END,
+                processing_count = $4,
+                succeeded_count = $5,
+                errored_count = $6,
+                canceled_count = $7,
+                expired_count = $8,
                 error = NULL,
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND tenant_id = $2 AND status IN ('submitting', 'canceling')
             "#,
             id,
+            tenant_id,
             provider_batch_id,
             counts.processing,
             counts.succeeded,
@@ -1667,8 +1709,25 @@ impl BatchStore for PgStore {
         Ok(())
     }
 
+    async fn release_batch_submission(&self, tenant_id: Uuid, id: Uuid, error: &str) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE batch_jobs
+            SET status = 'created', error = $3, updated_at = now()
+            WHERE id = $1 AND tenant_id = $2 AND status = 'submitting'
+            "#,
+            id,
+            tenant_id,
+            error,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn update_batch_progress(
         &self,
+        tenant_id: Uuid,
         id: Uuid,
         status: BatchStatus,
         counts: BatchCounts,
@@ -1678,19 +1737,20 @@ impl BatchStore for PgStore {
         sqlx::query!(
             r#"
             UPDATE batch_jobs
-            SET status = $2,
-                processing_count = $3,
-                succeeded_count = $4,
-                errored_count = $5,
-                canceled_count = $6,
-                expired_count = $7,
-                results_url = COALESCE($8, results_url),
-                ended_at = COALESCE($9, ended_at),
+            SET status = $3,
+                processing_count = $4,
+                succeeded_count = $5,
+                errored_count = $6,
+                canceled_count = $7,
+                expired_count = $8,
+                results_url = COALESCE($9, results_url),
+                ended_at = COALESCE($10, ended_at),
                 error = NULL,
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND tenant_id = $2
             "#,
             id,
+            tenant_id,
             status.as_str(),
             counts.processing,
             counts.succeeded,
@@ -1705,8 +1765,41 @@ impl BatchStore for PgStore {
         Ok(())
     }
 
+    async fn finalize_batch_canceled(&self, tenant_id: Uuid, id: Uuid) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query!(
+            r#"
+            UPDATE batch_jobs
+            SET status = 'ended',
+                canceled_count = total_items,
+                processing_count = 0,
+                ended_at = now(),
+                updated_at = now()
+            WHERE id = $1 AND tenant_id = $2 AND status <> 'ended'
+            "#,
+            id,
+            tenant_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            r#"
+            UPDATE batch_items
+            SET status = 'canceled'
+            WHERE batch_id = $1 AND tenant_id = $2 AND status = 'pending'
+            "#,
+            id,
+            tenant_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn save_batch_item_result(
         &self,
+        tenant_id: Uuid,
         batch_id: Uuid,
         custom_id: &str,
         status: BatchItemStatus,
@@ -1715,10 +1808,11 @@ impl BatchStore for PgStore {
         sqlx::query!(
             r#"
             UPDATE batch_items
-            SET status = $3, result = $4
-            WHERE batch_id = $1 AND custom_id = $2
+            SET status = $4, result = $5
+            WHERE batch_id = $1 AND tenant_id = $2 AND custom_id = $3
             "#,
             batch_id,
+            tenant_id,
             custom_id,
             status.as_str(),
             result,
@@ -1748,11 +1842,16 @@ impl BatchStore for PgStore {
         };
 
         let status = BatchStatus::parse(&job.status).unwrap_or(BatchStatus::Created);
-        // Already terminal, or not yet submitted, or in flight: pick the right
-        // transition. An already-`ended` job is left untouched (idempotent).
-        if status != BatchStatus::Ended {
-            if job.provider_batch_id.is_none() {
-                // Never submitted to the provider — finalise locally.
+        // Pick the transition by *status*, not by whether a provider batch id is
+        // present: a `submitting` job (claimed by the worker, provider id not yet
+        // recorded) must NOT be finalised locally, or a concurrent
+        // `mark_batch_submitted` could clobber the finalisation and let the batch
+        // go live. An already-`ended` job is left untouched (idempotent).
+        match status {
+            // Terminal — leave untouched.
+            BatchStatus::Ended => {}
+            // Never submitted — finalise locally, no provider round-trip.
+            BatchStatus::Created => {
                 sqlx::query!(
                     r#"
                     UPDATE batch_jobs
@@ -1773,7 +1872,13 @@ impl BatchStore for PgStore {
                 )
                 .execute(&mut *tx)
                 .await?;
-            } else {
+            }
+            // Claimed for submission, live, or already winding down: move to
+            // `canceling` so the worker relays the cancellation to the provider.
+            // For a `submitting` job this is the marker a racing
+            // `mark_batch_submitted` observes (it then keeps `canceling` instead
+            // of going to `in_progress`).
+            BatchStatus::Submitting | BatchStatus::InProgress | BatchStatus::Canceling => {
                 sqlx::query!(
                     r#"UPDATE batch_jobs SET status = 'canceling', updated_at = now() WHERE id = $1"#,
                     id,
@@ -1819,10 +1924,11 @@ impl BatchStore for PgStore {
         )))
     }
 
-    async fn set_batch_error(&self, id: Uuid, error: &str) -> Result<()> {
+    async fn set_batch_error(&self, tenant_id: Uuid, id: Uuid, error: &str) -> Result<()> {
         sqlx::query!(
-            r#"UPDATE batch_jobs SET error = $2, updated_at = now() WHERE id = $1"#,
+            r#"UPDATE batch_jobs SET error = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2"#,
             id,
+            tenant_id,
             error,
         )
         .execute(&self.pool)

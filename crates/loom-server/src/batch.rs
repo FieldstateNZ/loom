@@ -5,13 +5,17 @@
 //! each the inline `{provider, model, system?, messages, options?}` shape of
 //! `POST /v1/turns` — submitted together and processed asynchronously at the
 //! provider's discounted batch tier. The lifecycle is
-//! `created → in_progress → ended`; a cancellation passes through `canceling`.
+//! `created → submitting → in_progress → ended`; a cancellation passes through
+//! `canceling`. The `submitting` step is an **atomic claim**: the worker flips
+//! `created → submitting` before it calls the provider, so a given job is
+//! submitted exactly once even with more than one worker (`replicas > 1`).
 //!
 //! # Pieces
 //!
 //! - The HTTP API ([`create_batch`], [`get_batch`], [`get_batch_results`],
 //!   [`cancel_batch`]) is tenant-scoped and scopes every store call to the
-//!   caller's tenant.
+//!   caller's tenant. [`create_batch`] runs the same budget/rate-limit preflight
+//!   as an interactive turn, so a batch cannot bypass a tenant's spend block.
 //! - The [`BatchBackend`] trait is the provider seam the worker drives; the
 //!   [`DefaultBatchBackendFactory`] resolves the tenant's credential and builds
 //!   an Anthropic-backed backend, while tests inject a fake backend through
@@ -320,7 +324,11 @@ pub async fn run_batch_poll_pass(state: &AppState) -> PollReport {
                 tracing::warn!(batch_id = %job.id, error = %err, "batch poll: job advance failed");
                 // Record the transient error without changing status, so the
                 // lifecycle is not corrupted and the job is retried next pass.
-                if let Err(store_err) = state.store().set_batch_error(job.id, &err).await {
+                if let Err(store_err) = state
+                    .store()
+                    .set_batch_error(job.tenant_id, job.id, &err)
+                    .await
+                {
                     tracing::error!(batch_id = %job.id, error = %store_err, "batch poll: recording error failed");
                 }
             }
@@ -339,23 +347,61 @@ async fn advance_job(state: &AppState, job: &BatchJob) -> Result<bool, String> {
 
     match job.status {
         BatchStatus::Created => {
+            // Atomically claim `created → submitting` FIRST. Only the worker that
+            // wins the claim submits; a concurrent worker (or a cancel that
+            // already finalised the job) matches no row and skips. This is what
+            // makes provider submission exactly-once under `replicas > 1`.
+            let claimed = state
+                .store()
+                .claim_batch_for_submission(job.tenant_id, job.id)
+                .await
+                .map_err(|e| format!("claim: {e}"))?;
+            if !claimed {
+                return Ok(false);
+            }
             let items = state
                 .store()
                 .get_batch_items(job.id)
                 .await
                 .map_err(|e| format!("load items: {e}"))?;
             let submit = build_submit_items(job.tenant_id, &items)?;
-            let snapshot = backend
-                .submit(submit)
-                .await
-                .map_err(|e| format!("submit: {e}"))?;
+            let snapshot = match backend.submit(submit).await {
+                Ok(snapshot) => snapshot,
+                Err(e) => {
+                    // The submit failed, so no provider batch was created:
+                    // release the claim (`submitting → created`) with the error
+                    // so the job is retried next pass rather than stranded.
+                    let msg = format!("submit: {e}");
+                    if let Err(release_err) = state
+                        .store()
+                        .release_batch_submission(job.tenant_id, job.id, &msg)
+                        .await
+                    {
+                        tracing::error!(batch_id = %job.id, error = %release_err, "batch poll: releasing claim failed");
+                    }
+                    return Err(msg);
+                }
+            };
+            // Promote `submitting → in_progress` (or, if a cancel raced in while
+            // submitting, keep `canceling`, recording the provider batch id so
+            // the cancel can reach the just-created provider batch).
             state
                 .store()
-                .mark_batch_submitted(job.id, &snapshot.provider_batch_id, snapshot.counts)
+                .mark_batch_submitted(
+                    job.tenant_id,
+                    job.id,
+                    &snapshot.provider_batch_id,
+                    snapshot.counts,
+                )
                 .await
                 .map_err(|e| format!("mark submitted: {e}"))?;
             Ok(true)
         }
+        // Claimed for submission by a pass that has not yet completed (or died
+        // mid-submit). The worker never re-submits a `submitting` job — doing so
+        // could double-submit under `replicas > 1` — so this is a safe no-op; the
+        // owning pass finishes the transition (or ops reconciles a crash).
+        BatchStatus::Submitting => Ok(false),
         BatchStatus::InProgress => {
             let provider_batch_id = job
                 .provider_batch_id
@@ -372,6 +418,7 @@ async fn advance_job(state: &AppState, job: &BatchJob) -> Result<bool, String> {
                 state
                     .store()
                     .update_batch_progress(
+                        job.tenant_id,
                         job.id,
                         BatchStatus::InProgress,
                         snapshot.counts,
@@ -384,10 +431,18 @@ async fn advance_job(state: &AppState, job: &BatchJob) -> Result<bool, String> {
             }
         }
         BatchStatus::Canceling => {
-            let provider_batch_id = job
-                .provider_batch_id
-                .as_deref()
-                .ok_or_else(|| "canceling job has no provider batch id".to_owned())?;
+            let Some(provider_batch_id) = job.provider_batch_id.as_deref() else {
+                // Cancellation was requested while the job was `submitting` and
+                // no provider batch id was ever recorded (the submit failed, or
+                // the job was cancelled before it was ever submitted). Nothing
+                // ran at the provider, so finalise locally as canceled.
+                state
+                    .store()
+                    .finalize_batch_canceled(job.tenant_id, job.id)
+                    .await
+                    .map_err(|e| format!("finalize canceled: {e}"))?;
+                return Ok(true);
+            };
             // Relay the cancellation (idempotent) and observe the result.
             let snapshot = backend
                 .cancel(provider_batch_id)
@@ -400,6 +455,7 @@ async fn advance_job(state: &AppState, job: &BatchJob) -> Result<bool, String> {
                 state
                     .store()
                     .update_batch_progress(
+                        job.tenant_id,
                         job.id,
                         BatchStatus::Canceling,
                         snapshot.counts,
@@ -465,7 +521,13 @@ async fn finalize_job(
     for result in &results {
         state
             .store()
-            .save_batch_item_result(job.id, &result.custom_id, result.outcome, &result.result)
+            .save_batch_item_result(
+                job.tenant_id,
+                job.id,
+                &result.custom_id,
+                result.outcome,
+                &result.result,
+            )
             .await
             .map_err(|e| format!("save item result: {e}"))?;
 
@@ -481,6 +543,7 @@ async fn finalize_job(
     state
         .store()
         .update_batch_progress(
+            job.tenant_id,
             job.id,
             BatchStatus::Ended,
             snapshot.counts,
@@ -645,7 +708,8 @@ pub struct BatchJobDto {
     pub id: Uuid,
     /// The provider the job runs against.
     pub provider: String,
-    /// The lifecycle status (`created`, `in_progress`, `canceling`, `ended`).
+    /// The lifecycle status (`created`, `submitting`, `in_progress`,
+    /// `canceling`, `ended`).
     pub status: String,
     /// The provider-native batch id, once submitted.
     pub provider_batch_id: Option<String>,
@@ -710,6 +774,13 @@ fn negotiate_batch_item(
 }
 
 /// `POST /v1/batches` — create a batch from a list of items.
+///
+/// Budget and rate limits are enforced up front with the **same** check the
+/// interactive turn paths use ([`crate::v1::enforce_limits`]), so a tenant whose
+/// budget action is `block` cannot bypass the block by submitting work as a
+/// batch. The rate-limit check counts a batch create as a **single** request
+/// (not one per item); the budget block is the primary guard against a large
+/// batch running up spend past a hard cap.
 #[utoipa::path(
     post,
     path = "/v1/batches",
@@ -719,7 +790,9 @@ fn negotiate_batch_item(
         (status = 201, description = "Batch created (status = created)", body = Object),
         (status = 400, description = "Malformed request", body = Object),
         (status = 401, description = "Missing or invalid virtual key", body = Object),
+        (status = 402, description = "Budget exceeded (block action)", body = Object),
         (status = 422, description = "Capability unsupported or provider not configured", body = Object),
+        (status = 429, description = "Rate limit exceeded", body = Object),
     ),
     security(("virtual_key" = []))
 )]
@@ -741,6 +814,11 @@ pub(crate) async fn create_batch(
     if provider_name.is_empty() {
         return Err(ApiError::bad_request("provider must not be empty"));
     }
+
+    // Enforce rate limit + budget before accepting the batch — the same preflight
+    // as an interactive turn, so a `block` budget cannot be sidestepped via a
+    // batch. A `warn`-action budget over its soft limit is surfaced as a header.
+    let warning = crate::v1::enforce_limits(&state, &ctx).await?;
 
     // Resolve the provider once for capability negotiation across the batch.
     let provider = state
@@ -796,7 +874,17 @@ pub(crate) async fn create_batch(
         .await
         .map_err(ApiError::from_store)?;
 
-    Ok((StatusCode::CREATED, Json(BatchJobDto::from(job))).into_response())
+    let mut response = (StatusCode::CREATED, Json(BatchJobDto::from(job))).into_response();
+    // A `warn`-action budget over its soft limit lets creation proceed but flags
+    // it to the caller, mirroring the interactive turn paths.
+    if let Some(warning) = warning {
+        if let Ok(value) = http::HeaderValue::from_str(warning.header_value()) {
+            response
+                .headers_mut()
+                .insert("x-loom-budget-warning", value);
+        }
+    }
+    Ok(response)
 }
 
 /// `GET /v1/batches/{id}` — the batch's status and counts.

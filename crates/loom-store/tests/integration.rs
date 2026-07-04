@@ -1116,9 +1116,22 @@ async fn batch_job_lifecycle_and_tenant_scope() {
     let active = store.list_active_batch_jobs(10).await.unwrap();
     assert_eq!(active.len(), 1);
 
-    // Submit → in_progress.
+    // Claim (created → submitting) then submit (submitting → in_progress). The
+    // claim is exactly-once: a second attempt on the same job wins no row.
+    assert!(store
+        .claim_batch_for_submission(tenant.id, job.id)
+        .await
+        .unwrap());
+    assert!(
+        !store
+            .claim_batch_for_submission(tenant.id, job.id)
+            .await
+            .unwrap(),
+        "a job already claimed for submission cannot be claimed again"
+    );
     store
         .mark_batch_submitted(
+            tenant.id,
             job.id,
             "msgbatch_1",
             BatchCounts {
@@ -1141,6 +1154,7 @@ async fn batch_job_lifecycle_and_tenant_scope() {
     for cid in ["a", "b"] {
         store
             .save_batch_item_result(
+                tenant.id,
                 job.id,
                 cid,
                 BatchItemStatus::Succeeded,
@@ -1151,6 +1165,7 @@ async fn batch_job_lifecycle_and_tenant_scope() {
     }
     store
         .update_batch_progress(
+            tenant.id,
             job.id,
             BatchStatus::Ended,
             BatchCounts {
@@ -1234,4 +1249,174 @@ async fn batch_cancel_before_submission_finalises_locally() {
         .await
         .unwrap()
         .is_none());
+}
+
+/// A cancellation that arrives while a job is being submitted must not be
+/// clobbered by the submit completing: the job stays `canceling` (never goes
+/// live) and, once the provider batch id is recorded, the worker can relay the
+/// cancel. This is the store-level guarantee behind finding #2.
+#[tokio::test]
+async fn cancel_during_submitting_is_not_resurrected() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("cancel-race", "Cancel Race"))
+        .await
+        .unwrap();
+    let job = store
+        .create_batch_job(NewBatchJob {
+            tenant_id: tenant.id,
+            virtual_key_id: None,
+            provider: "anthropic".to_owned(),
+            items: vec![NewBatchItem {
+                custom_id: "only".to_owned(),
+                model: "claude-opus-4-8".to_owned(),
+                request: json!({ "provider": "anthropic", "model": "claude-opus-4-8" }),
+            }],
+        })
+        .await
+        .unwrap();
+
+    // Worker claims the job for submission (created → submitting).
+    assert!(store
+        .claim_batch_for_submission(tenant.id, job.id)
+        .await
+        .unwrap());
+
+    // A cancel arrives *during* submission: it must move the job to `canceling`,
+    // NOT finalise it locally (which a concurrent submit could clobber).
+    let canceling = store
+        .request_batch_cancel(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(canceling.status, BatchStatus::Canceling);
+
+    // The submit now completes. `mark_batch_submitted` must keep the job
+    // `canceling` (the guarded CASE) while still recording the provider batch id
+    // so the cancellation can reach the live provider batch.
+    store
+        .mark_batch_submitted(
+            tenant.id,
+            job.id,
+            "msgbatch_race",
+            BatchCounts {
+                processing: 1,
+                ..BatchCounts::default()
+            },
+        )
+        .await
+        .unwrap();
+    let after = store
+        .get_batch_job(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        after.status,
+        BatchStatus::Canceling,
+        "a cancel during submitting must not be flipped back to in_progress"
+    );
+    assert_eq!(after.provider_batch_id.as_deref(), Some("msgbatch_race"));
+}
+
+/// Releasing a claim after a failed submission reverts `submitting → created`
+/// (with the error recorded) so the job is retried, and never touches a job that
+/// a cancellation has already moved on.
+#[tokio::test]
+async fn release_batch_submission_reverts_to_created() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("release", "Release"))
+        .await
+        .unwrap();
+    let job = store
+        .create_batch_job(NewBatchJob {
+            tenant_id: tenant.id,
+            virtual_key_id: None,
+            provider: "anthropic".to_owned(),
+            items: vec![NewBatchItem {
+                custom_id: "only".to_owned(),
+                model: "claude-opus-4-8".to_owned(),
+                request: json!({ "provider": "anthropic", "model": "claude-opus-4-8" }),
+            }],
+        })
+        .await
+        .unwrap();
+
+    assert!(store
+        .claim_batch_for_submission(tenant.id, job.id)
+        .await
+        .unwrap());
+    store
+        .release_batch_submission(tenant.id, job.id, "submit: upstream 503")
+        .await
+        .unwrap();
+    let reverted = store
+        .get_batch_job(tenant.id, job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reverted.status, BatchStatus::Created);
+    assert_eq!(reverted.error.as_deref(), Some("submit: upstream 503"));
+
+    // It can be claimed again (retry).
+    assert!(store
+        .claim_batch_for_submission(tenant.id, job.id)
+        .await
+        .unwrap());
+}
+
+/// A rollup splits each group's cost into its batch-tier and interactive
+/// portions, so the two spend kinds can be told apart (finding #4).
+#[tokio::test]
+async fn rollup_splits_batch_and_interactive_cost() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("split", "Split Tenant"))
+        .await
+        .unwrap();
+
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(100);
+    usage.output_tokens = Some(10);
+
+    // Two interactive events (cost 2 + 3 = 5) and one batch event (cost 4) on the
+    // same model.
+    for (cost, is_batch) in [
+        (Decimal::from(2), false),
+        (Decimal::from(3), false),
+        (Decimal::from(4), true),
+    ] {
+        store
+            .record_event(NewUsageEvent {
+                tenant_id: tenant.id,
+                virtual_key_id: None,
+                conversation_id: None,
+                provider: "anthropic".to_owned(),
+                model: "claude-opus-4-8".to_owned(),
+                usage: usage.clone(),
+                cost: Some(cost),
+                is_batch,
+            })
+            .await
+            .unwrap();
+    }
+
+    let by_model = store
+        .rollup_grouped(tenant.id, None, None, RollupGroup::Model)
+        .await
+        .unwrap();
+    let opus = by_model
+        .iter()
+        .find(|r| r.group.as_deref() == Some("claude-opus-4-8"))
+        .unwrap();
+    assert_eq!(opus.event_count, 3);
+    assert_eq!(opus.cost, Decimal::from(9));
+    assert_eq!(opus.batch_cost, Decimal::from(4));
+    assert_eq!(opus.interactive_cost, Decimal::from(5));
+    assert_eq!(
+        opus.batch_cost + opus.interactive_cost,
+        opus.cost,
+        "batch + interactive must reconstitute the total cost"
+    );
 }
