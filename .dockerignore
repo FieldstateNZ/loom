@@ -4,6 +4,8 @@ target/
 node_modules/
 clients/*/node_modules/
 clients/*/dist/
+# The web console is a separate frontend build; the server image never needs it.
+console/
 **/*.md
 !README.md
 .env

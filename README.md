@@ -47,6 +47,20 @@ Anthropic is the first provider, including its managed capabilities.
 | `loom-store` | PostgreSQL persistence via `sqlx` — tenants, virtual keys, credentials, conversations, messages, usage events. |
 | `loom-server` | The HTTP gateway (`axum`): `/v1` conversation endpoints, auth middleware, budgets, usage rollups, OpenAPI. |
 
+## Web console
+
+[`console/`](./console) is the operator-facing web console — a Vite + React 18 +
+TypeScript SPA for spend, keys, budgets, MCP servers, conversations, tenants and
+provider credentials, role-scoped to a gateway operator or a single tenant admin.
+It codes against a small `LoomClient` interface and ships a mock-data client for
+design/dev; pointing it at a running gateway is a one-file drop-in
+(`createHttpClient` over the `/admin`, `/v1` and `/openapi.json` endpoints). See
+[`console/README.md`](./console/README.md).
+
+```bash
+cd console && npm install && npm run dev
+```
+
 ## Status
 
 > ⚠️ **Early development.** The scaffold, domain model, provider abstraction and

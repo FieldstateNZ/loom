@@ -1,0 +1,24 @@
+/* Loom Console — minimal base layer. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font: var(--w-reg) var(--fs-13) / var(--lh-snug) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+code, kbd, pre, samp { font-family: var(--font-mono); }
+
+::selection { background: oklch(74% 0.095 260 / 0.3); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}

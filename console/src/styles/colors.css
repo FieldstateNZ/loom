@@ -1,0 +1,140 @@
+/* Loom Console — color tokens.
+   Dark mode is the default (:root). Light mode via [data-theme="light"].
+   Neutrals are warm charcoal (hue ~75–85). Accent + chart hues are the
+   "dye rack": thread-dye colors — woad, madder, weld, verdigris, heather, moss. */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces (elevation = lighter, not shadow) ---- */
+  --bg-0: oklch(19% 0.006 75);          /* page */
+  --bg-1: oklch(22% 0.007 75);          /* card / panel */
+  --bg-2: oklch(25.5% 0.008 75);        /* raised: popover, hover row */
+  --bg-3: oklch(29% 0.009 75);          /* inset / pressed / active */
+  --border-1: oklch(30.5% 0.01 75);     /* hairline */
+  --border-2: oklch(38% 0.012 75);      /* strong: inputs, focused cards */
+
+  /* ---- Ink ---- */
+  --fg-1: oklch(93% 0.006 85);          /* primary text */
+  --fg-2: oklch(74% 0.01 82);           /* secondary */
+  --fg-3: oklch(58% 0.012 80);          /* muted: labels, captions */
+  --fg-4: oklch(45% 0.01 78);           /* faint: disabled, placeholders */
+
+  /* ---- Dye rack (chart + accent hues) ---- */
+  --dye-woad: oklch(74% 0.095 260);     /* indigo — the accent */
+  --dye-madder: oklch(70% 0.13 24);     /* rose red */
+  --dye-weld: oklch(81% 0.125 88);      /* gold */
+  --dye-verdigris: oklch(76% 0.09 182); /* teal */
+  --dye-heather: oklch(73% 0.10 310);   /* violet */
+  --dye-moss: oklch(75% 0.11 148);      /* green */
+
+  /* ---- Accent (interactive) ---- */
+  --accent: var(--dye-woad);
+  --accent-strong: oklch(80% 0.10 260); /* hover */
+  --accent-deep: oklch(66% 0.11 260);   /* pressed */
+  --on-accent: oklch(17% 0.03 260);     /* text on accent fills */
+  --accent-surface: oklch(74% 0.095 260 / 0.12);
+  --accent-border: oklch(74% 0.095 260 / 0.4);
+
+  /* ---- Semantics ---- */
+  --ok: var(--dye-moss);
+  --ok-surface: oklch(75% 0.11 148 / 0.11);
+  --ok-border: oklch(75% 0.11 148 / 0.38);
+  --warn: var(--dye-weld);
+  --warn-surface: oklch(81% 0.125 88 / 0.11);
+  --warn-border: oklch(81% 0.125 88 / 0.38);
+  --danger: var(--dye-madder);
+  --danger-strong: oklch(76% 0.13 24);
+  --danger-surface: oklch(70% 0.13 24 / 0.12);
+  --danger-border: oklch(70% 0.13 24 / 0.4);
+  --on-danger: oklch(16% 0.03 24);
+  --info: var(--dye-woad);
+  --info-surface: var(--accent-surface);
+  --info-border: var(--accent-border);
+
+  /* ---- Data semantics ---- */
+  --cache-read: var(--dye-verdigris);   /* savings — the caching ROI color */
+  --cache-write: var(--dye-heather);    /* investment */
+  --series-1: var(--dye-woad);
+  --series-2: var(--dye-verdigris);
+  --series-3: var(--dye-weld);
+  --series-4: var(--dye-heather);
+  --series-5: var(--dye-madder);
+  --series-6: var(--dye-moss);
+
+  /* ---- Semantic surface aliases ---- */
+  --surface-page: var(--bg-0);
+  --surface-card: var(--bg-1);
+  --surface-raised: var(--bg-2);
+  --surface-inset: var(--bg-3);
+  --text-body: var(--fg-1);
+  --text-secondary: var(--fg-2);
+  --text-muted: var(--fg-3);
+
+  /* ---- Weave texture (empty states only) ---- */
+  --weave: repeating-linear-gradient(45deg, oklch(93% 0.006 85 / 0.02) 0 1px, transparent 1px 8px), repeating-linear-gradient(-45deg, oklch(93% 0.006 85 / 0.02) 0 1px, transparent 1px 8px); /* @kind other */
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-0: oklch(97.2% 0.004 85);
+  --bg-1: oklch(99.4% 0.002 85);
+  --bg-2: oklch(95% 0.005 85);
+  --bg-3: oklch(92.2% 0.006 85);
+  --border-1: oklch(89.5% 0.006 85);
+  --border-2: oklch(81% 0.009 85);
+
+  --fg-1: oklch(24% 0.01 80);
+  --fg-2: oklch(43% 0.012 80);
+  --fg-3: oklch(56% 0.011 80);
+  --fg-4: oklch(70% 0.009 80);
+
+  --dye-woad: oklch(50% 0.115 260);
+  --dye-madder: oklch(54% 0.155 24);
+  --dye-weld: oklch(60% 0.115 85);
+  --dye-verdigris: oklch(54% 0.09 182);
+  --dye-heather: oklch(52% 0.115 310);
+  --dye-moss: oklch(55% 0.105 148);
+
+  --accent: var(--dye-woad);
+  --accent-strong: oklch(44% 0.12 260);
+  --accent-deep: oklch(38% 0.115 260);
+  --on-accent: oklch(98.5% 0.004 260);
+  --accent-surface: oklch(50% 0.115 260 / 0.09);
+  --accent-border: oklch(50% 0.115 260 / 0.35);
+
+  --ok: var(--dye-moss);
+  --ok-surface: oklch(55% 0.105 148 / 0.1);
+  --ok-border: oklch(55% 0.105 148 / 0.35);
+  --warn: var(--dye-weld);
+  --warn-surface: oklch(60% 0.115 85 / 0.12);
+  --warn-border: oklch(60% 0.115 85 / 0.4);
+  --danger: var(--dye-madder);
+  --danger-strong: oklch(48% 0.16 24);
+  --danger-surface: oklch(54% 0.155 24 / 0.09);
+  --danger-border: oklch(54% 0.155 24 / 0.35);
+  --on-danger: oklch(98.5% 0.004 24);
+  --info: var(--dye-woad);
+  --info-surface: var(--accent-surface);
+  --info-border: var(--accent-border);
+
+  --cache-read: var(--dye-verdigris);
+  --cache-write: var(--dye-heather);
+  --series-1: var(--dye-woad);
+  --series-2: var(--dye-verdigris);
+  --series-3: var(--dye-weld);
+  --series-4: var(--dye-heather);
+  --series-5: var(--dye-madder);
+  --series-6: var(--dye-moss);
+
+  --surface-page: var(--bg-0);
+  --surface-card: var(--bg-1);
+  --surface-raised: var(--bg-1);
+  --surface-inset: var(--bg-3);
+  --text-body: var(--fg-1);
+  --text-secondary: var(--fg-2);
+  --text-muted: var(--fg-3);
+
+  --weave: repeating-linear-gradient(45deg, oklch(24% 0.01 80 / 0.025) 0 1px, transparent 1px 8px), repeating-linear-gradient(-45deg, oklch(24% 0.01 80 / 0.025) 0 1px, transparent 1px 8px); /* @kind other */
+}
