@@ -1,0 +1,33 @@
+{
+  "name": "@fieldstate/loom-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TypeScript client for Loom — Fieldstate's multi-tenant LLM gateway. Workspace artefact; not published to npm.",
+  "license": "AGPL-3.0-only",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "openapi.json"
+  ],
+  "scripts": {
+    "gen": "openapi-typescript openapi.json -o src/generated.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "node --import tsx --test test/*.test.ts",
+    "spike": "tsx scripts/spike.mts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

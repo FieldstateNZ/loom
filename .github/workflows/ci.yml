@@ -100,3 +100,23 @@ jobs:
       - run: npm ci
       # `npm run build` runs `tsc -b` (typecheck) then `vite build`.
       - run: npm run build
+
+  ts-client:
+    name: ts client (typecheck + build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # `npm run build` runs `tsc` (emit dts + js from the committed generated types).
+      - run: npm run build
+      # Request-shaping unit test (no network).
+      - run: npm test

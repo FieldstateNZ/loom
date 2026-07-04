@@ -61,6 +61,33 @@ design/dev; pointing it at a running gateway is a one-file drop-in
 cd console && npm install && npm run dev
 ```
 
+## Client SDKs
+
+[`clients/typescript/`](./clients/typescript) is the TypeScript client for Loom —
+`@fieldstate/loom-client`, a workspace artefact (not yet published to npm). It
+pairs types generated from the gateway's `/openapi.json` (`src/generated.ts`,
+committed alongside the `openapi.json` snapshot) with a small **fluent wrapper**:
+
+```ts
+import { createLoomClient } from "@fieldstate/loom-client";
+
+const loom = createLoomClient({ baseUrl, apiKey });
+const convo = loom.conversation({ model: "claude-haiku-4-5-20251001" });
+convo.withMcp("lucidbrain").cached();          // mcp_servers + auto_cache
+const message = await convo.send(userTurn);     // non-streaming -> assistant Message
+for await (const ev of convo.stream(userTurn)) { /* TurnEvents (parsed SSE) */ }
+```
+
+It covers create/fetch conversation, non-streaming `send`, streaming `stream`
+(an async iterator over `TurnEvent`s), `withMcp`/`cached`/server tools, and a
+stateless-turn helper. See [`clients/typescript/README.md`](./clients/typescript/README.md)
+and the first-consumer spike in
+[`docs/spikes/lucidbrain-integration.md`](./docs/spikes/lucidbrain-integration.md).
+
+```bash
+cd clients/typescript && npm install && npm run build && npm test
+```
+
 ## Status
 
 > ⚠️ **Early development.** The scaffold, domain model, provider abstraction and
