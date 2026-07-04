@@ -1,24 +1,24 @@
-//! `loom-server` — the Loom HTTP gateway.
+//! `loom-server` binary entry point.
 //!
-//! > **Scaffold.** Currently serves only a `GET /healthz` liveness endpoint so
-//! > that `docker compose up` yields a healthy container. The `/v1` conversation
-//! > API, auth middleware, budgets and usage rollups land across issues #7–#14.
+//! Loads [`Config`] from the environment, connects the PostgreSQL store,
+//! optionally applies migrations, and serves [`build_router`]. All HTTP surface
+//! lives in the [`loom_server`] library.
 #![forbid(unsafe_code)]
 
-use std::net::SocketAddr;
+use std::process::ExitCode;
 
-use axum::{routing::get, Router};
+use loom_server::config::DEFAULT_BIND_ADDR;
+use loom_server::{build_router, AppState, Config};
+use loom_store::PgStore;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
-
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     // Docker/compose HEALTHCHECK path: `loom-server --healthcheck` performs a
     // dependency-free HTTP probe of the running server and exits 0/1.
     if std::env::args().any(|arg| arg == "--healthcheck") {
-        std::process::exit(healthcheck());
+        return ExitCode::from(healthcheck());
     }
 
     tracing_subscriber::fmt()
@@ -28,30 +28,38 @@ async fn main() {
         .json()
         .init();
 
-    let bind_addr =
-        std::env::var("LOOM_BIND_ADDR").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
-    let addr: SocketAddr = bind_addr
-        .parse()
-        .unwrap_or_else(|e| panic!("LOOM_BIND_ADDR must be host:port ({bind_addr:?}): {e}"));
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            tracing::error!(error = %err, "loom-server failed to start");
+            ExitCode::FAILURE
+        }
+    }
+}
 
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .layer(tower_http::trace::TraceLayer::new_for_http());
+/// Boots and serves the gateway, returning an error rather than panicking so the
+/// process exits with a clean, logged failure.
+async fn run() -> anyhow::Result<()> {
+    let config = Config::from_env()?;
 
-    let listener = TcpListener::bind(addr)
-        .await
-        .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
-    tracing::info!(%addr, version = loom_core::VERSION, "loom-server listening");
+    let store = PgStore::connect(&config.database_url).await?;
+
+    if config.run_migrations {
+        tracing::info!("applying database migrations");
+        loom_store::run_migrations(store.pool()).await?;
+    }
+
+    let bind_addr = config.bind_addr;
+    let state = AppState::from_config(&config, store);
+    let app = build_router(state);
+
+    let listener = TcpListener::bind(bind_addr).await?;
+    tracing::info!(%bind_addr, version = loom_core::VERSION, "loom-server listening");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("server error");
-}
-
-/// Liveness endpoint. Returns `ok` with a 200 status.
-async fn healthz() -> &'static str {
-    "ok"
+        .await?;
+    Ok(())
 }
 
 /// Waits for either Ctrl-C or SIGTERM (sent by `docker stop` / Kubernetes).
@@ -83,7 +91,7 @@ async fn shutdown_signal() {
 ///
 /// Connects to the locally bound port, issues `GET /healthz`, and returns a
 /// process exit code (`0` healthy, `1` unhealthy) based on the status line.
-fn healthcheck() -> i32 {
+fn healthcheck() -> u8 {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;

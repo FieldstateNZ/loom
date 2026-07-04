@@ -70,10 +70,78 @@ docker compose up --build
 curl -s localhost:8080/healthz      # -> ok
 ```
 
+## Configuration
+
 The server reads configuration from the environment (see `docker-compose.yml`
-for the canonical set): `LOOM_BIND_ADDR`, `DATABASE_URL`,
-`LOOM_ROOT_ADMIN_TOKEN`, `LOOM_ENCRYPTION_KEY`, and the standard `OTEL_*`
-variables for telemetry.
+for the canonical set) and validates every secret eagerly at boot, failing fast
+with a clear diagnostic if one is missing or malformed.
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | yes | — | PostgreSQL connection URL. |
+| `LOOM_ROOT_ADMIN_TOKEN` | yes | — | Bearer token guarding the `/admin` API. Compared in constant time. |
+| `LOOM_ENCRYPTION_KEY` | yes | — | 32-byte AES-256-GCM key, hex-encoded (64 hex chars). Encrypts provider credentials at rest. |
+| `LOOM_BIND_ADDR` | no | `0.0.0.0:8080` | `host:port` to bind the HTTP listener. |
+| `LOOM_KEY_PEPPER` | no | derived | Pepper for the virtual-key lookup HMAC. When unset it is derived deterministically as `HMAC-SHA256(LOOM_ENCRYPTION_KEY, "loom.virtual-key.pepper.v1")`. Set it explicitly to decouple its lifecycle from the encryption key. |
+| `LOOM_RUN_MIGRATIONS` | no | `true` | Apply database migrations on startup; set `false`/`0`/`no`/`off` to skip. |
+
+Generate an encryption key with `openssl rand -hex 32`.
+
+### Endpoints
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /healthz` | none | Liveness (always `200 ok`). |
+| `GET /readyz` | none | Readiness — pings the database; `503` if unreachable. |
+| `GET /v1/whoami` | virtual key | Echoes the authenticated tenant context. |
+| `GET /v1/conversations/{id}` | virtual key | A tenant-scoped resource (returns `404` across tenants). |
+| `POST /admin/tenants` | root token | Create a tenant `{ slug, name }`. |
+| `GET /admin/tenants/{id}` | root token | Fetch a tenant. |
+| `POST /admin/tenants/{id}/keys` | root token | Mint a virtual key `{ name, env? }`. |
+| `DELETE /admin/keys/{id}` | root token | Revoke a virtual key (effective immediately). |
+| `PUT /admin/tenants/{id}/credentials/{provider}` | root token | Store an encrypted provider credential `{ api_key, base_url? }`. |
+
+### Auth model
+
+Tenant requests present a virtual key as `Authorization: Bearer loom_<env>_<...>`
+(256 bits of CSPRNG entropy; `env` is `live` or `test`). The plaintext key is
+shown **once** at creation and never stored. The gateway stores only a
+deterministic peppered lookup hash — `key_hash = HMAC-SHA256(pepper, key)` (hex)
+— plus a non-secret display prefix. A slow salted KDF (argon2) is unnecessary
+here because the keys are already high-entropy, and it would break the O(1)
+`key_hash` lookup; the server-side pepper means a database-only compromise still
+cannot recover or forge keys. Revocation is uncached, so it takes effect on the
+next request. All errors use the envelope
+`{ "error": { "code", "message", "provider_error"? } }`; auth failures return
+`401`.
+
+### Admin bootstrap
+
+With the server running and `LOOM_ROOT_ADMIN_TOKEN` set:
+
+```bash
+ADMIN=$LOOM_ROOT_ADMIN_TOKEN
+BASE=http://localhost:8080
+
+# 1. Create a tenant.
+TENANT=$(curl -s -X POST $BASE/admin/tenants \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"slug":"acme","name":"Acme Inc"}' | jq -r .id)
+
+# 2. Mint a virtual key (the plaintext `key` is shown only here).
+curl -s -X POST $BASE/admin/tenants/$TENANT/keys \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"name":"primary","env":"live"}'
+# -> { "id": "...", "key": "loom_live_...", "key_prefix": "loom_live_AbC123", ... }
+
+# 3. Store the tenant's Anthropic credential (encrypted at rest).
+curl -s -X PUT $BASE/admin/tenants/$TENANT/credentials/anthropic \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"api_key":"sk-ant-..."}'
+
+# 4. Call the gateway with the virtual key.
+curl -s $BASE/v1/whoami -H "Authorization: Bearer loom_live_..."
+```
 
 ## Licence
 

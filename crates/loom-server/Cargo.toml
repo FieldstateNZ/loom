@@ -9,6 +9,14 @@ repository.workspace = true
 authors.workspace = true
 default-run = "loom-server"
 
+[lib]
+name = "loom_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "loom-server"
+path = "src/main.rs"
+
 [dependencies]
 loom-core = { workspace = true }
 loom-provider = { workspace = true }
@@ -16,7 +24,34 @@ loom-provider-anthropic = { workspace = true }
 loom-store = { workspace = true }
 
 axum = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower = { workspace = true }
 tower-http = { workspace = true, features = ["trace"] }
+http = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
+
+# --- crypto / secrets ---
+aes-gcm = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+subtle = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
+loom-provider = { workspace = true, features = ["mock"] }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
