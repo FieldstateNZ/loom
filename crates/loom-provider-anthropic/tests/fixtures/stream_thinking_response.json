@@ -1,0 +1,17 @@
+{
+  "id": "msg_think",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-8",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "The user asked a simple question.",
+      "signature": "EqoBsig=="
+    },
+    { "type": "text", "text": "Hello!" }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": { "input_tokens": 30, "output_tokens": 25 }
+}

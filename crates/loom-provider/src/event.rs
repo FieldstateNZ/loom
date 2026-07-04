@@ -134,6 +134,17 @@ pub enum ContentDelta {
         /// The appended signature fragment.
         signature: String,
     },
+    /// A citation appended to a text part (Anthropic's `citations_delta`),
+    /// preserved verbatim.
+    ///
+    /// Accumulate these onto the text part's citations so a streamed cited text
+    /// block reassembles identically to the non-streaming
+    /// [`ContentPart::Text`](loom_core::ContentPart::Text) it corresponds to.
+    Citation {
+        /// The provider's native citation object, preserved without
+        /// interpretation.
+        citation: loom_core::Citation,
+    },
 }
 
 /// The reason a provider stopped generating a turn.

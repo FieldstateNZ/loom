@@ -1,0 +1,33 @@
+{
+  "id": "msg_eq_cite",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-8",
+  "content": [
+    {
+      "type": "text",
+      "text": "The grass is green, the sky is blue",
+      "citations": [
+        {
+          "type": "char_location",
+          "cited_text": "grass is green",
+          "document_index": 0,
+          "document_title": "Colours",
+          "start_char_index": 10,
+          "end_char_index": 24
+        },
+        {
+          "type": "char_location",
+          "cited_text": "sky is blue",
+          "document_index": 0,
+          "document_title": "Colours",
+          "start_char_index": 40,
+          "end_char_index": 51
+        }
+      ]
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": { "input_tokens": 42, "output_tokens": 18 }
+}

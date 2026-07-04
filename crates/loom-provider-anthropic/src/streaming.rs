@@ -227,10 +227,28 @@ impl SseAccumulator {
                     delta: ContentDelta::SignatureDelta { signature },
                 }
             }
-            // A delta variant Loom does not model (e.g. `citations_delta`): the
-            // verbatim delta rides on `raw`; nothing is dropped.
-            _ => TurnEventKind::Other {
-                native_type: Some("content_block_delta".to_owned()),
+            "citations_delta" => {
+                let citation = delta.get("citation").cloned().unwrap_or(Value::Null);
+                if let Some(builder) = builder {
+                    builder.citations.push(citation.clone());
+                }
+                TurnEventKind::ContentPartDelta {
+                    index,
+                    delta: ContentDelta::Citation {
+                        citation: loom_core::Citation(citation),
+                    },
+                }
+            }
+            // A `content_block_delta` subtype Loom does not model: the verbatim
+            // delta rides on `raw`; nothing is dropped. Surface the delta's own
+            // `type` (e.g. the subtype string) so consumers can distinguish it
+            // from other unmodelled events.
+            other => TurnEventKind::Other {
+                native_type: Some(if other.is_empty() {
+                    "content_block_delta".to_owned()
+                } else {
+                    other.to_owned()
+                }),
             },
         }
     }
@@ -272,6 +290,9 @@ struct BlockBuilder {
     thinking: String,
     /// Concatenated `signature_delta` fragments.
     signature: String,
+    /// Citations appended to a text block via `citations_delta`, preserved
+    /// verbatim in arrival order.
+    citations: Vec<Value>,
 }
 
 impl BlockBuilder {
@@ -292,6 +313,9 @@ impl BlockBuilder {
         match map.get("type").and_then(Value::as_str).unwrap_or_default() {
             "text" => {
                 map.insert("text".into(), json!(self.text));
+                if !self.citations.is_empty() {
+                    map.insert("citations".into(), Value::Array(self.citations.clone()));
+                }
             }
             "thinking" => {
                 map.insert("thinking".into(), json!(self.thinking));
