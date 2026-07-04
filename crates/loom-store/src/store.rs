@@ -7,10 +7,13 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use chrono::{DateTime, Utc};
+
 use crate::error::Result;
 use crate::model::{
-    NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, ProviderCredential, Tenant,
-    UsageEvent, UsageRollup, VirtualKey,
+    ModelPrice, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey,
+    OutboxEntry, ProviderCredential, RollupGroup, Tenant, UsageEvent, UsageRollup, UsageRollupRow,
+    VirtualKey,
 };
 use loom_core::{Conversation, Message};
 
@@ -124,4 +127,70 @@ pub trait UsageStore {
 
     /// Rolls a tenant's usage up into aggregate token totals.
     async fn rollup(&self, tenant_id: Uuid) -> Result<UsageRollup>;
+
+    /// Rolls a tenant's usage up into grouped token and cost totals over an
+    /// optional `[from, to]` time window (inclusive; `None` bounds are open).
+    ///
+    /// `group_by` selects the grouping dimension; passing
+    /// [`RollupGroup::Tenant`] here is a caller error and yields an empty
+    /// result — gateway-wide reporting uses [`Self::rollup_by_tenant`].
+    async fn rollup_grouped(
+        &self,
+        tenant_id: Uuid,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+        group_by: RollupGroup,
+    ) -> Result<Vec<UsageRollupRow>>;
+
+    /// Rolls **all** tenants' usage up, grouped by tenant, over an optional
+    /// time window. Gateway-wide; not tenant-scoped — for the root-token admin
+    /// query only.
+    async fn rollup_by_tenant(
+        &self,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+    ) -> Result<Vec<UsageRollupRow>>;
+}
+
+/// Persistence for the versioned pricing model.
+#[async_trait]
+pub trait PricingStore {
+    /// Returns the effective price for `(provider, model)` at instant `at`:
+    /// the latest row whose `effective_from` is at or before `at`, or `None`
+    /// if no such price is configured.
+    async fn get_effective_price(
+        &self,
+        provider: &str,
+        model: &str,
+        at: DateTime<Utc>,
+    ) -> Result<Option<ModelPrice>>;
+
+    /// Inserts a price version, returning the persisted row.
+    ///
+    /// Prices are versioned, not overwritten: a genuine price change is a new
+    /// row with a later `effective_from`. Re-inserting the exact same
+    /// `(provider, model, effective_from)` corrects that one version in place
+    /// (idempotent seeding).
+    async fn upsert_price(&self, price: NewModelPrice) -> Result<ModelPrice>;
+}
+
+/// Persistence for the usage outbox — the failure-mode safety net.
+///
+/// A usage-write failure must never fail the user's turn. When the primary
+/// [`UsageStore::record_event`] write fails, the event is parked here and a
+/// drain pass ([`crate::drain_usage_outbox`]) replays it later.
+#[async_trait]
+pub trait OutboxStore {
+    /// Parks a usage event in the outbox (status `pending`), returning its id.
+    async fn enqueue_outbox(&self, event: &NewUsageEvent) -> Result<Uuid>;
+
+    /// Lists pending outbox entries oldest-first, capped by `limit`.
+    async fn list_pending_outbox(&self, limit: i64) -> Result<Vec<OutboxEntry>>;
+
+    /// Marks an outbox entry processed (drained successfully).
+    async fn mark_outbox_processed(&self, id: Uuid) -> Result<()>;
+
+    /// Records a failed drain attempt: bumps the attempt count and stores the
+    /// error, leaving the entry pending for a later retry.
+    async fn mark_outbox_failed(&self, id: Uuid, error: &str) -> Result<()>;
 }

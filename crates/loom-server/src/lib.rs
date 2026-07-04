@@ -41,6 +41,7 @@ pub mod extract;
 pub mod keys;
 pub mod provider;
 pub mod state;
+pub mod usage;
 pub mod v1;
 
 use axum::extract::State;
@@ -58,6 +59,7 @@ pub use crate::error::ApiError;
 pub use crate::keys::{generate_key, GeneratedKey, KeyEnv, KeyHasher};
 pub use crate::provider::{DefaultProviderFactory, ProviderFactory};
 pub use crate::state::AppState;
+pub use crate::usage::{OutboxUsageRecorder, UsageRecorder};
 pub use crate::v1::ApiDoc;
 
 use crate::auth::{admin_auth, tenant_auth};

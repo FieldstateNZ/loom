@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO model_prices (\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                currency, effective_from\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            ON CONFLICT ON CONSTRAINT uq_model_prices_version\n            DO UPDATE SET\n                input_per_mtok = EXCLUDED.input_per_mtok,\n                output_per_mtok = EXCLUDED.output_per_mtok,\n                cache_write_per_mtok = EXCLUDED.cache_write_per_mtok,\n                cache_read_per_mtok = EXCLUDED.cache_read_per_mtok,\n                server_tool_prices = EXCLUDED.server_tool_prices,\n                currency = EXCLUDED.currency\n            RETURNING\n                id, provider, model, input_per_mtok, output_per_mtok,\n                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,\n                currency, effective_from, created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "model",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "input_per_mtok",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 4,
+        "name": "output_per_mtok",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "cache_write_per_mtok",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 6,
+        "name": "cache_read_per_mtok",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 7,
+        "name": "server_tool_prices",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "effective_from",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Jsonb",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "732a206ee6a31e6cef21793858a6aa32c1650e532b517d78a90b82d07d4eb9bf"
+}

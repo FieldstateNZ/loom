@@ -3,7 +3,7 @@
 //! Each test spins up a throwaway PostgreSQL 16 container via `testcontainers`,
 //! applies the embedded migrations, and drives the store traits.
 
-use chrono::SubsecRound;
+use chrono::{SubsecRound, TimeZone, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 use uuid::Uuid;
@@ -12,8 +12,9 @@ use loom_core::{
     Citation, ContentPart, Conversation, MediaSource, Message, ProviderBinding, Role, Usage,
 };
 use loom_store::{
-    run_migrations, ConversationStore, CredentialStore, KeyBudget, KeyStore, NewProviderCredential,
-    NewTenant, NewUsageEvent, NewVirtualKey, PgStore, TenantStore, UsageStore,
+    drain_usage_outbox, run_migrations, ConversationStore, CredentialStore, KeyBudget, KeyStore,
+    NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, OutboxStore,
+    PgStore, Pricer, PricingStore, RollupGroup, TenantStore, UsageStore,
 };
 
 use testcontainers::runners::AsyncRunner;
@@ -519,4 +520,265 @@ async fn usage_events_record_and_rollup() {
     assert_eq!(rollup.output_tokens, 40);
     assert_eq!(rollup.cache_read_tokens, 10);
     assert_eq!(rollup.cache_write_tokens, 6);
+}
+
+/// The seeded Anthropic prices load, and a newer price version supersedes the
+/// old one only from its `effective_from` onward — older instants keep the old
+/// price. This is the core of "price versioning affects new events only".
+#[tokio::test]
+async fn pricing_is_versioned_by_effective_from() {
+    let (_pg, store) = setup().await;
+
+    let early = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+    let late = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();
+
+    // The migration seeds opus at 5 / 25 effective 2026-01-01.
+    let seeded = store
+        .get_effective_price("anthropic", "claude-opus-4-8", early)
+        .await
+        .unwrap()
+        .expect("seeded opus price");
+    assert_eq!(seeded.input_per_mtok, Decimal::from(5));
+    assert_eq!(seeded.output_per_mtok, Decimal::from(25));
+
+    // A NEW version, effective 2026-07-01, never overwrites the old row.
+    let bump_from = Utc.with_ymd_and_hms(2026, 7, 1, 0, 0, 0).unwrap();
+    store
+        .upsert_price(NewModelPrice {
+            provider: "anthropic".to_owned(),
+            model: "claude-opus-4-8".to_owned(),
+            input_per_mtok: Decimal::from(9),
+            output_per_mtok: Decimal::from(45),
+            cache_write_per_mtok: Decimal::new(1125, 2),
+            cache_read_per_mtok: Decimal::new(90, 2),
+            server_tool_prices: json!({ "web_search_requests": 0.02 }),
+            currency: "USD".to_owned(),
+            effective_from: bump_from,
+        })
+        .await
+        .unwrap();
+
+    // Before the bump: still the old price. After: the new one.
+    let before = store
+        .get_effective_price("anthropic", "claude-opus-4-8", early)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.input_per_mtok, Decimal::from(5));
+    let after = store
+        .get_effective_price("anthropic", "claude-opus-4-8", late)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.input_per_mtok, Decimal::from(9));
+
+    // An unpriced model yields None (cost stays uncomputed, never an error).
+    assert!(store
+        .get_effective_price("anthropic", "no-such-model", late)
+        .await
+        .unwrap()
+        .is_none());
+
+    // The Pricer prices a cache-split usage against the seeded opus row.
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(1_000_000);
+    usage.output_tokens = Some(1_000_000);
+    usage.cache_write_tokens = Some(1_000_000);
+    usage.cache_read_tokens = Some(1_000_000);
+    // 5 + 25 + 6.25 + 0.50 = 36.75
+    assert_eq!(Pricer::cost(&usage, &seeded), Decimal::new(3675, 2));
+}
+
+/// Grouped rollups sum tokens and cost per key / model / conversation for a
+/// tenant, and the gateway-wide rollup groups by tenant.
+#[tokio::test]
+async fn grouped_rollups_aggregate_per_dimension() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("roll", "Rollup Tenant"))
+        .await
+        .unwrap();
+    let other = store
+        .create_tenant(NewTenant::new("roll-other", "Other Tenant"))
+        .await
+        .unwrap();
+
+    let key_a = store
+        .create_key(NewVirtualKey {
+            tenant_id: tenant.id,
+            key_hash: "hash-a".to_owned(),
+            key_prefix: "loom_a".to_owned(),
+            name: "a".to_owned(),
+            scopes: Vec::new(),
+            budget: None,
+        })
+        .await
+        .unwrap();
+    let key_b = store
+        .create_key(NewVirtualKey {
+            tenant_id: tenant.id,
+            key_hash: "hash-b".to_owned(),
+            key_prefix: "loom_b".to_owned(),
+            name: "b".to_owned(),
+            scopes: Vec::new(),
+            budget: None,
+        })
+        .await
+        .unwrap();
+
+    let convo = Conversation::new(
+        tenant.id,
+        ProviderBinding::new("anthropic", "claude-opus-4-8"),
+    );
+    store.create_conversation(&convo).await.unwrap();
+
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(100);
+    usage.output_tokens = Some(10);
+
+    // key_a: two events on opus, one tied to `convo`, costs 1.00 + 2.00.
+    for (cost, convo_id) in [(Decimal::from(1), Some(convo.id)), (Decimal::from(2), None)] {
+        store
+            .record_event(NewUsageEvent {
+                tenant_id: tenant.id,
+                virtual_key_id: Some(key_a.id),
+                conversation_id: convo_id,
+                provider: "anthropic".to_owned(),
+                model: "claude-opus-4-8".to_owned(),
+                usage: usage.clone(),
+                cost: Some(cost),
+            })
+            .await
+            .unwrap();
+    }
+    // key_b: one event on sonnet, cost 4.00.
+    store
+        .record_event(NewUsageEvent {
+            tenant_id: tenant.id,
+            virtual_key_id: Some(key_b.id),
+            conversation_id: None,
+            provider: "anthropic".to_owned(),
+            model: "claude-sonnet-5".to_owned(),
+            usage: usage.clone(),
+            cost: Some(Decimal::from(4)),
+        })
+        .await
+        .unwrap();
+    // A different tenant's event must not leak into tenant rollups.
+    store
+        .record_event(NewUsageEvent {
+            tenant_id: other.id,
+            virtual_key_id: None,
+            conversation_id: None,
+            provider: "anthropic".to_owned(),
+            model: "claude-opus-4-8".to_owned(),
+            usage: usage.clone(),
+            cost: Some(Decimal::from(100)),
+        })
+        .await
+        .unwrap();
+
+    // By key: two groups, key_a totals cost 3, key_b cost 4.
+    let by_key = store
+        .rollup_grouped(tenant.id, None, None, RollupGroup::Key)
+        .await
+        .unwrap();
+    assert_eq!(by_key.len(), 2);
+    let a = by_key
+        .iter()
+        .find(|r| r.group.as_deref() == Some(key_a.id.to_string().as_str()))
+        .unwrap();
+    assert_eq!(a.event_count, 2);
+    assert_eq!(a.input_tokens, 200);
+    assert_eq!(a.cost, Decimal::from(3));
+
+    // By model: opus cost 3, sonnet cost 4.
+    let by_model = store
+        .rollup_grouped(tenant.id, None, None, RollupGroup::Model)
+        .await
+        .unwrap();
+    let opus = by_model
+        .iter()
+        .find(|r| r.group.as_deref() == Some("claude-opus-4-8"))
+        .unwrap();
+    assert_eq!(opus.cost, Decimal::from(3));
+    let sonnet = by_model
+        .iter()
+        .find(|r| r.group.as_deref() == Some("claude-sonnet-5"))
+        .unwrap();
+    assert_eq!(sonnet.cost, Decimal::from(4));
+
+    // By conversation: one group tied to `convo` (cost 1) and one null group
+    // (the two conversation-less events, cost 6).
+    let by_convo = store
+        .rollup_grouped(tenant.id, None, None, RollupGroup::Conversation)
+        .await
+        .unwrap();
+    let tied = by_convo
+        .iter()
+        .find(|r| r.group.as_deref() == Some(convo.id.to_string().as_str()))
+        .unwrap();
+    assert_eq!(tied.event_count, 1);
+    assert_eq!(tied.cost, Decimal::from(1));
+    let untied = by_convo.iter().find(|r| r.group.is_none()).unwrap();
+    assert_eq!(untied.cost, Decimal::from(6));
+
+    // Gateway-wide by tenant sees both tenants.
+    let by_tenant = store.rollup_by_tenant(None, None).await.unwrap();
+    assert_eq!(by_tenant.len(), 2);
+    let this = by_tenant
+        .iter()
+        .find(|r| r.group.as_deref() == Some(tenant.id.to_string().as_str()))
+        .unwrap();
+    assert_eq!(this.cost, Decimal::from(7));
+}
+
+/// The outbox parks a usage event and the drain path replays it into
+/// `usage_events`; an event that keeps failing stays pending with a bumped
+/// attempt count.
+#[tokio::test]
+async fn outbox_enqueue_and_drain() {
+    let (_pg, store) = setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("outbox", "Outbox Tenant"))
+        .await
+        .unwrap();
+
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(42);
+
+    // A replayable event (valid tenant FK).
+    let good = NewUsageEvent {
+        tenant_id: tenant.id,
+        virtual_key_id: None,
+        conversation_id: None,
+        provider: "anthropic".to_owned(),
+        model: "claude-opus-4-8".to_owned(),
+        usage: usage.clone(),
+        cost: Some(Decimal::from(1)),
+    };
+    // An event that will fail on replay: its tenant does not exist (FK violation).
+    let doomed = NewUsageEvent {
+        tenant_id: Uuid::new_v4(),
+        ..good.clone()
+    };
+
+    store.enqueue_outbox(&good).await.unwrap();
+    store.enqueue_outbox(&doomed).await.unwrap();
+    assert_eq!(store.list_pending_outbox(100).await.unwrap().len(), 2);
+
+    let report = drain_usage_outbox(&store, 100).await.unwrap();
+    assert_eq!(report.processed, 1);
+    assert_eq!(report.failed, 1);
+
+    // The good event landed in usage_events; the doomed one is still pending
+    // with an attempt recorded, ready for a later retry.
+    let events = store.list_events(tenant.id, 100).await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].input_tokens, 42);
+
+    let pending = store.list_pending_outbox(100).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].attempts, 1);
+    assert!(pending[0].last_error.is_some());
 }

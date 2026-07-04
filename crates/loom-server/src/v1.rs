@@ -16,9 +16,11 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::{DateTime, Utc};
 use futures::{stream, StreamExt};
 use http::header::HeaderValue;
 use http::StatusCode;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -29,7 +31,9 @@ use loom_provider::{
     ensure_supported, required_capabilities, Capability, Provider, ProviderError, TurnEvent,
     TurnEventKind, TurnEventStream,
 };
-use loom_store::ConversationStore;
+use loom_store::{
+    ConversationStore, NewUsageEvent, Pricer, PricingStore, RollupGroup, UsageRollupRow, UsageStore,
+};
 
 use crate::auth::TenantContext;
 use crate::error::ApiError;
@@ -53,6 +57,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/v1/conversations/{id}/turns", post(create_turn))
         .route("/v1/turns", post(stateless_turn))
+        .route("/v1/usage", get(usage_rollup))
 }
 
 /// The `/v1/whoami` response: the authenticated identity.
@@ -292,7 +297,16 @@ async fn create_turn(
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::not_found("conversation not found"))?;
 
-    execute_turn(provider, &state, conversation, options, req.stream, true).await
+    execute_turn(
+        provider,
+        &state,
+        conversation,
+        options,
+        req.stream,
+        true,
+        ctx.key_id,
+    )
+    .await
 }
 
 /// Request body for a stateless turn: the whole conversation is supplied inline
@@ -357,7 +371,133 @@ async fn stateless_turn(
         .await?;
     negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
 
-    execute_turn(provider, &state, conversation, options, req.stream, false).await
+    execute_turn(
+        provider,
+        &state,
+        conversation,
+        options,
+        req.stream,
+        false,
+        ctx.key_id,
+    )
+    .await
+}
+
+/// Query parameters for a usage rollup.
+#[derive(Debug, Deserialize)]
+struct UsageQuery {
+    /// Inclusive lower bound on event time (RFC 3339); open if omitted.
+    from: Option<DateTime<Utc>>,
+    /// Inclusive upper bound on event time (RFC 3339); open if omitted.
+    to: Option<DateTime<Utc>>,
+    /// Grouping dimension: `key`, `model`, or `conversation` (default `model`).
+    group_by: Option<String>,
+}
+
+/// One grouped row in a usage-rollup response.
+#[derive(Debug, Serialize)]
+struct UsageRollupRowDto {
+    /// The group key (virtual key id, model, conversation id, or tenant id), or
+    /// `null` where the grouped column was itself null.
+    group: Option<String>,
+    /// Number of events in the group.
+    event_count: i64,
+    /// Total input tokens.
+    input_tokens: i64,
+    /// Total output tokens.
+    output_tokens: i64,
+    /// Total cache-read tokens.
+    cache_read_tokens: i64,
+    /// Total cache-write tokens.
+    cache_write_tokens: i64,
+    /// Total computed cost across the group.
+    cost: Decimal,
+}
+
+impl From<UsageRollupRow> for UsageRollupRowDto {
+    fn from(row: UsageRollupRow) -> Self {
+        Self {
+            group: row.group,
+            event_count: row.event_count,
+            input_tokens: row.input_tokens,
+            output_tokens: row.output_tokens,
+            cache_read_tokens: row.cache_read_tokens,
+            cache_write_tokens: row.cache_write_tokens,
+            cost: row.cost,
+        }
+    }
+}
+
+/// A usage-rollup response envelope.
+#[derive(Debug, Serialize)]
+struct UsageRollupResponse {
+    /// The grouping dimension the rows are keyed by.
+    group_by: &'static str,
+    /// The lower time bound applied, if any.
+    from: Option<DateTime<Utc>>,
+    /// The upper time bound applied, if any.
+    to: Option<DateTime<Utc>>,
+    /// The grouped rows.
+    rows: Vec<UsageRollupRowDto>,
+}
+
+/// Parses a tenant-scoped `group_by` value, defaulting to `model`.
+fn parse_tenant_group(value: Option<&str>) -> Result<RollupGroup, ApiError> {
+    match value.unwrap_or("model") {
+        "key" => Ok(RollupGroup::Key),
+        "model" => Ok(RollupGroup::Model),
+        "conversation" => Ok(RollupGroup::Conversation),
+        other => Err(ApiError::bad_request(format!(
+            "unknown group_by {other:?}; expected one of key, model, conversation"
+        ))),
+    }
+}
+
+/// The stable label for a [`RollupGroup`].
+fn group_label(group: RollupGroup) -> &'static str {
+    match group {
+        RollupGroup::Key => "key",
+        RollupGroup::Model => "model",
+        RollupGroup::Conversation => "conversation",
+        RollupGroup::Tenant => "tenant",
+    }
+}
+
+/// `GET /v1/usage` — tenant-scoped usage rollups grouped by key, model, or
+/// conversation, over an optional `[from, to]` time window.
+#[utoipa::path(
+    get,
+    path = "/v1/usage",
+    tag = "usage",
+    params(
+        ("from" = Option<String>, Query, description = "Inclusive lower bound (RFC 3339)"),
+        ("to" = Option<String>, Query, description = "Inclusive upper bound (RFC 3339)"),
+        ("group_by" = Option<String>, Query, description = "key | model | conversation (default model)"),
+    ),
+    responses(
+        (status = 200, description = "Grouped token and cost rollups", body = Object),
+        (status = 400, description = "Invalid group_by or time bound", body = Object),
+        (status = 401, description = "Missing or invalid virtual key", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn usage_rollup(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Query(query): Query<UsageQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let group = parse_tenant_group(query.group_by.as_deref())?;
+    let rows = state
+        .store()
+        .rollup_grouped(ctx.tenant_id, query.from, query.to, group)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(UsageRollupResponse {
+        group_by: group_label(group),
+        from: query.from,
+        to: query.to,
+        rows: rows.into_iter().map(Into::into).collect(),
+    }))
 }
 
 /// Runs capability negotiation for a turn, failing fast with a structured error.
@@ -387,12 +527,26 @@ fn negotiate(
     ensure_supported(&descriptor.name, model, &required).map_err(ApiError::from_provider)
 }
 
-/// The shared core of both turn paths: runs the provider and, when `persist` is
-/// set, records the assistant turn against `conversation`.
+/// The identity a turn's usage is attributed to.
+///
+/// `conversation_id` is `Some` only for stateful turns; a stateless turn
+/// records usage against the tenant and key with no conversation.
+#[derive(Clone)]
+struct UsageAttribution {
+    tenant_id: Uuid,
+    virtual_key_id: Option<Uuid>,
+    conversation_id: Option<Uuid>,
+    provider: String,
+    model: String,
+}
+
+/// The shared core of both turn paths: runs the provider, records a priced
+/// usage event for the turn, and — when `persist` is set — records the
+/// assistant turn against `conversation`.
 ///
 /// Non-streaming returns the assistant [`Message`] as JSON; streaming returns an
-/// SSE response of [`TurnEvent`] envelopes, persisting the reassembled assistant
-/// message when the stream ends.
+/// SSE response of [`TurnEvent`] envelopes, recording usage and persisting the
+/// reassembled assistant message when the stream ends.
 async fn execute_turn(
     provider: std::sync::Arc<dyn Provider>,
     state: &AppState,
@@ -400,23 +554,41 @@ async fn execute_turn(
     options: ConversationOptions,
     stream: bool,
     persist: bool,
+    key_id: Uuid,
 ) -> Result<Response, ApiError> {
+    let attribution = UsageAttribution {
+        tenant_id: conversation.tenant_id,
+        virtual_key_id: Some(key_id),
+        // Stateless turns are not tied to a stored conversation.
+        conversation_id: persist.then_some(conversation.id),
+        provider: conversation.binding.provider.clone(),
+        model: conversation.binding.model.clone(),
+    };
+
     if stream {
         let events = provider
             .stream(&conversation, &options)
             .await
             .map_err(ApiError::from_provider)?;
-        let sink = persist.then(|| PersistTarget {
-            state: state.clone(),
-            tenant_id: conversation.tenant_id,
-            conversation_id: conversation.id,
-        });
-        Ok(sse_response(events, sink))
+        let persist_target = persist.then_some((conversation.tenant_id, conversation.id));
+        Ok(sse_response(
+            events,
+            state.clone(),
+            attribution,
+            persist_target,
+        ))
     } else {
         let message = provider
             .complete(&conversation, &options)
             .await
             .map_err(ApiError::from_provider)?;
+        // Capture usage for every turn, before persisting the message.
+        record_turn_usage(
+            state,
+            &attribution,
+            message.usage.clone().unwrap_or_default(),
+        )
+        .await;
         if persist {
             state
                 .store()
@@ -428,18 +600,49 @@ async fn execute_turn(
     }
 }
 
-/// Where a streamed assistant turn should be persisted when the stream ends.
-struct PersistTarget {
-    state: AppState,
-    tenant_id: Uuid,
-    conversation_id: Uuid,
+/// Records a priced usage event for a completed turn (best effort).
+///
+/// The cost is computed at write time from the effective price for
+/// `(provider, model)` at the current instant; if no price is configured or the
+/// lookup fails, the event is still recorded with `cost = None` so the raw usage
+/// is never lost and cost can be recomputed later. The write itself goes through
+/// the state's [`UsageRecorder`](crate::usage::UsageRecorder), which parks the
+/// event in the outbox on failure — a usage-write fault never fails the turn.
+async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usage: Usage) {
+    let cost = match state
+        .store()
+        .get_effective_price(&attribution.provider, &attribution.model, Utc::now())
+        .await
+    {
+        Ok(Some(price)) => Some(Pricer::cost(&usage, &price)),
+        Ok(None) => None,
+        Err(err) => {
+            tracing::warn!(error = %err, "price lookup failed; recording usage without cost");
+            None
+        }
+    };
+    let event = NewUsageEvent {
+        tenant_id: attribution.tenant_id,
+        virtual_key_id: attribution.virtual_key_id,
+        conversation_id: attribution.conversation_id,
+        provider: attribution.provider.clone(),
+        model: attribution.model.clone(),
+        usage,
+        cost,
+    };
+    state.usage_recorder().record(state.store(), event).await;
 }
 
 /// The mutable state driving the SSE `unfold`.
 struct SseState {
     events: TurnEventStream,
     accumulator: TurnAccumulator,
-    persist: Option<PersistTarget>,
+    state: AppState,
+    attribution: UsageAttribution,
+    /// `(tenant_id, conversation_id)` for message persistence, or `None` for a
+    /// stateless turn. Usage is recorded regardless.
+    persist: Option<(Uuid, Uuid)>,
+    finalized: bool,
     done: bool,
 }
 
@@ -447,13 +650,22 @@ struct SseState {
 ///
 /// Each provider [`TurnEvent`] is serialised verbatim (normalised envelope plus
 /// raw native event) as one `data:` frame. When the underlying stream ends —
-/// cleanly or via a provider error — the reassembled assistant [`Message`] is
-/// persisted (best effort) if a [`PersistTarget`] was supplied.
-fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Response {
+/// cleanly or via a provider error — a priced usage event is recorded and, for
+/// a stateful turn, the reassembled assistant [`Message`] is persisted (best
+/// effort).
+fn sse_response(
+    events: TurnEventStream,
+    app_state: AppState,
+    attribution: UsageAttribution,
+    persist: Option<(Uuid, Uuid)>,
+) -> Response {
     let initial = SseState {
         events,
         accumulator: TurnAccumulator::new(),
+        state: app_state,
+        attribution,
         persist,
+        finalized: false,
         done: false,
     };
 
@@ -470,9 +682,9 @@ fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Resp
                 Some((Ok::<Event, Infallible>(frame), state))
             }
             Some(Err(err)) => {
-                // Persist whatever was assembled before the failure, then emit a
+                // Settle whatever was assembled before the failure, then emit a
                 // terminal error frame and end the stream.
-                state.persist_assembled().await;
+                state.finalize().await;
                 let envelope = ApiError::from_provider(err).envelope();
                 let frame = Event::default()
                     .event("error")
@@ -482,7 +694,7 @@ fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Resp
                 Some((Ok(frame), state))
             }
             None => {
-                state.persist_assembled().await;
+                state.finalize().await;
                 None
             }
         }
@@ -497,8 +709,12 @@ fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Resp
 }
 
 impl SseState {
-    /// Persists the assistant message assembled so far, if a target was set.
-    /// Best effort: a persistence failure is logged, never surfaced mid-stream.
+    /// Settles the turn once the stream ends: records a priced usage event
+    /// (always) and, for a stateful turn, persists the reassembled assistant
+    /// message. Idempotent — a clean end and an error end cannot both run it.
+    ///
+    /// Best effort throughout: a usage-write or persistence failure is logged,
+    /// never surfaced mid-stream.
     ///
     /// # Known limitation: `Message.raw` asymmetry between the turn paths
     ///
@@ -512,22 +728,35 @@ impl SseState {
     /// would require provider-specific accumulation of native events (a
     /// [`Provider`]-trait change), so it is deferred to a follow-up; the
     /// reassembled [`Message`] uses the provider-agnostic normalised events.
-    async fn persist_assembled(&mut self) {
-        let Some(target) = self.persist.take() else {
+    async fn finalize(&mut self) {
+        if self.finalized {
             return;
-        };
+        }
+        self.finalized = true;
+
         let message = self.accumulator.message();
-        if let Err(err) = target
-            .state
-            .store()
-            .append_message(target.tenant_id, target.conversation_id, &message)
-            .await
-        {
-            tracing::error!(
-                error = %err,
-                conversation_id = %target.conversation_id,
-                "failed to persist streamed assistant turn"
-            );
+        // Usage is finalised from the accumulator's message_delta/turn-end
+        // snapshot and recorded for every streamed turn.
+        record_turn_usage(
+            &self.state,
+            &self.attribution,
+            message.usage.clone().unwrap_or_default(),
+        )
+        .await;
+
+        if let Some((tenant_id, conversation_id)) = self.persist {
+            if let Err(err) = self
+                .state
+                .store()
+                .append_message(tenant_id, conversation_id, &message)
+                .await
+            {
+                tracing::error!(
+                    error = %err,
+                    conversation_id = %conversation_id,
+                    "failed to persist streamed assistant turn"
+                );
+            }
         }
     }
 }
@@ -619,13 +848,17 @@ impl Modify for SecurityAddon {
         delete_conversation,
         create_turn,
         stateless_turn,
+        usage_rollup,
     ),
     components(schemas(
         CreateConversationRequest,
         TurnRequest,
         StatelessTurnRequest,
     )),
-    tags((name = "conversations", description = "Tenant-scoped conversation and turn endpoints"))
+    tags(
+        (name = "conversations", description = "Tenant-scoped conversation and turn endpoints"),
+        (name = "usage", description = "Spend and token usage rollups"),
+    )
 )]
 pub struct ApiDoc;
 

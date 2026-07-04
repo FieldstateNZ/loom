@@ -30,18 +30,68 @@
 mod error;
 mod model;
 mod pg;
+mod pricing;
 mod store;
 
 pub use error::{Result, StoreError};
 pub use model::{
-    KeyBudget, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, ProviderCredential,
-    Tenant, UsageEvent, UsageRollup, VirtualKey,
+    KeyBudget, ModelPrice, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent,
+    NewVirtualKey, OutboxEntry, ProviderCredential, RollupGroup, Tenant, UsageEvent, UsageRollup,
+    UsageRollupRow, VirtualKey,
 };
 pub use pg::PgStore;
-pub use store::{ConversationStore, CredentialStore, KeyStore, TenantStore, UsageStore};
+pub use pricing::Pricer;
+pub use store::{
+    ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore, TenantStore,
+    UsageStore,
+};
 
 /// Re-export of the domain model persisted by this layer.
 pub use loom_core;
+
+/// The outcome of a [`drain_usage_outbox`] pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DrainReport {
+    /// Entries that were successfully recorded and marked processed.
+    pub processed: usize,
+    /// Entries whose replay failed again (left pending, attempt count bumped).
+    pub failed: usize,
+}
+
+/// Reprocesses up to `limit` pending [usage outbox](OutboxStore) entries.
+///
+/// For each parked event this retries the primary
+/// [`UsageStore::record_event`] write; on success the entry is marked
+/// processed, on failure its attempt count and last error are recorded and it
+/// stays pending for a later pass. The user turn that parked the event has
+/// already returned success — this is the deferred settlement path, safe to run
+/// from a background task or a test.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] only if listing pending entries or updating outbox
+/// status itself fails; a failure to *replay* an individual event is counted in
+/// [`DrainReport::failed`], not propagated.
+pub async fn drain_usage_outbox<S>(store: &S, limit: i64) -> Result<DrainReport>
+where
+    S: UsageStore + OutboxStore + Sync,
+{
+    let pending = store.list_pending_outbox(limit).await?;
+    let mut report = DrainReport::default();
+    for entry in pending {
+        match store.record_event(entry.payload).await {
+            Ok(_) => {
+                store.mark_outbox_processed(entry.id).await?;
+                report.processed += 1;
+            }
+            Err(err) => {
+                store.mark_outbox_failed(entry.id, &err.to_string()).await?;
+                report.failed += 1;
+            }
+        }
+    }
+    Ok(report)
+}
 
 /// Applies the embedded migration set to `pool`, bringing an empty database up
 /// to the current schema.

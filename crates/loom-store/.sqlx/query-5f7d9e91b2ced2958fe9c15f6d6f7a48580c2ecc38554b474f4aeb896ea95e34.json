@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    conversation_id::text AS grp,\n                    COUNT(*) AS \"event_count!\",\n                    COALESCE(SUM(input_tokens), 0)::bigint AS \"input_tokens!\",\n                    COALESCE(SUM(output_tokens), 0)::bigint AS \"output_tokens!\",\n                    COALESCE(SUM(cache_read_tokens), 0)::bigint AS \"cache_read_tokens!\",\n                    COALESCE(SUM(cache_write_tokens), 0)::bigint AS \"cache_write_tokens!\",\n                    COALESCE(SUM(cost), 0)::numeric AS \"cost!\"\n                FROM usage_events\n                WHERE tenant_id = $1\n                  AND ($2::timestamptz IS NULL OR created_at >= $2)\n                  AND ($3::timestamptz IS NULL OR created_at <= $3)\n                GROUP BY conversation_id\n                ORDER BY conversation_id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "grp",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "input_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "output_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "cache_read_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "cache_write_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "cost!",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5f7d9e91b2ced2958fe9c15f6d6f7a48580c2ecc38554b474f4aeb896ea95e34"
+}

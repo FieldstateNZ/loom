@@ -14,6 +14,7 @@ use crate::crypto::Crypto;
 use crate::error::ApiError;
 use crate::keys::KeyHasher;
 use crate::provider::{DefaultProviderFactory, ProviderFactory};
+use crate::usage::{OutboxUsageRecorder, UsageRecorder};
 
 /// The state shared across all handlers.
 ///
@@ -30,6 +31,7 @@ struct Inner {
     hasher: KeyHasher,
     root_admin_token: String,
     factory: Arc<dyn ProviderFactory>,
+    usage_recorder: Arc<dyn UsageRecorder>,
 }
 
 impl AppState {
@@ -48,6 +50,7 @@ impl AppState {
                 hasher,
                 root_admin_token,
                 factory: Arc::new(DefaultProviderFactory),
+                usage_recorder: Arc::new(OutboxUsageRecorder),
             }),
         }
     }
@@ -67,6 +70,26 @@ impl AppState {
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
                 factory,
+                usage_recorder: self.inner.usage_recorder.clone(),
+            }),
+        }
+    }
+
+    /// Returns a clone of this state with its [`UsageRecorder`] replaced.
+    ///
+    /// The default records to `usage_events` with an outbox fallback; tests use
+    /// this to substitute a recorder that forces the failure path, exercising
+    /// the outbox and drain without a real database fault.
+    #[must_use]
+    pub fn with_usage_recorder(self, usage_recorder: Arc<dyn UsageRecorder>) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                crypto: self.inner.crypto.clone(),
+                hasher: self.inner.hasher.clone(),
+                root_admin_token: self.inner.root_admin_token.clone(),
+                factory: self.inner.factory.clone(),
+                usage_recorder,
             }),
         }
     }
@@ -99,6 +122,12 @@ impl AppState {
     #[must_use]
     pub fn hasher(&self) -> &KeyHasher {
         &self.inner.hasher
+    }
+
+    /// The best-effort usage recorder.
+    #[must_use]
+    pub fn usage_recorder(&self) -> &Arc<dyn UsageRecorder> {
+        &self.inner.usage_recorder
     }
 
     /// Resolves the [`Provider`] bound to `provider` for `tenant_id` via the

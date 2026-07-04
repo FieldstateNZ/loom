@@ -8,10 +8,14 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::model::{
-    KeyBudget, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey, ProviderCredential,
-    Tenant, UsageEvent, UsageRollup, VirtualKey,
+    KeyBudget, ModelPrice, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent,
+    NewVirtualKey, OutboxEntry, ProviderCredential, RollupGroup, Tenant, UsageEvent, UsageRollup,
+    UsageRollupRow, VirtualKey,
 };
-use crate::store::{ConversationStore, CredentialStore, KeyStore, TenantStore, UsageStore};
+use crate::store::{
+    ConversationStore, CredentialStore, KeyStore, OutboxStore, PricingStore, TenantStore,
+    UsageStore,
+};
 use loom_core::{ContentPart, Conversation, Message, ProviderBinding, Role, Usage};
 
 /// A PostgreSQL-backed store implementing every store trait over a shared
@@ -732,5 +736,332 @@ impl UsageStore for PgStore {
             cache_read_tokens: row.cache_read_tokens,
             cache_write_tokens: row.cache_write_tokens,
         })
+    }
+
+    async fn rollup_grouped(
+        &self,
+        tenant_id: Uuid,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+        group_by: RollupGroup,
+    ) -> Result<Vec<UsageRollupRow>> {
+        // Each grouping is a distinct compile-time-checked query (the GROUP BY
+        // column cannot be a bind parameter). The `$2/$3 IS NULL OR …` guards
+        // make the time window optional without dynamic SQL.
+        let rows = match group_by {
+            RollupGroup::Key => sqlx::query!(
+                r#"
+                SELECT
+                    virtual_key_id::text AS grp,
+                    COUNT(*) AS "event_count!",
+                    COALESCE(SUM(input_tokens), 0)::bigint AS "input_tokens!",
+                    COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
+                    COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
+                    COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                FROM usage_events
+                WHERE tenant_id = $1
+                  AND ($2::timestamptz IS NULL OR created_at >= $2)
+                  AND ($3::timestamptz IS NULL OR created_at <= $3)
+                GROUP BY virtual_key_id
+                ORDER BY virtual_key_id
+                "#,
+                tenant_id,
+                from,
+                to,
+            )
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|r| UsageRollupRow {
+                group: r.grp,
+                event_count: r.event_count,
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cache_read_tokens: r.cache_read_tokens,
+                cache_write_tokens: r.cache_write_tokens,
+                cost: r.cost,
+            })
+            .collect(),
+            RollupGroup::Model => sqlx::query!(
+                r#"
+                SELECT
+                    model AS grp,
+                    COUNT(*) AS "event_count!",
+                    COALESCE(SUM(input_tokens), 0)::bigint AS "input_tokens!",
+                    COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
+                    COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
+                    COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                FROM usage_events
+                WHERE tenant_id = $1
+                  AND ($2::timestamptz IS NULL OR created_at >= $2)
+                  AND ($3::timestamptz IS NULL OR created_at <= $3)
+                GROUP BY model
+                ORDER BY model
+                "#,
+                tenant_id,
+                from,
+                to,
+            )
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|r| UsageRollupRow {
+                group: Some(r.grp),
+                event_count: r.event_count,
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cache_read_tokens: r.cache_read_tokens,
+                cache_write_tokens: r.cache_write_tokens,
+                cost: r.cost,
+            })
+            .collect(),
+            RollupGroup::Conversation => sqlx::query!(
+                r#"
+                SELECT
+                    conversation_id::text AS grp,
+                    COUNT(*) AS "event_count!",
+                    COALESCE(SUM(input_tokens), 0)::bigint AS "input_tokens!",
+                    COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
+                    COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
+                    COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
+                    COALESCE(SUM(cost), 0)::numeric AS "cost!"
+                FROM usage_events
+                WHERE tenant_id = $1
+                  AND ($2::timestamptz IS NULL OR created_at >= $2)
+                  AND ($3::timestamptz IS NULL OR created_at <= $3)
+                GROUP BY conversation_id
+                ORDER BY conversation_id
+                "#,
+                tenant_id,
+                from,
+                to,
+            )
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|r| UsageRollupRow {
+                group: r.grp,
+                event_count: r.event_count,
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cache_read_tokens: r.cache_read_tokens,
+                cache_write_tokens: r.cache_write_tokens,
+                cost: r.cost,
+            })
+            .collect(),
+            // Tenant grouping is gateway-wide, not tenant-scoped; it is served
+            // by `rollup_by_tenant`, so a tenant-scoped request for it is empty.
+            RollupGroup::Tenant => Vec::new(),
+        };
+        Ok(rows)
+    }
+
+    async fn rollup_by_tenant(
+        &self,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+    ) -> Result<Vec<UsageRollupRow>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                tenant_id::text AS "grp!",
+                COUNT(*) AS "event_count!",
+                COALESCE(SUM(input_tokens), 0)::bigint AS "input_tokens!",
+                COALESCE(SUM(output_tokens), 0)::bigint AS "output_tokens!",
+                COALESCE(SUM(cache_read_tokens), 0)::bigint AS "cache_read_tokens!",
+                COALESCE(SUM(cache_write_tokens), 0)::bigint AS "cache_write_tokens!",
+                COALESCE(SUM(cost), 0)::numeric AS "cost!"
+            FROM usage_events
+            WHERE ($1::timestamptz IS NULL OR created_at >= $1)
+              AND ($2::timestamptz IS NULL OR created_at <= $2)
+            GROUP BY tenant_id
+            ORDER BY tenant_id
+            "#,
+            from,
+            to,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UsageRollupRow {
+                group: Some(r.grp),
+                event_count: r.event_count,
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cache_read_tokens: r.cache_read_tokens,
+                cache_write_tokens: r.cache_write_tokens,
+                cost: r.cost,
+            })
+            .collect())
+    }
+}
+
+#[async_trait]
+impl PricingStore for PgStore {
+    async fn get_effective_price(
+        &self,
+        provider: &str,
+        model: &str,
+        at: DateTime<Utc>,
+    ) -> Result<Option<ModelPrice>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                id, provider, model, input_per_mtok, output_per_mtok,
+                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
+                currency, effective_from, created_at
+            FROM model_prices
+            WHERE provider = $1 AND model = $2 AND effective_from <= $3
+            ORDER BY effective_from DESC
+            LIMIT 1
+            "#,
+            provider,
+            model,
+            at,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| ModelPrice {
+            id: row.id,
+            provider: row.provider,
+            model: row.model,
+            input_per_mtok: row.input_per_mtok,
+            output_per_mtok: row.output_per_mtok,
+            cache_write_per_mtok: row.cache_write_per_mtok,
+            cache_read_per_mtok: row.cache_read_per_mtok,
+            server_tool_prices: row.server_tool_prices,
+            currency: row.currency,
+            effective_from: row.effective_from,
+            created_at: row.created_at,
+        }))
+    }
+
+    async fn upsert_price(&self, price: NewModelPrice) -> Result<ModelPrice> {
+        let id = Uuid::new_v4();
+        let row = sqlx::query!(
+            r#"
+            INSERT INTO model_prices (
+                id, provider, model, input_per_mtok, output_per_mtok,
+                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
+                currency, effective_from
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT ON CONSTRAINT uq_model_prices_version
+            DO UPDATE SET
+                input_per_mtok = EXCLUDED.input_per_mtok,
+                output_per_mtok = EXCLUDED.output_per_mtok,
+                cache_write_per_mtok = EXCLUDED.cache_write_per_mtok,
+                cache_read_per_mtok = EXCLUDED.cache_read_per_mtok,
+                server_tool_prices = EXCLUDED.server_tool_prices,
+                currency = EXCLUDED.currency
+            RETURNING
+                id, provider, model, input_per_mtok, output_per_mtok,
+                cache_write_per_mtok, cache_read_per_mtok, server_tool_prices,
+                currency, effective_from, created_at
+            "#,
+            id,
+            price.provider,
+            price.model,
+            price.input_per_mtok,
+            price.output_per_mtok,
+            price.cache_write_per_mtok,
+            price.cache_read_per_mtok,
+            price.server_tool_prices,
+            price.currency,
+            price.effective_from,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(ModelPrice {
+            id: row.id,
+            provider: row.provider,
+            model: row.model,
+            input_per_mtok: row.input_per_mtok,
+            output_per_mtok: row.output_per_mtok,
+            cache_write_per_mtok: row.cache_write_per_mtok,
+            cache_read_per_mtok: row.cache_read_per_mtok,
+            server_tool_prices: row.server_tool_prices,
+            currency: row.currency,
+            effective_from: row.effective_from,
+            created_at: row.created_at,
+        })
+    }
+}
+
+#[async_trait]
+impl OutboxStore for PgStore {
+    async fn enqueue_outbox(&self, event: &NewUsageEvent) -> Result<Uuid> {
+        let id = Uuid::new_v4();
+        let payload = serde_json::to_value(event)?;
+        sqlx::query!(
+            r#"
+            INSERT INTO usage_outbox (id, payload)
+            VALUES ($1, $2)
+            "#,
+            id,
+            payload,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn list_pending_outbox(&self, limit: i64) -> Result<Vec<OutboxEntry>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, payload, status, attempts, last_error, created_at
+            FROM usage_outbox
+            WHERE status = 'pending'
+            ORDER BY created_at
+            LIMIT $1
+            "#,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            entries.push(OutboxEntry {
+                id: row.id,
+                payload: serde_json::from_value(row.payload)?,
+                status: row.status,
+                attempts: row.attempts,
+                last_error: row.last_error,
+                created_at: row.created_at,
+            });
+        }
+        Ok(entries)
+    }
+
+    async fn mark_outbox_processed(&self, id: Uuid) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE usage_outbox
+            SET status = 'processed', processed_at = now()
+            WHERE id = $1
+            "#,
+            id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn mark_outbox_failed(&self, id: Uuid, error: &str) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE usage_outbox
+            SET attempts = attempts + 1, last_error = $2
+            WHERE id = $1
+            "#,
+            id,
+            error,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

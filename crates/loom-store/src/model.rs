@@ -151,8 +151,11 @@ pub struct NewProviderCredential {
 /// snapshot; the surrounding fields attribute the spend to a tenant, key,
 /// conversation, provider and model.
 ///
+/// This type is serialisable so a failed write can be parked verbatim in the
+/// usage outbox (see [`OutboxEntry`]) and replayed later.
+///
 /// [`Usage`]: loom_core::Usage
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NewUsageEvent {
     /// The tenant the usage is attributed to.
     pub tenant_id: Uuid,
@@ -219,4 +222,122 @@ pub struct UsageRollup {
     pub cache_read_tokens: i64,
     /// Total cache-write tokens.
     pub cache_write_tokens: i64,
+}
+
+/// How a usage rollup is grouped.
+///
+/// The tenant-scoped query API groups by [`Key`](Self::Key),
+/// [`Model`](Self::Model) or [`Conversation`](Self::Conversation); the
+/// gateway-wide admin query groups by [`Tenant`](Self::Tenant).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RollupGroup {
+    /// Group by the virtual key that authorised the usage.
+    Key,
+    /// Group by the model that served the usage.
+    Model,
+    /// Group by the conversation the usage belongs to.
+    Conversation,
+    /// Group by tenant (gateway-wide reporting only).
+    Tenant,
+}
+
+/// One grouped row of a usage rollup: aggregate token and cost totals for a
+/// single group key.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageRollupRow {
+    /// The group key rendered as text — a UUID for key/conversation/tenant
+    /// groupings, a model identifier for model groupings, or `None` where the
+    /// grouped column was itself null (e.g. usage with no virtual key).
+    pub group: Option<String>,
+    /// The number of events in this group.
+    pub event_count: i64,
+    /// Total input tokens.
+    pub input_tokens: i64,
+    /// Total output tokens.
+    pub output_tokens: i64,
+    /// Total cache-read tokens.
+    pub cache_read_tokens: i64,
+    /// Total cache-write tokens.
+    pub cache_write_tokens: i64,
+    /// Total computed cost across the group's events (events with no computed
+    /// cost contribute zero).
+    pub cost: Decimal,
+}
+
+/// A versioned per-model price row.
+///
+/// Prices are **append-only and versioned**: a price change is a new row with a
+/// later [`effective_from`](Self::effective_from), never an in-place edit. The
+/// effective price for an event is the latest row whose `effective_from` is at
+/// or before the event's timestamp. This preserves history so a cost computed
+/// under a wrong price can be recomputed from the raw usage later.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelPrice {
+    /// The row's unique identifier.
+    pub id: Uuid,
+    /// The provider the price applies to (e.g. `"anthropic"`).
+    pub provider: String,
+    /// The model the price applies to.
+    pub model: String,
+    /// USD price per million input (prompt) tokens.
+    pub input_per_mtok: Decimal,
+    /// USD price per million output (completion) tokens.
+    pub output_per_mtok: Decimal,
+    /// USD price per million tokens written to the prompt cache.
+    pub cache_write_per_mtok: Decimal,
+    /// USD price per million tokens read from the prompt cache.
+    pub cache_read_per_mtok: Decimal,
+    /// Per-request prices for provider-executed server tools, keyed by the
+    /// usage field name (e.g. `{"web_search_requests": 0.01}`).
+    pub server_tool_prices: serde_json::Value,
+    /// ISO 4217 currency code (e.g. `"USD"`).
+    pub currency: String,
+    /// The instant from which this price is in effect.
+    pub effective_from: DateTime<Utc>,
+    /// When the row was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// The fields required to insert a [`ModelPrice`] version.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewModelPrice {
+    /// The provider the price applies to.
+    pub provider: String,
+    /// The model the price applies to.
+    pub model: String,
+    /// USD price per million input tokens.
+    pub input_per_mtok: Decimal,
+    /// USD price per million output tokens.
+    pub output_per_mtok: Decimal,
+    /// USD price per million cache-write tokens.
+    pub cache_write_per_mtok: Decimal,
+    /// USD price per million cache-read tokens.
+    pub cache_read_per_mtok: Decimal,
+    /// Per-request server-tool prices as JSON.
+    pub server_tool_prices: serde_json::Value,
+    /// ISO 4217 currency code.
+    pub currency: String,
+    /// The instant from which this price is in effect.
+    pub effective_from: DateTime<Utc>,
+}
+
+/// A usage event parked in the outbox because its primary write did not
+/// complete.
+///
+/// The full [`NewUsageEvent`] is preserved verbatim in
+/// [`payload`](Self::payload) so a drain pass can replay it unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutboxEntry {
+    /// The outbox row's unique identifier.
+    pub id: Uuid,
+    /// The parked usage event, exactly as it would have been recorded.
+    pub payload: NewUsageEvent,
+    /// Lifecycle status: `"pending"` or `"processed"`.
+    pub status: String,
+    /// How many drain attempts have been made.
+    pub attempts: i32,
+    /// The last error observed while draining, if any.
+    pub last_error: Option<String>,
+    /// When the entry was parked.
+    pub created_at: DateTime<Utc>,
 }
