@@ -1,0 +1,193 @@
+//! Serde round-trip tests: serialize -> deserialize -> equal for a
+//! representative value of every [`ContentPart`] variant, plus `Usage`,
+//! `Message`, and `Conversation`.
+
+use chrono::{TimeZone, Utc};
+use loom_core::{
+    Citation, ContentPart, Conversation, ConversationOptions, MediaSource, Message,
+    ProviderBinding, Role, ToolDefinition, Usage,
+};
+use serde_json::json;
+use uuid::Uuid;
+
+/// Asserts that a value survives a JSON serialize -> deserialize cycle
+/// unchanged.
+fn assert_json_roundtrip<T>(value: &T)
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+{
+    let encoded = serde_json::to_string(value).expect("serialize");
+    let decoded: T = serde_json::from_str(&encoded).expect("deserialize");
+    assert_eq!(value, &decoded, "round-trip mismatch for {encoded}");
+}
+
+#[test]
+fn content_part_variants_roundtrip() {
+    let parts = vec![
+        ContentPart::Text {
+            text: "plain".into(),
+            citations: None,
+        },
+        ContentPart::Text {
+            text: "cited".into(),
+            citations: Some(vec![Citation(json!({
+                "type": "char_location",
+                "cited_text": "x",
+                "start_char_index": 0,
+                "end_char_index": 1
+            }))]),
+        },
+        ContentPart::Image {
+            source: MediaSource::Base64 {
+                media_type: "image/png".into(),
+                data: "aGVsbG8=".into(),
+            },
+        },
+        ContentPart::Image {
+            source: MediaSource::Url {
+                url: "https://example.com/a.png".into(),
+            },
+        },
+        ContentPart::Document {
+            source: MediaSource::Base64 {
+                media_type: "application/pdf".into(),
+                data: "JVBERi0=".into(),
+            },
+        },
+        ContentPart::ToolUse {
+            id: "toolu_1".into(),
+            name: "get_weather".into(),
+            input: json!({ "location": "Wellington" }),
+        },
+        ContentPart::ToolResult {
+            tool_use_id: "toolu_1".into(),
+            content: json!("18C and windy"),
+            is_error: None,
+        },
+        ContentPart::ToolResult {
+            tool_use_id: "toolu_1".into(),
+            content: json!({ "error": "not found" }),
+            is_error: Some(true),
+        },
+        ContentPart::ServerToolUse {
+            id: "srvtoolu_1".into(),
+            name: "web_search".into(),
+            input: json!({ "query": "loom gateway" }),
+        },
+        ContentPart::ServerToolResult {
+            tool_use_id: "srvtoolu_1".into(),
+            content: json!([{ "type": "web_search_result", "url": "https://x" }]),
+        },
+        ContentPart::Thinking {
+            thinking: "let me reason".into(),
+            signature: Some("sig-blob".into()),
+        },
+        ContentPart::Thinking {
+            thinking: String::new(),
+            signature: None,
+        },
+        ContentPart::RedactedThinking {
+            data: "opaque==".into(),
+        },
+        ContentPart::ProviderExtension {
+            provider: "anthropic".into(),
+            kind: "mcp_tool_use".into(),
+            payload: json!({ "id": "mcptoolu_1", "server_name": "github" }),
+        },
+    ];
+
+    for part in &parts {
+        assert_json_roundtrip(part);
+    }
+}
+
+#[test]
+fn text_part_type_tag_is_self_describing() {
+    let value = serde_json::to_value(ContentPart::text("hi")).unwrap();
+    assert_eq!(value["type"], json!("text"));
+    assert_eq!(value["text"], json!("hi"));
+    // Absent citations must not serialize (preserves provider omission).
+    assert!(value.get("citations").is_none());
+}
+
+#[test]
+fn usage_roundtrips() {
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(100);
+    usage.output_tokens = Some(42);
+    usage.cache_read_tokens = Some(10);
+    usage.cache_write_tokens = Some(5);
+    usage
+        .server_tool_use
+        .insert("web_search_requests".to_owned(), 3);
+    usage.raw = Some(json!({ "input_tokens": 100, "service_tier": "standard" }));
+    assert_json_roundtrip(&usage);
+    assert_json_roundtrip(&Usage::new());
+}
+
+#[test]
+fn message_roundtrips() {
+    let message = Message {
+        role: Role::Assistant,
+        content: vec![
+            ContentPart::Thinking {
+                thinking: "hmm".into(),
+                signature: Some("sig".into()),
+            },
+            ContentPart::text("done"),
+        ],
+        usage: Some({
+            let mut u = Usage::new();
+            u.output_tokens = Some(7);
+            u
+        }),
+    };
+    assert_json_roundtrip(&message);
+
+    for role in [Role::User, Role::Assistant, Role::Provider] {
+        assert_json_roundtrip(&Message::new(role, vec![ContentPart::text("x")]));
+    }
+}
+
+#[test]
+fn conversation_options_roundtrips() {
+    let mut options = ConversationOptions::new();
+    options.temperature = Some(0.7);
+    options.max_tokens = Some(1024);
+    options.stop_sequences = vec!["STOP".into()];
+    options.tools = vec![ToolDefinition {
+        name: "get_weather".into(),
+        description: Some("Look up the weather".into()),
+        input_schema: json!({ "type": "object", "properties": {} }),
+    }];
+    options.provider_options.insert(
+        "anthropic".to_owned(),
+        json!({ "tool_choice": { "type": "auto" }, "top_p": 0.9 }),
+    );
+    assert_json_roundtrip(&options);
+    assert_json_roundtrip(&ConversationOptions::new());
+}
+
+#[test]
+fn conversation_roundtrips() {
+    let conversation = Conversation {
+        id: Uuid::from_u128(1),
+        tenant_id: Uuid::from_u128(2),
+        binding: ProviderBinding::new("anthropic", "claude-opus-4-8"),
+        system: Some("You are helpful.".into()),
+        messages: vec![
+            Message::user("hi"),
+            Message::new(
+                Role::Assistant,
+                vec![ContentPart::ServerToolResult {
+                    tool_use_id: "srvtoolu_1".into(),
+                    content: json!([{ "type": "web_search_result" }]),
+                }],
+            ),
+        ],
+        metadata: json!({ "trace_id": "abc" }),
+        created_at: Utc.with_ymd_and_hms(2026, 7, 3, 12, 0, 0).unwrap(),
+        updated_at: Utc.with_ymd_and_hms(2026, 7, 3, 12, 5, 0).unwrap(),
+    };
+    assert_json_roundtrip(&conversation);
+}
