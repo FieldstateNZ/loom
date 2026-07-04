@@ -16,6 +16,7 @@ use crate::{CacheHint, Message};
 ///
 /// [`ConversationOptions`]: crate::ConversationOptions
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Conversation {
     /// The conversation's unique identifier.
     pub id: Uuid,

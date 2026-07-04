@@ -13,3 +13,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+utoipa = { workspace = true, optional = true }
+
+[features]
+# Feature-gated `utoipa::ToSchema` derives on the domain model, so `loom-server`
+# can expose it in the OpenAPI document without the default (non-server) build
+# of this crate ever pulling in utoipa.
+openapi = ["dep:utoipa"]

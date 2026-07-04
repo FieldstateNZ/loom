@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Loom's release cycle, and Loom must never reject a valid model just because
 /// it predates a given build.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProviderBinding {
     /// The provider's name (e.g. `"anthropic"`).
     pub provider: String,

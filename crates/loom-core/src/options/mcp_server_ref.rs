@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 /// only; they are not part of the persisted [`Conversation`](crate::Conversation)
 /// or any response body).
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct McpServerRef {
     /// The server's logical name. For a named reference this selects the
     /// tenant's registered server; it is also sent to the provider as the

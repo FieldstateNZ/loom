@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// that Loom does not (yet) model is preserved verbatim in
 /// [`StopReason::Other`]. The enum is `#[non_exhaustive]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum StopReason {

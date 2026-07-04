@@ -15,6 +15,7 @@ use super::stop_reason::StopReason;
 /// [`TurnEvent`]: super::turn_event::TurnEvent
 /// [`TurnEvent::raw`]: super::turn_event::TurnEvent::raw
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum TurnEventKind {

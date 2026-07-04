@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 /// { "kind": "raw", "type": "web_search_20250305", "name": "web_search" }
 /// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ServerTool {

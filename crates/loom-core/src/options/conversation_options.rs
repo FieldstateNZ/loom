@@ -29,6 +29,7 @@ use crate::CacheNegotiation;
 ///
 /// [`provider_options`]: ConversationOptions::provider_options
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[non_exhaustive]
 pub struct ConversationOptions {
     /// Sampling temperature. Provider-defined range; typically `0.0..=1.0`.

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// flattening it into a single normalized form. It serializes transparently as
 /// that inner value.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(transparent)]
 pub struct Citation(
     /// The provider's native citation payload, preserved without
