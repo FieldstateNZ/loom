@@ -6,15 +6,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use loom_core::{Conversation, ConversationOptions, Message, Usage};
 use loom_provider::{
-    ensure_supported, required_capabilities, Cost, ModelDescriptor, Provider, ProviderDescriptor,
-    ProviderError, TurnEventStream,
+    ensure_supported, required_capabilities, Capability, Cost, ModelDescriptor, Provider,
+    ProviderDescriptor, ProviderError, TurnEventStream,
 };
 use reqwest::header::{HeaderMap, RETRY_AFTER};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::time::sleep;
 
 use crate::catalogue::{catalogue, PROVIDER_NAME};
-use crate::translate;
+use crate::{streaming, translate};
 
 /// The default Anthropic API base URL.
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -168,6 +168,58 @@ impl AnthropicProvider {
         }
     }
 
+    /// POSTs a streaming `body` to `/v1/messages`, retrying retryable failures
+    /// with exponential backoff, and returns the raw [`reqwest::Response`] whose
+    /// body is the SSE event stream.
+    ///
+    /// Retries apply only to establishing the response (status/transport); once
+    /// a `2xx` stream is open, mid-stream failures are surfaced through the
+    /// event stream itself rather than retried, so partial output is not lost.
+    async fn send_stream(&self, body: &Value) -> Result<reqwest::Response, ProviderError> {
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let mut attempt: u32 = 0;
+        loop {
+            let outcome = self
+                .http
+                .post(&url)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", &self.version)
+                .header("content-type", "application/json")
+                .header("accept", "text/event-stream")
+                .json(body)
+                .send()
+                .await;
+
+            match outcome {
+                Ok(response) => {
+                    let status = response.status();
+                    if status.is_success() {
+                        return Ok(response);
+                    }
+
+                    let code = status.as_u16();
+                    let retry_after = retry_after(response.headers());
+                    let payload = response.text().await.unwrap_or_default();
+
+                    if attempt < self.max_retries && is_retryable_status(code) {
+                        attempt += 1;
+                        sleep(self.backoff(attempt, retry_after)).await;
+                        continue;
+                    }
+                    return Err(api_error(code, &payload));
+                }
+                Err(error) => {
+                    if attempt < self.max_retries && (error.is_timeout() || error.is_connect()) {
+                        attempt += 1;
+                        sleep(self.backoff(attempt, None)).await;
+                        continue;
+                    }
+                    return Err(ProviderError::Transport(error.to_string()));
+                }
+            }
+        }
+    }
+
     /// Computes the backoff before retry `attempt` (1-based), honouring a
     /// server-supplied `retry-after` when present.
     fn backoff(&self, attempt: u32, retry_after: Option<Duration>) -> Duration {
@@ -203,13 +255,21 @@ impl Provider for AnthropicProvider {
 
     async fn stream(
         &self,
-        _conversation: &Conversation,
-        _options: &ConversationOptions,
+        conversation: &Conversation,
+        options: &ConversationOptions,
     ) -> Result<TurnEventStream, ProviderError> {
-        // Streaming lands in issue #5; the type is kept so #5 can fill it in.
-        Err(ProviderError::Other(
-            "Anthropic streaming lands in issue #5".to_owned(),
-        ))
+        let model = self.model(&conversation.binding.model)?;
+        let mut required = required_capabilities(conversation, options);
+        required.insert(Capability::Streaming);
+        ensure_supported(PROVIDER_NAME, &model, &required)?;
+
+        let mut body = translate::translate_request(conversation, options);
+        if let Value::Object(map) = &mut body {
+            map.insert("stream".into(), json!(true));
+        }
+
+        let response = self.send_stream(&body).await?;
+        Ok(streaming::event_stream(response))
     }
 
     fn count_cost(&self, _usage: &Usage, _model: &str) -> Cost {

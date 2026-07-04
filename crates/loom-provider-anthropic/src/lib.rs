@@ -10,13 +10,18 @@
 //!
 //! - [`AnthropicProvider`] — an HTTP client for `POST /v1/messages` that
 //!   implements the [`Provider`] trait: capability-negotiated
-//!   [`complete`](Provider::complete), a placeholder
-//!   [`stream`](Provider::stream) (streaming lands in issue #5), and the pricing
-//!   hook [`count_cost`](Provider::count_cost). It retries `429`/`5xx` with
+//!   [`complete`](Provider::complete) and SSE
+//!   [`stream`](Provider::stream), and the pricing hook
+//!   [`count_cost`](Provider::count_cost). It retries `429`/`5xx` with
 //!   exponential backoff (honouring `retry-after`) and maps Anthropic error
 //!   envelopes to [`ProviderError::Api`] with the native payload preserved.
+//! - [`SseAccumulator`] — reassembles the streamed turn into the same domain
+//!   [`Message`] the non-streaming path produces, and exposes the partial turn
+//!   on mid-stream failure.
 //! - [`translate`] — the pure request/response translation functions, exercised
 //!   directly against fixtures.
+//!
+//! [`Message`]: loom_core::Message
 //! - [`catalogue`] — the static catalogue of Claude models and their
 //!   capabilities.
 //!
@@ -29,10 +34,12 @@
 
 mod catalogue;
 mod provider;
+mod streaming;
 pub mod translate;
 
 pub use catalogue::{catalogue, PROVIDER_NAME};
 pub use provider::AnthropicProvider;
+pub use streaming::SseAccumulator;
 
 /// Re-export of the fluent conversation domain model.
 pub use loom_core;

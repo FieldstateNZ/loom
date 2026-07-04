@@ -295,8 +295,12 @@ fn part_to_block(part: &ContentPart, server_tool_names: &BTreeMap<String, String
 /// Maps a native Anthropic content block into a [`ContentPart`].
 ///
 /// Unknown block types fall through to [`ContentPart::ProviderExtension`] so no
-/// provider feature is ever dropped.
-fn block_to_part(block: &Value) -> ContentPart {
+/// provider feature is ever dropped. This is the single, shared block→part
+/// mapping used by both the non-streaming [`translate_response`] path and the
+/// streaming accumulator, so a block assembled from SSE deltas maps identically
+/// to the same block delivered whole.
+#[must_use]
+pub fn block_to_part(block: &Value) -> ContentPart {
     match block
         .get("type")
         .and_then(Value::as_str)
