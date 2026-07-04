@@ -1,44 +1,13 @@
-//! Anthropic Server-Sent Events (SSE) streaming: parsing the native event
-//! stream, mapping it to Loom's [`TurnEvent`] envelope, and incrementally
-//! reassembling the domain [`Message`].
-//!
-//! # Fidelity
-//!
-//! Every emitted [`TurnEvent`] carries the **verbatim** native event JSON in
-//! [`TurnEvent::raw`]; the normalised [`TurnEventKind`] is only ever a
-//! convenience view over it. No native event is dropped: keep-alives
-//! (`ping`), the terminal `message_stop`, and any event type Loom does not
-//! model are surfaced as [`TurnEventKind::Other`] carrying their native
-//! `type`.
-//!
-//! # Accumulation and equivalence
-//!
-//! [`SseAccumulator`] reassembles the native Messages response from the event
-//! stream — concatenating text, accumulating tool-input `partial_json` and
-//! parsing it at block stop, and joining thinking text with its signature — so
-//! that at stream end [`SseAccumulator::message`] equals **exactly** what the
-//! non-streaming [`translate_response`](crate::translate::translate_response)
-//! path would produce for the same logical response. The reassembly reuses the
-//! same [`block_to_part`](crate::translate::block_to_part) mapping as the
-//! non-streaming path, so a block built from deltas is indistinguishable from
-//! one delivered whole.
-//!
-//! # Partial turns on failure
-//!
-//! The accumulator is public and driven from the native event on each
-//! [`TurnEvent::raw`], so a consumer that folds the stream keeps a live,
-//! partial [`Message`] at all times. If the stream fails mid-turn — a native
-//! `error` event or a dropped connection — the consumer still holds every
-//! event that arrived before the failure, and [`SseAccumulator::message`]
-//! returns the turn assembled so far.
+//! [`SseAccumulator`]: reassembles the native Messages response from the SSE
+//! event stream, driving a [`BlockBuilder`] per content block.
 
 use std::collections::BTreeMap;
 
-use futures_util::stream::{self, BoxStream, StreamExt};
 use loom_core::Message;
 use loom_provider::{ContentDelta, ProviderError, StopReason, TurnEvent, TurnEventKind};
 use serde_json::{json, Map, Value};
 
+use super::block_builder::BlockBuilder;
 use crate::translate;
 
 /// Reassembles a native Anthropic Messages response from its SSE event stream.
@@ -276,68 +245,6 @@ impl SseAccumulator {
     }
 }
 
-/// Accumulator for a single content block's streamed deltas.
-#[derive(Debug, Default)]
-struct BlockBuilder {
-    /// The initial block from `content_block_start` (carries `type`, and any
-    /// metadata such as a tool-use `id`/`name` or existing `citations`).
-    initial: Value,
-    /// Concatenated `text_delta` fragments.
-    text: String,
-    /// Concatenated `input_json_delta` fragments (parsed at finalisation).
-    partial_json: String,
-    /// Concatenated `thinking_delta` fragments.
-    thinking: String,
-    /// Concatenated `signature_delta` fragments.
-    signature: String,
-    /// Citations appended to a text block via `citations_delta`, preserved
-    /// verbatim in arrival order.
-    citations: Vec<Value>,
-}
-
-impl BlockBuilder {
-    fn new(initial: Value) -> Self {
-        Self {
-            initial,
-            ..Self::default()
-        }
-    }
-
-    /// Produces the fully-assembled native block from the initial shape plus
-    /// the accumulated deltas.
-    fn finalized(&self) -> Value {
-        let mut block = self.initial.clone();
-        let Value::Object(map) = &mut block else {
-            return block;
-        };
-        match map.get("type").and_then(Value::as_str).unwrap_or_default() {
-            "text" => {
-                map.insert("text".into(), json!(self.text));
-                if !self.citations.is_empty() {
-                    map.insert("citations".into(), Value::Array(self.citations.clone()));
-                }
-            }
-            "thinking" => {
-                map.insert("thinking".into(), json!(self.thinking));
-                if !self.signature.is_empty() {
-                    map.insert("signature".into(), json!(self.signature));
-                }
-            }
-            kind if (kind == "tool_use"
-                || kind == "server_tool_use"
-                || kind.ends_with("_tool_use"))
-                && !self.partial_json.is_empty() =>
-            {
-                let input = serde_json::from_str::<Value>(&self.partial_json)
-                    .unwrap_or_else(|_| json!(self.partial_json));
-                map.insert("input".into(), input);
-            }
-            _ => {}
-        }
-        block
-    }
-}
-
 /// Reads the `index` field of a block event, defaulting to `0`.
 fn block_index(event: &Value) -> usize {
     event
@@ -371,75 +278,3 @@ fn error_from_event(event: &Value) -> ProviderError {
         payload: Some(event.clone()),
     }
 }
-
-/// Builds a boxed [`TurnEvent`] stream over an Anthropic SSE byte stream.
-///
-/// The returned stream is lazy and backpressure-aware: each SSE event is
-/// parsed, folded into a fresh [`SseAccumulator`], and yielded before the next
-/// is read — nothing is buffered ahead. A native `error` event yields a final
-/// [`Err`] and ends the stream; a transport failure (dropped connection) yields
-/// a final [`ProviderError::Transport`] and ends the stream.
-pub(crate) fn event_stream(response: reqwest::Response) -> BoxStream<'static, StreamItem> {
-    use eventsource_stream::Eventsource;
-
-    let events = response.bytes_stream().eventsource();
-    let state = StreamState {
-        events: Box::pin(events),
-        accumulator: SseAccumulator::new(),
-    };
-
-    stream::unfold(state, |mut state| async move {
-        loop {
-            match state.events.next().await {
-                None => return None,
-                Some(Ok(event)) => {
-                    if event.data.is_empty() {
-                        continue;
-                    }
-                    let value: Value = match serde_json::from_str(&event.data) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            return Some((
-                                Err(ProviderError::Serialization(error.to_string())),
-                                state.terminate(),
-                            ));
-                        }
-                    };
-                    let item = state.accumulator.ingest(value);
-                    if item.is_err() {
-                        return Some((item, state.terminate()));
-                    }
-                    return Some((item, state));
-                }
-                Some(Err(error)) => {
-                    return Some((
-                        Err(ProviderError::Transport(error.to_string())),
-                        state.terminate(),
-                    ));
-                }
-            }
-        }
-    })
-    .boxed()
-}
-
-/// One item yielded by the Anthropic event stream.
-type StreamItem = Result<TurnEvent, ProviderError>;
-
-/// The `unfold` state driving [`event_stream`].
-struct StreamState {
-    events: BoxStream<'static, Result<eventsource_stream::Event, EventStreamError>>,
-    accumulator: SseAccumulator,
-}
-
-impl StreamState {
-    /// Terminates the stream after a final item by swapping in an exhausted
-    /// event source, so the next `unfold` step reads `None` and ends.
-    fn terminate(mut self) -> Self {
-        self.events = stream::empty().boxed();
-        self
-    }
-}
-
-/// The error type produced by the SSE byte stream.
-type EventStreamError = eventsource_stream::EventStreamError<reqwest::Error>;
