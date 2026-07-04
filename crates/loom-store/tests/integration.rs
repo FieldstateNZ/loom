@@ -261,6 +261,7 @@ fn rich_conversation(tenant_id: Uuid) -> Conversation {
             },
         ],
         usage: Some(usage),
+        raw: None,
     };
     conversation.messages.push(assistant);
 

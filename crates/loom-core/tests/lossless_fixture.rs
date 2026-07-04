@@ -277,6 +277,7 @@ fn anthropic_fixture_maps_losslessly() {
         role: loom_core::Role::Assistant,
         content: parts,
         usage: Some(usage),
+        raw: None,
     };
     let encoded = serde_json::to_string(&message).expect("serialize message");
     let decoded: loom_core::Message = serde_json::from_str(&encoded).expect("deserialize message");

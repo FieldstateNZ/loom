@@ -71,6 +71,9 @@ fn build_message(
         role,
         content,
         usage,
+        // The verbatim provider payload is not (yet) persisted as its own
+        // column; persisting it lands with the usage/audit work.
+        raw: None,
     })
 }
 

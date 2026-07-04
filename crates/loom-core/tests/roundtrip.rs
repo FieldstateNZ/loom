@@ -141,6 +141,8 @@ fn message_roundtrips() {
             u.output_tokens = Some(7);
             u
         }),
+        // The verbatim native payload must survive its own serde round-trip.
+        raw: Some(serde_json::json!({ "id": "msg_1", "type": "message" })),
     };
     assert_json_roundtrip(&message);
 

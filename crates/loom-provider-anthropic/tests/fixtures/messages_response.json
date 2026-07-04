@@ -1,0 +1,80 @@
+{
+  "id": "msg_01XyZabc123",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-8",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "I should search the web and then call the weather tool.",
+      "signature": "EqoBCkgIARABGAIiQ...signature-blob...=="
+    },
+    {
+      "type": "text",
+      "text": "Let me look that up for you."
+    },
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_014abc",
+      "name": "web_search",
+      "input": {
+        "query": "latest Loom gateway release notes"
+      }
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_014abc",
+      "content": [
+        {
+          "type": "web_search_result",
+          "title": "Loom 0.1 released",
+          "url": "https://example.com/loom-0-1",
+          "encrypted_content": "AbCdEf...opaque...==",
+          "page_age": "2 days ago"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Loom 0.1 shipped two days ago.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://example.com/loom-0-1",
+          "title": "Loom 0.1 released",
+          "cited_text": "Loom 0.1 released",
+          "encrypted_index": "AbCdEf=="
+        }
+      ]
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_099def",
+      "name": "get_weather",
+      "input": {
+        "location": "Wellington, NZ",
+        "unit": "celsius"
+      }
+    },
+    {
+      "type": "mcp_tool_use",
+      "id": "mcptoolu_077ghi",
+      "name": "list_issues",
+      "server_name": "github",
+      "input": {
+        "repo": "fieldstatenz/loom"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1024,
+    "output_tokens": 128,
+    "cache_read_input_tokens": 512,
+    "cache_creation_input_tokens": 64,
+    "server_tool_use": {
+      "web_search_requests": 1
+    }
+  }
+}
