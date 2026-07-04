@@ -1,25 +1,9 @@
-//! Messages and the roles that author them.
+//! A single turn in a conversation.
 
 use serde::{Deserialize, Serialize};
 
+use super::Role;
 use crate::{ContentPart, Usage};
-
-/// Who authored a [`Message`].
-///
-/// `#[non_exhaustive]` because providers may introduce further roles (e.g. an
-/// operator or system channel distinct from the ones modelled here).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum Role {
-    /// A message authored by the end user.
-    User,
-    /// A message authored by the model.
-    Assistant,
-    /// A message originating from the provider itself — for example a
-    /// server-executed tool result injected into the conversation.
-    Provider,
-}
 
 /// A single turn in a conversation.
 ///

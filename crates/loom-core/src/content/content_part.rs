@@ -1,9 +1,8 @@
-//! Content parts — the provider-faithful building blocks of a [`Message`].
-//!
-//! [`Message`]: crate::Message
+//! The typed content of a message.
 
 use serde::{Deserialize, Serialize};
 
+use super::{Citation, MediaSource};
 use crate::CacheHint;
 
 /// A single, typed piece of message content.
@@ -194,41 +193,3 @@ impl ContentPart {
         }
     }
 }
-
-/// The origin of an image or document's bytes.
-///
-/// Serialized as an internally tagged enum with a `"type"` field
-/// (`base64` or `url`), mirroring the shape used by providers such as
-/// Anthropic.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum MediaSource {
-    /// Bytes supplied inline, base64-encoded.
-    Base64 {
-        /// The IANA media type of the data (e.g. `"image/png"`).
-        media_type: String,
-        /// The base64-encoded bytes.
-        data: String,
-    },
-    /// Bytes referenced by URL rather than inlined.
-    Url {
-        /// The URL the provider should fetch the media from.
-        url: String,
-    },
-}
-
-/// A citation attributing a span of generated text to a source.
-///
-/// Provider citation shapes vary widely (character ranges, page ranges, web
-/// search result locations, …). To remain lossless and provider-faithful,
-/// `Citation` wraps the provider's native citation object verbatim rather than
-/// flattening it into a single normalized form. It serializes transparently as
-/// that inner value.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Citation(
-    /// The provider's native citation payload, preserved without
-    /// interpretation.
-    pub serde_json::Value,
-);
