@@ -36,9 +36,11 @@ src/
                        router with tenant/provider drill-in. (= ConsoleScreen)
   main.tsx             Entry; loads token + component stylesheets, mounts <App>.
   api/
-    types.ts           Domain model matching Loom's admin/usage REST shapes.
+    types.ts           Domain-model barrel (models / metrics / transcript / snapshot).
     client.ts          LoomClient interface — the one seam to a live gateway.
-    mock.ts            createMockClient() — frozen demo data + latency; drop-in.
+    result.ts          Result<T, LoomError> — how the client reports expected failures.
+    mock-client.ts     createMockClient() — frozen demo data + latency; drop-in.
+    http-client.ts     createHttpClient() — the live gateway client (+ bootstrap/usage/…).
     context.tsx        <LoomProvider> / useLoom() so dialogs can mutate/probe.
   lib/format.ts        Numeric formatters (money, tokens, %, ms) — mono + tabular.
   components/          The design-system primitives, grouped by concern:
@@ -55,8 +57,10 @@ Two implementations ship:
 
 - **`createMockClient()`** (`src/api/mock.ts`) — a frozen in-memory seed. The
   design/dev default; used whenever no live base URL is configured.
-- **`createHttpClient({ baseUrl, adminToken?, apiKey? })`** (`src/api/http.ts`) — the
+- **`createHttpClient({ baseUrl, adminToken?, apiKey? })`** (`src/api/http-client.ts`) — the
   real client, hitting the gateway's OpenAPI endpoints (`clients/typescript/openapi.json`).
+  Expected failures come back as a `Result<T, LoomError>` (see `src/api/result.ts`) rather
+  than thrown exceptions; the UI branches on `result.ok`.
 
 Selection is automatic (`src/api/context.tsx` → `resolveLoomClient()`): when a live base
 URL resolves, the HTTP client is used; otherwise the mock. Nothing else changes.
@@ -86,7 +90,7 @@ console's origin (CORS) or be served same-origin / behind a proxy.
 
 The gateway does not yet expose every collection/probe the console can show. The HTTP
 client degrades honestly (empty arrays, nulls, typed "unsupported") rather than faking
-data, and logs the shortfall on startup (`HTTP_CLIENT_GAPS` in `src/api/http.ts`).
+data, and records the shortfall as data in `HTTP_CLIENT_GAPS` (`src/api/http-client.ts`).
 
 **Fully wired**
 
