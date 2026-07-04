@@ -1,34 +1,19 @@
 // ConversationsScreen — searchable list + turn-by-turn transcript renderer.
 import { useEffect, useState } from "react";
-import {
-  Card, Input, Badge, Transcript, Turn, IconButton, EmptyState,
-  BlockText, BlockThinking, BlockToolUse, BlockWebSearch, BlockCodeExec, BlockUnknown, CacheMarker,
-} from "../components/index.ts";
+import { Card, Input, Badge, Transcript, Turn, IconButton, EmptyState } from "../components/index.ts";
 import { Fmt } from "../lib/format.ts";
 import { useLoom } from "../api/context.tsx";
-import type {
-  LoomSnapshot, Transcript as TranscriptData, TranscriptBlock,
-  TextBlock, ThinkingBlock, ToolUseBlock, WebSearchBlock, CodeExecBlock, CacheBlock, UnknownBlock,
-} from "../api/types.ts";
+import { renderBlock } from "./render-block.tsx";
+import type { LoomSnapshot, Transcript as TranscriptData } from "../api/types.ts";
 
-function renderBlock(block: TranscriptBlock, i: number) {
-  switch (block.type) {
-    case "text": return <BlockText key={i}>{(block as TextBlock).text}</BlockText>;
-    case "thinking": { const b = block as ThinkingBlock; return <BlockThinking key={i} duration={b.duration}>{b.text}</BlockThinking>; }
-    case "tool_use": { const b = block as ToolUseBlock; return <BlockToolUse key={i} name={b.name} via={b.via} input={b.input} result={b.result} isError={b.isError} />; }
-    case "web_search": { const b = block as WebSearchBlock; return <BlockWebSearch key={i} query={b.query} results={b.results} />; }
-    case "code_exec": { const b = block as CodeExecBlock; return <BlockCodeExec key={i} lang={b.lang} code={b.code} stdout={b.stdout} stderr={b.stderr} exitCode={b.exitCode} />; }
-    case "cache": { const b = block as CacheBlock; return <CacheMarker key={i} kind={b.kind} tokens={b.tokens} />; }
-    default: { const b = block as UnknownBlock; return <BlockUnknown key={i} type={b.blockType || b.type} data={b.data ?? b} />; }
-  }
-}
-
+/** Props for {@link ConversationsScreen}. */
 export interface ConversationsScreenProps {
-  data: LoomSnapshot;
-  role: "operator" | "tenant";
-  tenant: string;
+  readonly data: LoomSnapshot;
+  readonly role: "operator" | "tenant";
+  readonly tenant: string;
 }
 
+/** Searchable conversation list beside the turn-by-turn transcript of the selection. */
 export function ConversationsScreen({ data, role, tenant }: ConversationsScreenProps) {
   const client = useLoom();
   const formatMoney = Fmt.money, formatTokens = Fmt.tokens;

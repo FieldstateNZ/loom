@@ -1,22 +1,26 @@
 import type { CSSProperties } from "react";
 import { Icon } from "../core/icon.tsx";
 
+/** A selectable option with a distinct display label from its underlying value. */
 export interface SelectOption {
-  value: string;
-  label: string;
+  readonly value: string;
+  readonly label: string;
 }
 
+/** Props for {@link Select}. */
 export interface SelectProps {
-  options: (string | SelectOption)[];
-  value: string;
-  onChange?: (value: string) => void;
-  size?: "sm" | "md";
-  mono?: boolean;
-  disabled?: boolean;
-  label?: string;
-  style?: CSSProperties;
+  /** Plain strings are used as both value and label; use {@link SelectOption} when they differ. */
+  readonly options: (string | SelectOption)[];
+  readonly value: string;
+  readonly onChange?: (value: string) => void;
+  readonly size?: "sm" | "md";
+  readonly mono?: boolean;
+  readonly disabled?: boolean;
+  readonly label?: string;
+  readonly style?: CSSProperties;
 }
 
+/** Styled native `<select>` dropdown for choosing one value from a list of options. */
 export function Select({ options, value, onChange, size = "md", mono = false, disabled = false, label, style }: SelectProps) {
   const cls = [
     "lm-select",

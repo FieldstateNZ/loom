@@ -1,28 +1,37 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Icon, type IconName } from "../core/icon.tsx";
 
+/** A single selectable entry in a {@link SideNav} section. */
 export interface NavItem {
-  id: string;
-  icon: IconName;
-  label: string;
-  count?: number;
-  tone?: "danger";
+  readonly id: string;
+  readonly icon: IconName;
+  readonly label: string;
+  /** Optional badge count shown next to the label. */
+  readonly count?: number;
+  /** When "danger", the count badge is styled to draw attention. */
+  readonly tone?: "danger";
 }
 
+/** A labeled group of {@link NavItem}s rendered together in a {@link SideNav}. */
 export interface NavSection {
-  label?: string;
-  items: NavItem[];
+  readonly label?: string;
+  readonly items: NavItem[];
 }
 
+/** Props for {@link SideNav}. */
 export interface SideNavProps {
-  sections?: NavSection[];
-  activeId?: string;
-  onSelect?: (id: string) => void;
-  context?: ReactNode;
-  footer?: ReactNode;
-  style?: CSSProperties;
+  readonly sections?: NavSection[];
+  /** id of the currently active/selected nav item. */
+  readonly activeId?: string;
+  /** Called with the item's id when a nav item is clicked. */
+  readonly onSelect?: (id: string) => void;
+  /** Content rendered above the nav sections, e.g. an org/workspace switcher. */
+  readonly context?: ReactNode;
+  readonly footer?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Vertical navigation sidebar showing grouped sections of selectable items. */
 export function SideNav({ sections = [], activeId, onSelect, context, footer, style }: SideNavProps) {
   return (
     <aside className="lm-sidenav" style={style}>

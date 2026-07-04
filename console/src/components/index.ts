@@ -19,7 +19,9 @@ export { StatTile } from "./data/stat-tile.tsx";
 export { BudgetBar } from "./data/budget-bar.tsx";
 export { BarList } from "./data/bar-list.tsx";
 export { FilterChip } from "./data/filter-chip.tsx";
-export { LineChart, ChartLegend, type ChartSeries } from "./data/line-chart.tsx";
+export { LineChart } from "./data/line-chart.tsx";
+export { ChartLegend } from "./data/chart-legend.tsx";
+export type { ChartSeries } from "./data/chart-series.ts";
 export { BarChart } from "./data/bar-chart.tsx";
 export { DataTable, type Column } from "./data/data-table.tsx";
 
@@ -43,7 +45,8 @@ export { TopBar, type Crumb } from "./navigation/top-bar.tsx";
 // transcript
 export { Transcript } from "./transcript/transcript.tsx";
 export { Turn } from "./transcript/turn.tsx";
-export { BlockFrame, JsonPre } from "./transcript/block-base.tsx";
+export { BlockFrame } from "./transcript/block-frame.tsx";
+export { JsonPre } from "./transcript/json-pre.tsx";
 export { BlockText } from "./transcript/block-text.tsx";
 export { BlockThinking } from "./transcript/block-thinking.tsx";
 export { BlockToolUse } from "./transcript/block-tool-use.tsx";

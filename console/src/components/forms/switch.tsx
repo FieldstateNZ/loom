@@ -1,13 +1,15 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/** Props for {@link Switch}. */
 export interface SwitchProps {
-  checked?: boolean;
-  onChange?: (checked: boolean) => void;
-  label?: ReactNode;
-  disabled?: boolean;
-  style?: CSSProperties;
+  readonly checked?: boolean;
+  readonly onChange?: (checked: boolean) => void;
+  readonly label?: ReactNode;
+  readonly disabled?: boolean;
+  readonly style?: CSSProperties;
 }
 
+/** Toggle switch for boolean settings, optionally paired with a clickable label. */
 export function Switch({ checked = false, onChange, label, disabled = false, style }: SwitchProps) {
   const btn = (
     <button

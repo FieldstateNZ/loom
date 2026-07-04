@@ -2,17 +2,23 @@ import { useEffect, type ReactNode } from "react";
 import { Icon, type IconName } from "../core/icon.tsx";
 import { IconButton } from "../core/icon-button.tsx";
 
+/** Props for {@link Dialog}. */
 export interface DialogProps {
-  open: boolean;
-  onClose?: () => void;
-  title?: ReactNode;
-  icon?: IconName;
-  danger?: boolean;
-  width?: number;
-  footer?: ReactNode;
-  children?: ReactNode;
+  /** Whether the dialog is currently shown; when false the component renders nothing. */
+  readonly open: boolean;
+  /** Called when the dialog should close (Escape key, backdrop click, or close button). */
+  readonly onClose?: () => void;
+  readonly title?: ReactNode;
+  readonly icon?: IconName;
+  /** Styles the dialog as a destructive/danger confirmation. */
+  readonly danger?: boolean;
+  /** Max width of the dialog in pixels; defaults to 440. */
+  readonly width?: number;
+  readonly footer?: ReactNode;
+  readonly children?: ReactNode;
 }
 
+/** Modal overlay dialog with an optional icon, title, footer, and Escape-to-close behavior. */
 export function Dialog({ open, onClose, title, icon, danger = false, width = 440, footer, children }: DialogProps) {
   useEffect(() => {
     if (!open) return;

@@ -1,60 +1,19 @@
 // BudgetsScreen — tenant cap cards + per-key consumption table + edit dialog.
 import { useState } from "react";
 import {
-  Card, DataTable, BudgetBar, Badge, Button, IconButton, Dialog, Field, Input, Select, Switch,
-  type Column,
+  Card, DataTable, BudgetBar, Badge, Button, IconButton, type Column,
 } from "../components/index.ts";
-import type { LoomSnapshot, VirtualKey, BudgetWindow } from "../api/types.ts";
+import { BudgetEditDialog, type BudgetSubject } from "./budget-edit-dialog.tsx";
+import type { LoomSnapshot, VirtualKey } from "../api/types.ts";
 
-interface BudgetSubject {
-  name: string;
-  cap?: number | null;
-  window?: string | null;
-  mode?: "block" | "warn";
-  rateRpm?: number;
-}
-
-function BudgetEditDialog({ subject, onClose }: { subject: BudgetSubject | null; onClose: () => void }) {
-  const [cap, setCap] = useState(subject && subject.cap != null ? String(subject.cap) : "");
-  const [win, setWin] = useState<BudgetWindow>(((subject && subject.window) as BudgetWindow) || "daily");
-  const [block, setBlock] = useState(subject ? subject.mode === "block" : true);
-  const [rpm, setRpm] = useState(subject && subject.rateRpm ? String(subject.rateRpm) : "60");
-  if (!subject) return null;
-  return (
-    <Dialog open onClose={onClose} title={"Budget — " + subject.name} icon="wallet" width={460}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={onClose}>Save budget</Button>
-      </>}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-        <Field label="Cap (USD)" hint="Leave empty for no cap — spend is still metered.">
-          <Input mono value={cap} onChange={setCap} placeholder="no cap" />
-        </Field>
-        <Field label="Window">
-          <Select options={["daily", "weekly", "monthly", "total"]} value={win} onChange={(v) => setWin(v as BudgetWindow)} />
-        </Field>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Field hint={block ? "Requests over the cap are refused with 402 budget_exceeded." : "Over-cap requests continue; the key is flagged on the dashboard."}>
-            <Switch checked={block} onChange={setBlock} label="Block requests over cap" />
-          </Field>
-        </div>
-        <Field label="Rate limit (requests/min)">
-          <Input mono value={rpm} onChange={setRpm} />
-        </Field>
-        <Field label="Applies">
-          <Input readOnly mono value={win === "total" ? "until raised" : "resets 00:00 UTC"} />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
+/** Props for {@link BudgetsScreen}. */
 export interface BudgetsScreenProps {
-  data: LoomSnapshot;
-  role: "operator" | "tenant";
-  tenant: string;
+  readonly data: LoomSnapshot;
+  readonly role: "operator" | "tenant";
+  readonly tenant: string;
 }
 
+/** Tenant cap cards + per-key consumption table, each editable via {@link BudgetEditDialog}. */
 export function BudgetsScreen({ data, role, tenant }: BudgetsScreenProps) {
   const [editing, setEditing] = useState<BudgetSubject | null>(null);
   const tenants = role === "tenant" ? data.tenants.filter((t) => t.id === tenant) : data.tenants;

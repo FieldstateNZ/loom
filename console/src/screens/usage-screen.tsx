@@ -7,13 +7,17 @@ import {
 import { Fmt } from "../lib/format.ts";
 import type { LoomSnapshot, UsageByKey } from "../api/types.ts";
 
-interface Filter { field: string; value: string; }
+/** A single active usage filter (a field/value pair, rendered as a chip). */
+interface Filter { readonly field: string; readonly value: string; }
 
+/** Props for {@link UsageScreen}. */
 export interface UsageScreenProps {
-  data: LoomSnapshot;
-  range: string;
+  readonly data: LoomSnapshot;
+  /** The selected time range label (drives chart/table copy). */
+  readonly range: string;
 }
 
+/** The usage explorer: filter chips, cache-ROI tiles, cost/token charts and a pivot table. */
 export function UsageScreen({ data, range }: UsageScreenProps) {
   const formatMoney = Fmt.money, formatTokens = Fmt.tokens, formatPercent = Fmt.percent;
   const [filters, setFilters] = useState<Filter[]>([{ field: "key", value: "lucidbrain-prod" }]);

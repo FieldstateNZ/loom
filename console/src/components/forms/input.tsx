@@ -1,22 +1,24 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 import { Icon, type IconName } from "../core/icon.tsx";
 
+/** Props for {@link Input}. */
 export interface InputProps {
-  value?: string;
-  onChange?: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  size?: "sm" | "md";
-  mono?: boolean;
-  invalid?: boolean;
-  icon?: IconName;
-  disabled?: boolean;
-  readOnly?: boolean;
-  autoFocus?: boolean;
-  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  style?: CSSProperties;
+  readonly value?: string;
+  readonly onChange?: (value: string) => void;
+  readonly placeholder?: string;
+  readonly type?: string;
+  readonly size?: "sm" | "md";
+  readonly mono?: boolean;
+  readonly invalid?: boolean;
+  readonly icon?: IconName;
+  readonly disabled?: boolean;
+  readonly readOnly?: boolean;
+  readonly autoFocus?: boolean;
+  readonly onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+  readonly style?: CSSProperties;
 }
 
+/** Styled text input, optionally with a leading icon, used throughout forms for single-line values. */
 export function Input({
   value,
   onChange,

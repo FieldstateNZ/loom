@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { Icon, type IconName } from "./icon.tsx";
 import { Spinner } from "./spinner.tsx";
 
+/** The visual style a {@link Button} can be rendered in, from the primary call-to-action down to destructive actions. */
 export type ButtonVariant =
   | "primary"
   | "secondary"
@@ -9,20 +10,22 @@ export type ButtonVariant =
   | "danger"
   | "danger-secondary";
 
+/** Props for {@link Button}. */
 export interface ButtonProps {
-  variant?: ButtonVariant;
-  size?: "sm" | "md";
-  icon?: IconName;
-  iconAfter?: IconName;
-  loading?: boolean;
-  disabled?: boolean;
-  full?: boolean;
-  type?: "button" | "submit" | "reset";
-  onClick?: () => void;
-  children?: ReactNode;
-  style?: CSSProperties;
+  readonly variant?: ButtonVariant;
+  readonly size?: "sm" | "md";
+  readonly icon?: IconName;
+  readonly iconAfter?: IconName;
+  readonly loading?: boolean;
+  readonly disabled?: boolean;
+  readonly full?: boolean;
+  readonly type?: "button" | "submit" | "reset";
+  readonly onClick?: () => void;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** The standard clickable button used throughout the console, supporting icons, loading state, and multiple visual variants. */
 export function Button({
   variant = "secondary",
   size = "md",

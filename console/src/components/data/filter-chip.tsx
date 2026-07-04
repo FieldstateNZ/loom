@@ -1,14 +1,16 @@
 import type { CSSProperties } from "react";
 import { Icon } from "../core/icon.tsx";
 
+/** Props for {@link FilterChip}. */
 export interface FilterChipProps {
-  field: string;
-  op?: string;
-  value: string;
-  onRemove?: () => void;
-  style?: CSSProperties;
+  readonly field: string;
+  readonly op?: string;
+  readonly value: string;
+  readonly onRemove?: () => void;
+  readonly style?: CSSProperties;
 }
 
+/** Renders an active filter as a removable chip, e.g. "field = value" in a filter bar. */
 export function FilterChip({ field, op = "=", value, onRemove, style }: FilterChipProps) {
   return (
     <span className="lm-fchip" style={style}>

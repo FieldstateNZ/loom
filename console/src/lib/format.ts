@@ -1,10 +1,14 @@
 // Num formatters — the console's number renderer helpers. All data numerals are
-// mono + tabular. Ported verbatim from the design bundle's data/Num.jsx.
+// mono + tabular. Ported verbatim from the design bundle's data/Num.jsx. Each
+// formatter treats null/undefined/NaN as an em-dash so callers never guard.
 
+/** Options for {@link formatMoney}. */
 export interface MoneyOpts {
-  compact?: boolean;
+  /** Abbreviate large values (e.g. `$1.2M`, `$4.1K`) for tight chart axes. */
+  readonly compact?: boolean;
 }
 
+/** Formats a USD amount; small values keep extra precision, negatives use a real minus. */
 export function formatMoney(v: number | null | undefined, opts: MoneyOpts = {}): string {
   if (v == null || isNaN(v)) return "—";
   const neg = v < 0 ? "−" : "";
@@ -16,6 +20,7 @@ export function formatMoney(v: number | null | undefined, opts: MoneyOpts = {}):
   return neg + "$" + a.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Formats a token/row count with a compact B/M/K suffix above 10k. */
 export function formatTokens(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
   const a = Math.abs(v);
@@ -26,10 +31,12 @@ export function formatTokens(v: number | null | undefined): string {
   return v.toLocaleString("en-US");
 }
 
+/** Formats a generic count (alias of {@link formatTokens} for readable call sites). */
 export function formatCount(v: number | null | undefined): string {
   return formatTokens(v);
 }
 
+/** Formats a duration in milliseconds as `ms` / `s` / `m s`. */
 export function formatMs(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
   if (v < 1000) return Math.round(v) + "ms";
@@ -37,6 +44,7 @@ export function formatMs(v: number | null | undefined): string {
   return Math.floor(v / 60000) + "m " + Math.round((v % 60000) / 1000) + "s";
 }
 
+/** Formats a 0..1 ratio as a percentage, keeping one decimal below 10%. */
 export function formatPercent(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
   const pct = v * 100;

@@ -1,15 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/** Props for {@link Card}. */
 export interface CardProps {
-  eyebrow?: ReactNode;
-  title?: ReactNode;
-  actions?: ReactNode;
-  footer?: ReactNode;
-  flush?: boolean;
-  children?: ReactNode;
-  style?: CSSProperties;
+  readonly eyebrow?: ReactNode;
+  readonly title?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly footer?: ReactNode;
+  /** When true, removes the body's default padding so content can sit flush against the card edges. */
+  readonly flush?: boolean;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** A bordered content container with an optional header (eyebrow/title/actions) and footer, used to group related content. */
 export function Card({ eyebrow, title, actions, footer, flush = false, children, style }: CardProps) {
   const hasHead = eyebrow || title || actions;
   return (

@@ -1,13 +1,15 @@
 import type { CSSProperties } from "react";
-import { BlockFrame } from "./block-base.tsx";
+import { BlockFrame } from "./block-frame.tsx";
 import type { WebSearchResult } from "../../api/types.ts";
 
+/** Props for {@link BlockWebSearch}. */
 export interface BlockWebSearchProps {
-  query: string;
-  results?: readonly WebSearchResult[];
-  style?: CSSProperties;
+  readonly query: string;
+  readonly results?: readonly WebSearchResult[];
+  readonly style?: CSSProperties;
 }
 
+/** Collapsible block listing the results of a web search performed by the model. */
 export function BlockWebSearch({ query, results = [], style }: BlockWebSearchProps) {
   return (
     <div style={style}>

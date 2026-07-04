@@ -1,15 +1,17 @@
 import type { CSSProperties } from "react";
 
+/** Props for {@link Sparkline}. */
 export interface SparklineProps {
-  data?: readonly number[];
-  width?: number | string;
-  height?: number | string;
-  color?: string | undefined;
-  fill?: boolean;
-  strokeWidth?: number;
-  style?: CSSProperties;
+  readonly data?: readonly number[];
+  readonly width?: number | string;
+  readonly height?: number | string;
+  readonly color?: string | undefined;
+  readonly fill?: boolean;
+  readonly strokeWidth?: number;
+  readonly style?: CSSProperties;
 }
 
+/** Renders a small inline SVG line chart for a series of numbers, e.g. to show a trend alongside a stat. */
 export function Sparkline({ data = [], width = 120, height = 28, color = "var(--accent)", fill = true, strokeWidth = 1.5, style }: SparklineProps) {
   const W = 100, H = 100;
   const n = data.length;

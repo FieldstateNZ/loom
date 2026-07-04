@@ -1,18 +1,22 @@
 import type { CSSProperties } from "react";
-import { ChartLegend, type ChartSeries } from "./line-chart.tsx";
+import { ChartLegend } from "./chart-legend.tsx";
+import type { ChartSeries } from "./chart-series.ts";
 
 const W = 600, H = 100, PAD_TOP = 6;
 
+/** Props for {@link BarChart}. */
 export interface BarChartProps {
-  series?: readonly ChartSeries[];
-  height?: number;
-  yFormat?: (v: number) => string | number;
-  xLabels?: readonly string[];
-  legend?: boolean;
-  titles?: readonly string[];
-  style?: CSSProperties;
+  readonly series?: readonly ChartSeries[];
+  readonly height?: number;
+  readonly yFormat?: (v: number) => string | number;
+  readonly xLabels?: readonly string[];
+  readonly legend?: boolean;
+  /** Per-column hover titles (e.g. the full date behind an abbreviated label). */
+  readonly titles?: readonly string[];
+  readonly style?: CSSProperties;
 }
 
+/** A dependency-free SVG stacked bar chart (columns stack their series). */
 export function BarChart({ series = [], height = 170, yFormat = (v) => v, xLabels = [], legend = true, titles, style }: BarChartProps) {
   const n = Math.max(...series.map((s) => s.data.length), 0);
   const totals = Array.from({ length: n }, (_, i) => series.reduce((sum, s) => sum + (s.data[i] || 0), 0));

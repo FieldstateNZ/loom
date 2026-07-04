@@ -1,13 +1,17 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Icon } from "../core/icon.tsx";
 
+/** Props for {@link BlockThinking}. */
 export interface BlockThinkingProps {
-  duration?: string | undefined;
-  defaultOpen?: boolean;
-  children?: ReactNode;
-  style?: CSSProperties;
+  /** How long the model spent thinking, shown next to the toggle label. */
+  readonly duration?: string | undefined;
+  /** Whether the thinking content starts expanded; defaults to collapsed. */
+  readonly defaultOpen?: boolean;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Collapsible block that reveals a model's extended-thinking content behind a toggle. */
 export function BlockThinking({ duration, defaultOpen = false, children, style }: BlockThinkingProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (

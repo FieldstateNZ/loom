@@ -1,14 +1,16 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/** Props for {@link Field}. */
 export interface FieldProps {
-  label?: ReactNode;
-  hint?: ReactNode;
-  error?: ReactNode;
-  required?: boolean;
-  children?: ReactNode;
-  style?: CSSProperties;
+  readonly label?: ReactNode;
+  readonly hint?: ReactNode;
+  readonly error?: ReactNode;
+  readonly required?: boolean;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Wraps a form control with a label, required marker, and optional hint or error text. */
 export function Field({ label, hint, error, required, children, style }: FieldProps) {
   return (
     <div className="lm-field" style={style}>

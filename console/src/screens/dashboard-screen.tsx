@@ -6,13 +6,16 @@ import {
 import { Fmt } from "../lib/format.ts";
 import type { LoomSnapshot, GatewayEvent } from "../api/types.ts";
 
+/** Props for {@link DashboardScreen}. */
 export interface DashboardScreenProps {
-  data: LoomSnapshot;
-  range: string;
-  role: "operator" | "tenant";
-  tenant: string;
+  readonly data: LoomSnapshot;
+  /** The selected time range label (drives the tile/label copy). */
+  readonly range: string;
+  readonly role: "operator" | "tenant";
+  readonly tenant: string;
 }
 
+/** The overview screen: hero spend, token/request tiles, spend chart, top-N, events. */
 export function DashboardScreen({ data, range, role, tenant }: DashboardScreenProps) {
   const formatMoney = Fmt.money, formatTokens = Fmt.tokens;
   const s = data.stats;

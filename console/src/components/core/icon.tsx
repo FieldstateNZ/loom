@@ -56,17 +56,21 @@ const LOOM_ICON_GLYPHS = {
   "zap": '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>',
 } as const;
 
+/** The name of one of the curated icon glyphs available to {@link Icon}. */
 export type IconName = keyof typeof LOOM_ICON_GLYPHS;
 
+/** Props for {@link Icon}. */
 export interface IconProps {
-  name: IconName;
-  size?: number;
-  strokeWidth?: number;
-  color?: string;
-  label?: string;
-  style?: CSSProperties;
+  readonly name: IconName;
+  readonly size?: number;
+  readonly strokeWidth?: number;
+  readonly color?: string;
+  /** Accessible label; when omitted the icon is treated as decorative and hidden from assistive tech. */
+  readonly label?: string;
+  readonly style?: CSSProperties;
 }
 
+/** Renders one of the Loom Console glyphs as an inline SVG. */
 export function Icon({ name, size = 16, strokeWidth = 1.75, color, label, style }: IconProps) {
   const glyph = LOOM_ICON_GLYPHS[name];
   return (
@@ -88,4 +92,5 @@ export function Icon({ name, size = 16, strokeWidth = 1.75, color, label, style 
   );
 }
 
+/** All available {@link IconName} values, in the order they're defined; handy for iterating over the full icon set (e.g. in a picker). */
 export const ICON_NAMES = Object.keys(LOOM_ICON_GLYPHS) as IconName[];

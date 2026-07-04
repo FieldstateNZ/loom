@@ -1,17 +1,23 @@
 import type { CSSProperties } from "react";
-import { BlockFrame, JsonPre } from "./block-base.tsx";
+import { BlockFrame } from "./block-frame.tsx";
+import { JsonPre } from "./json-pre.tsx";
 import { Icon } from "../core/icon.tsx";
 
+/** Props for {@link BlockToolUse}. */
 export interface BlockToolUseProps {
-  name: string;
-  via?: string | undefined;
-  input?: unknown;
-  result?: unknown;
-  isError?: boolean | undefined;
-  defaultOpen?: boolean;
-  style?: CSSProperties;
+  readonly name: string;
+  /** Label for the mechanism the tool was invoked through, e.g. an MCP server name. */
+  readonly via?: string | undefined;
+  readonly input?: unknown;
+  readonly result?: unknown;
+  /** Whether the tool call failed; styles the block and its result as an error. */
+  readonly isError?: boolean | undefined;
+  /** Overrides the default open/closed state (which otherwise follows isError). */
+  readonly defaultOpen?: boolean;
+  readonly style?: CSSProperties;
 }
 
+/** Collapsible block showing a tool call's name, input, and result (or error). */
 export function BlockToolUse({ name, via, input, result, isError = false, defaultOpen, style }: BlockToolUseProps) {
   const open = defaultOpen != null ? defaultOpen : isError;
   return (

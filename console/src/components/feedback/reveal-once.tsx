@@ -2,14 +2,19 @@ import { useState, type CSSProperties } from "react";
 import { Icon } from "../core/icon.tsx";
 import { Button } from "../core/button.tsx";
 
+/** Props for {@link RevealOnce}. */
 export interface RevealOnceProps {
-  secret: string;
-  heading?: string;
-  warning?: string;
-  onCopy?: () => void;
-  style?: CSSProperties;
+  /** The secret value to display and let the user copy; the caller should not persist it after this render. */
+  readonly secret: string;
+  readonly heading?: string;
+  /** Overrides the default warning message shown below the secret. */
+  readonly warning?: string;
+  /** Called after the user copies the secret to the clipboard. */
+  readonly onCopy?: () => void;
+  readonly style?: CSSProperties;
 }
 
+/** Displays a one-time secret (e.g. API key) with a copy button, since it cannot be retrieved again after this view. */
 export function RevealOnce({ secret, heading = "Copy your key now", warning, onCopy, style }: RevealOnceProps) {
   const [copied, setCopied] = useState(false);
   const copy = () => {

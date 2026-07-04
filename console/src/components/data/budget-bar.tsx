@@ -2,15 +2,17 @@ import type { CSSProperties } from "react";
 import { Icon } from "../core/icon.tsx";
 import { formatMoney } from "../../lib/format.ts";
 
+/** Props for {@link BudgetBar}. */
 export interface BudgetBarProps {
-  spent?: number;
-  cap?: number | null;
-  window?: string | null;
-  mode?: "block" | "warn";
-  labels?: boolean;
-  style?: CSSProperties;
+  readonly spent?: number;
+  readonly cap?: number | null;
+  readonly window?: string | null;
+  readonly mode?: "block" | "warn";
+  readonly labels?: boolean;
+  readonly style?: CSSProperties;
 }
 
+/** Shows spend against a budget cap as a filled track, warning or blocking once the cap is reached depending on `mode`. */
 export function BudgetBar({ spent = 0, cap, window: win, mode = "block", labels = false, style }: BudgetBarProps) {
   const ratio = cap ? spent / cap : 0;
   const pct = Math.min(ratio, 1) * 100;

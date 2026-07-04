@@ -1,16 +1,19 @@
 import type { CSSProperties } from "react";
 import { Icon, type IconName } from "./icon.tsx";
 
+/** Props for {@link IconButton}. */
 export interface IconButtonProps {
-  icon: IconName;
-  label: string;
-  variant?: "ghost" | "secondary" | "danger";
-  size?: "sm" | "md";
-  disabled?: boolean;
-  onClick?: () => void;
-  style?: CSSProperties;
+  readonly icon: IconName;
+  /** Accessible label, also shown as the native title/tooltip since the button has no visible text. */
+  readonly label: string;
+  readonly variant?: "ghost" | "secondary" | "danger";
+  readonly size?: "sm" | "md";
+  readonly disabled?: boolean;
+  readonly onClick?: () => void;
+  readonly style?: CSSProperties;
 }
 
+/** A compact, icon-only button for toolbars and dense UI where a full {@link Button} with text would take up too much space. */
 export function IconButton({ icon, label, variant = "ghost", size = "md", disabled, onClick, style }: IconButtonProps) {
   const cls = [
     "lm-iconbtn",

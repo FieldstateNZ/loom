@@ -2,15 +2,19 @@ import type { CSSProperties, ReactNode } from "react";
 import { formatMoney, formatMs, formatTokens } from "../../lib/format.ts";
 import type { TurnUsage } from "../../api/types.ts";
 
+/** Props for {@link Turn}. */
 export interface TurnProps {
-  role?: "user" | "assistant" | "system";
-  time?: string | undefined;
-  model?: string | undefined;
-  usage?: TurnUsage | undefined;
-  children?: ReactNode;
-  style?: CSSProperties;
+  /** Who produced this turn; defaults to "assistant". */
+  readonly role?: "user" | "assistant" | "system";
+  readonly time?: string | undefined;
+  readonly model?: string | undefined;
+  /** Token/cost/latency usage summary shown in the turn header, if available. */
+  readonly usage?: TurnUsage | undefined;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Renders a single turn of a conversation (role, timing/usage metadata, and its content blocks). */
 export function Turn({ role = "assistant", time, model, usage, children, style }: TurnProps) {
   return (
     <article className="lm-turn" style={style}>

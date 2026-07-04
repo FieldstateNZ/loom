@@ -1,25 +1,28 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/** Describes a single column of a {@link DataTable}: how to label, align, and render its cells. */
 export interface Column<T> {
-  key: string;
-  label: ReactNode;
-  width?: string;
-  align?: "left" | "right" | "center";
-  mono?: boolean;
-  muted?: boolean;
-  render?: (row: T) => ReactNode;
+  readonly key: string;
+  readonly label: ReactNode;
+  readonly width?: string;
+  readonly align?: "left" | "right" | "center";
+  readonly mono?: boolean;
+  readonly muted?: boolean;
+  readonly render?: (row: T) => ReactNode;
 }
 
+/** Props for {@link DataTable}. */
 export interface DataTableProps<T> {
-  columns: readonly Column<T>[];
-  rows: readonly T[];
-  rowKey?: keyof T | ((row: T) => string | number);
-  onRowClick?: (row: T) => void;
-  dense?: boolean;
-  empty?: ReactNode;
-  style?: CSSProperties;
+  readonly columns: readonly Column<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey?: keyof T | ((row: T) => string | number);
+  readonly onRowClick?: (row: T) => void;
+  readonly dense?: boolean;
+  readonly empty?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Generic tabular data renderer used to display rows of any shape with configurable columns. */
 export function DataTable<T>({
   columns,
   rows,

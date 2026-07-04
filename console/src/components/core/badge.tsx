@@ -1,16 +1,19 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Icon, type IconName } from "./icon.tsx";
 
+/** The visual tone/color treatment a {@link Badge} can be rendered in. */
 export type BadgeTone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent";
 
+/** Props for {@link Badge}. */
 export interface BadgeProps {
-  tone?: BadgeTone;
-  caps?: boolean;
-  icon?: IconName | undefined;
-  children?: ReactNode;
-  style?: CSSProperties;
+  readonly tone?: BadgeTone;
+  readonly caps?: boolean;
+  readonly icon?: IconName | undefined;
+  readonly children?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** A small pill-shaped label used to call out a status, category, or other short piece of metadata. */
 export function Badge({ tone = "neutral", caps = false, icon, children, style }: BadgeProps) {
   const cls = [
     "lm-badge",

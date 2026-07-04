@@ -1,36 +1,24 @@
 import type { CSSProperties } from "react";
-
-export interface ChartSeries {
-  name: string;
-  color: string;
-  data: readonly number[];
-}
-
-export function ChartLegend({ series, style }: { series: readonly ChartSeries[]; style?: CSSProperties }) {
-  return (
-    <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", ...style }}>
-      {series.map((s) => (
-        <span key={s.name} style={{ display: "inline-flex", alignItems: "center", gap: "6px", font: "var(--w-reg) var(--fs-11) / 1 var(--font-mono)", color: "var(--fg-3)" }}>
-          <span style={{ width: "8px", height: "2px", borderRadius: "1px", background: s.color, flexShrink: 0 }}></span>
-          {s.name}
-        </span>
-      ))}
-    </div>
-  );
-}
+import { ChartLegend } from "./chart-legend.tsx";
+import type { ChartSeries } from "./chart-series.ts";
 
 const W = 600, H = 100, PAD_TOP = 6;
 
+/** Props for {@link LineChart}. */
 export interface LineChartProps {
-  series?: readonly ChartSeries[];
-  height?: number;
-  yFormat?: (v: number) => string | number;
-  xLabels?: readonly string[];
-  area?: boolean;
-  legend?: boolean;
-  style?: CSSProperties;
+  readonly series?: readonly ChartSeries[];
+  readonly height?: number;
+  readonly yFormat?: (v: number) => string | number;
+  readonly xLabels?: readonly string[];
+  readonly area?: boolean;
+  readonly legend?: boolean;
+  readonly style?: CSSProperties;
 }
 
+/**
+ * A dependency-free SVG line chart (optionally area-filled). Scales all series
+ * to a shared max so overlaid this-period-vs-prior lines stay comparable.
+ */
 export function LineChart({ series = [], height = 170, yFormat = (v) => v, xLabels = [], area = false, legend = true, style }: LineChartProps) {
   const all = series.flatMap((s) => s.data);
   const max = Math.max(...all, 0) || 1;

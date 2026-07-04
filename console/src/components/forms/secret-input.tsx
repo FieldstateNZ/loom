@@ -3,16 +3,19 @@ import { Icon } from "../core/icon.tsx";
 import { Button } from "../core/button.tsx";
 import { Input } from "./input.tsx";
 
+/** Props for {@link SecretInput}. */
 export interface SecretInputProps {
-  isSet?: boolean;
-  meta?: string | null;
-  placeholder?: string;
-  onSave?: (value: string) => void;
-  saveLabel?: string;
-  note?: string;
-  style?: CSSProperties;
+  /** Whether a secret value is already stored server-side; controls whether the masked or editing view shows first. */
+  readonly isSet?: boolean;
+  readonly meta?: string | null;
+  readonly placeholder?: string;
+  readonly onSave?: (value: string) => void;
+  readonly saveLabel?: string;
+  readonly note?: string;
+  readonly style?: CSSProperties;
 }
 
+/** Write-only input for secrets like API keys: shows a masked placeholder once set, and lets the user rotate it without ever displaying the stored value. */
 export function SecretInput({
   isSet = false,
   meta,

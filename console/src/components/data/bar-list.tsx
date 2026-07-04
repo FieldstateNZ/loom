@@ -1,14 +1,16 @@
 import type { CSSProperties } from "react";
 import type { BarItem } from "../../api/types.ts";
 
+/** Props for {@link BarList}. */
 export interface BarListProps {
-  items?: readonly BarItem[];
-  color?: string;
-  mono?: boolean;
-  onSelect?: (item: BarItem) => void;
-  style?: CSSProperties;
+  readonly items?: readonly BarItem[];
+  readonly color?: string;
+  readonly mono?: boolean;
+  readonly onSelect?: (item: BarItem) => void;
+  readonly style?: CSSProperties;
 }
 
+/** Renders a horizontal list of comparative bars, e.g. for ranked categories or top-N breakdowns. */
 export function BarList({ items = [], color = "var(--accent)", mono = false, onSelect, style }: BarListProps) {
   const max = Math.max(...items.map((i) => i.value), 0) || 1;
   return (

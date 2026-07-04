@@ -2,12 +2,16 @@ import type { CSSProperties } from "react";
 import { Icon } from "../core/icon.tsx";
 import { formatTokens } from "../../lib/format.ts";
 
+/** Props for {@link CacheMarker}. */
 export interface CacheMarkerProps {
-  kind?: "read" | "write";
-  tokens?: number;
-  style?: CSSProperties;
+  /** Whether this marks a cache read or a cache write; defaults to "read". */
+  readonly kind?: "read" | "write";
+  /** Number of tokens served/written from/to cache, shown alongside the label. */
+  readonly tokens?: number;
+  readonly style?: CSSProperties;
 }
 
+/** Inline divider marking where a cache read or write occurred within a turn's usage. */
 export function CacheMarker({ kind = "read", tokens, style }: CacheMarkerProps) {
   const title = kind === "read"
     ? "Prompt prefix served from cache — billed at the reduced cache-read rate."

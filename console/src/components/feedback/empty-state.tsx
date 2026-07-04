@@ -1,14 +1,16 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Icon, type IconName } from "../core/icon.tsx";
 
+/** Props for {@link EmptyState}. */
 export interface EmptyStateProps {
-  icon?: IconName;
-  title?: ReactNode;
-  hint?: ReactNode;
-  action?: ReactNode;
-  style?: CSSProperties;
+  readonly icon?: IconName;
+  readonly title?: ReactNode;
+  readonly hint?: ReactNode;
+  readonly action?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** Placeholder shown in place of a list/panel when there is no data to display yet. */
 export function EmptyState({ icon = "layers", title, hint, action, style }: EmptyStateProps) {
   return (
     <div className="lm-empty" style={style}>

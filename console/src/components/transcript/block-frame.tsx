@@ -1,28 +1,24 @@
-// blockBase — shared chrome for transcript content blocks.
+// Shared chrome for transcript content blocks.
 import { useState, type ReactNode } from "react";
 import { Icon, type IconName } from "../core/icon.tsx";
 
-export function JsonPre({ data, label, maxHeight }: { data: unknown; label?: string; maxHeight?: number | string }) {
-  const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  return (
-    <div style={{ minWidth: 0 }}>
-      {label ? <p className="lm-pre__label">{label}</p> : null}
-      <pre className="lm-pre" style={maxHeight ? { maxHeight } : undefined}>{text}</pre>
-    </div>
-  );
-}
-
+/** Props for {@link BlockFrame}. */
 export interface BlockFrameProps {
-  icon: IconName;
-  kind: string;
-  name?: ReactNode;
-  meta?: ReactNode;
-  tone?: "danger" | undefined;
-  collapsible?: boolean;
-  defaultOpen?: boolean;
-  children?: ReactNode;
+  readonly icon: IconName;
+  readonly kind: string;
+  readonly name?: ReactNode;
+  readonly meta?: ReactNode;
+  readonly tone?: "danger" | undefined;
+  readonly collapsible?: boolean;
+  readonly defaultOpen?: boolean;
+  readonly children?: ReactNode;
 }
 
+/**
+ * The consistent header (icon + kind + name + meta) every transcript block sits
+ * inside, optionally collapsible. Keeping the chrome here means each block type
+ * only supplies its own body, so they all look and behave the same.
+ */
 export function BlockFrame({ icon, kind, name, meta, tone, collapsible = false, defaultOpen = true, children }: BlockFrameProps) {
   const [open, setOpen] = useState(defaultOpen);
   const headProps = {

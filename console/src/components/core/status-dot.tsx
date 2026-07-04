@@ -1,14 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/** The color/meaning conveyed by a {@link StatusDot}. */
 export type StatusTone = "neutral" | "ok" | "warn" | "danger" | "accent";
 
+/** Props for {@link StatusDot}. */
 export interface StatusDotProps {
-  tone?: StatusTone;
-  pulse?: boolean;
-  label?: ReactNode;
-  style?: CSSProperties;
+  readonly tone?: StatusTone;
+  /** When true, animates the dot to draw attention (e.g. for an actively-in-progress state). */
+  readonly pulse?: boolean;
+  readonly label?: ReactNode;
+  readonly style?: CSSProperties;
 }
 
+/** A small colored dot indicating status, optionally paired with a text label. */
 export function StatusDot({ tone = "neutral", pulse = false, label, style }: StatusDotProps) {
   const dotCls = [
     "lm-statusdot__dot",
