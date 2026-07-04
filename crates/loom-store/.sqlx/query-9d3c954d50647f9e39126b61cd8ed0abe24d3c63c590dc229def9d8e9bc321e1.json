@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE batch_jobs\n            SET status = 'created', error = $3, updated_at = now()\n            WHERE id = $1 AND tenant_id = $2 AND status = 'submitting'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d3c954d50647f9e39126b61cd8ed0abe24d3c63c590dc229def9d8e9bc321e1"
+}

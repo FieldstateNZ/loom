@@ -1,0 +1,30 @@
+/* Loom Console — spacing, radii, borders, layout. 4px base grid. */
+
+:root {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* ---- Radii (instrument panel: small and consistent) ---- */
+  --r-sm: 4px;     /* controls: buttons, inputs, badges */
+  --r-md: 6px;     /* cards, panels, popovers */
+  --r-lg: 8px;     /* dialogs, the shown-once key panel */
+  --r-full: 999px; /* status dots, pills, budget bar */
+
+  /* ---- Density presets ---- */
+  --row-h: 36px;        /* dense table row */
+  --row-h-relaxed: 44px;/* decision-weight rows and touch contexts */
+  --control-h: 28px;    /* compact controls (filters, toolbar) */
+  --control-h-lg: 34px; /* forms where decisions happen */
+
+  /* ---- Layout ---- */
+  --sidenav-w: 216px;
+  --page-max-w: 1320px;
+  --page-pad: var(--sp-6);
+}

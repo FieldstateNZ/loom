@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id, tenant_id, virtual_key_id, provider, status, provider_batch_id,\n                results_url, total_items, processing_count, succeeded_count,\n                errored_count, canceled_count, expired_count, error,\n                created_at, updated_at, ended_at\n            FROM batch_jobs\n            WHERE status <> 'ended'\n            ORDER BY created_at\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "virtual_key_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "provider_batch_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "results_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "total_items",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "processing_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "succeeded_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "errored_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "canceled_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "expired_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "ended_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "44dd2b2e90f1fc35a1effe310b5c906ed56fe33290c4dfc79025e88a3617cb95"
+}

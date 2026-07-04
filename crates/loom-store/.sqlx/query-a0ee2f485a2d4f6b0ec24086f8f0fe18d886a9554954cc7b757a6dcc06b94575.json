@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE batch_jobs\n            SET status = 'ended',\n                canceled_count = total_items,\n                processing_count = 0,\n                ended_at = now(),\n                updated_at = now()\n            WHERE id = $1 AND tenant_id = $2 AND status <> 'ended'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0ee2f485a2d4f6b0ec24086f8f0fe18d886a9554954cc7b757a6dcc06b94575"
+}

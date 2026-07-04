@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: CI only needs to read the repo. Any job needing more should
+# raise it locally rather than widen this default.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -49,3 +54,78 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --all-targets
       - run: cargo test --workspace --all-features
+
+  helm:
+    name: helm chart (lint + render)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: helm lint (default + staging + production values)
+        run: |
+          helm lint deploy/chart/loom
+          helm lint deploy/chart/loom -f deploy/chart/loom/values-staging.yaml
+          helm lint deploy/chart/loom -f deploy/chart/loom/values-production.yaml
+      - name: helm template (render) + validate manifests
+        run: |
+          mkdir -p rendered
+          # Bundled-DB staging profile. A fixed DB password keeps the render
+          # deterministic (otherwise the chart generates a random one).
+          helm template loom deploy/chart/loom \
+            --namespace loom \
+            -f deploy/chart/loom/values-staging.yaml \
+            --set postgresql.auth.password=ci-fixed-password \
+            > rendered/staging.yaml
+          # External-DB production profile.
+          helm template loom deploy/chart/loom \
+            --namespace loom \
+            -f deploy/chart/loom/values-production.yaml \
+            --set image.tag=v0.0.0-ci \
+            > rendered/production.yaml
+          # Default values (no overrides) must also render.
+          helm template loom deploy/chart/loom --namespace loom > rendered/default.yaml
+          python3 deploy/ci/validate_render.py \
+            rendered/default.yaml rendered/staging.yaml rendered/production.yaml
+
+  console:
+    name: console (typecheck + build + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+      # `npm run build` runs `tsc -b` (typecheck) then `vite build`.
+      - run: npm run build
+      # Enforce the typescript-codebase house rules (no-any/no-console/max-lines/…).
+      - run: npm run lint
+
+  ts-client:
+    name: ts client (typecheck + build + test + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # `npm run build` runs `tsc` (emit dts + js from the committed generated types).
+      - run: npm run build
+      # Request-shaping unit test (no network).
+      - run: npm test
+      # Enforce the typescript-codebase house rules.
+      - run: npm run lint

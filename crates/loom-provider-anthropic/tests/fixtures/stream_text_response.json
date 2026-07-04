@@ -1,0 +1,12 @@
+{
+  "id": "msg_eq_text",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-8",
+  "content": [
+    { "type": "text", "text": "Hello, world" }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": { "input_tokens": 10, "output_tokens": 7 }
+}

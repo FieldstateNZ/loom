@@ -1,0 +1,23 @@
+/* Loom Console — elevation, focus, motion.
+   Dark mode elevates by getting LIGHTER (surface + hairline), not by shadow.
+   Shadows exist only for true overlays (popover, dialog) and light mode cards. */
+
+:root {
+  --shadow-card: none;                                /* dark: border does the work */
+  --shadow-pop: 0 4px 12px oklch(0% 0 0 / 0.35), 0 12px 32px oklch(0% 0 0 / 0.45);
+  --shadow-dialog: 0 8px 24px oklch(0% 0 0 / 0.45), 0 24px 64px oklch(0% 0 0 / 0.55);
+
+  --focus-ring: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent);
+
+  /* ---- Motion: fades and 2px settles. Nothing bounces. ---- */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --dur-1: 120ms;  /* @kind other */ /* hover, press */
+  --dur-2: 180ms;  /* @kind other */ /* reveal, fade */
+  --dur-3: 260ms;  /* @kind other */ /* dialog, panel */
+}
+
+[data-theme="light"] {
+  --shadow-card: 0 1px 2px oklch(20% 0.01 80 / 0.05);
+  --shadow-pop: 0 2px 8px oklch(20% 0.01 80 / 0.09), 0 12px 32px oklch(20% 0.01 80 / 0.13);
+  --shadow-dialog: 0 8px 24px oklch(20% 0.01 80 / 0.13), 0 24px 64px oklch(20% 0.01 80 / 0.18);
+}

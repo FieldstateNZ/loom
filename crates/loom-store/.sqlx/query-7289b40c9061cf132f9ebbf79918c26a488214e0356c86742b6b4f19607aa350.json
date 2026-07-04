@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT status, provider_batch_id, total_items\n            FROM batch_jobs\n            WHERE id = $1 AND tenant_id = $2\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_batch_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_items",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7289b40c9061cf132f9ebbf79918c26a488214e0356c86742b6b4f19607aa350"
+}

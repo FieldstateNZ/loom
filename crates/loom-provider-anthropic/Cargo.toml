@@ -13,3 +13,16 @@ loom-core = { workspace = true }
 loom-provider = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+futures = { workspace = true }
+futures-util = { workspace = true }
+eventsource-stream = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+wiremock = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }

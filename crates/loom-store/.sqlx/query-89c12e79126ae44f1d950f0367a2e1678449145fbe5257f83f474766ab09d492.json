@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tenants\n            SET budget_limit_amount = $2, budget_window = $3, budget_action = $4\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Numeric",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89c12e79126ae44f1d950f0367a2e1678449145fbe5257f83f474766ab09d492"
+}

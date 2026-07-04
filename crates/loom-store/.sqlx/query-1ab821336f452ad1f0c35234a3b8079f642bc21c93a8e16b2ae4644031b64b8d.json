@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE batch_jobs\n            SET status = $3,\n                processing_count = $4,\n                succeeded_count = $5,\n                errored_count = $6,\n                canceled_count = $7,\n                expired_count = $8,\n                results_url = COALESCE($9, results_url),\n                ended_at = COALESCE($10, ended_at),\n                error = NULL,\n                updated_at = now()\n            WHERE id = $1 AND tenant_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ab821336f452ad1f0c35234a3b8079f642bc21c93a8e16b2ae4644031b64b8d"
+}

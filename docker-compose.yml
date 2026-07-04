@@ -32,6 +32,16 @@ services:
       LOOM_ROOT_ADMIN_TOKEN: dev-root-token-change-me
       LOOM_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       RUST_LOG: info,loom_server=debug
+      # OpenTelemetry is opt-in by endpoint presence. These are commented out by
+      # default so the plain stack needs no collector; uncomment them (and start
+      # the `observability` profile below) to export traces + metrics to the
+      # bundled OTLP collector / dashboard.
+      #OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      #OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      #OTEL_SERVICE_NAME: loom-server
+      # Debug-only, privacy-sensitive: attach prompt/completion content to spans.
+      # NEVER enable where telemetry leaves a trusted boundary.
+      #LOOM_TELEMETRY_CAPTURE_CONTENT: "0"
     ports:
       - "8080:8080"
     healthcheck:
@@ -40,6 +50,26 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 3
+
+  # Optional OTLP collector + dashboard. It only starts under the
+  # `observability` profile, so the default `docker compose up` stays lean:
+  #
+  #   docker compose --profile observability up --build
+  #
+  # The .NET Aspire dashboard receives OTLP (gRPC on 4317, HTTP on 4318) and
+  # renders traces, metrics and logs at http://localhost:18888. To point Loom at
+  # it, uncomment the OTEL_* variables on the `loom-server` service above.
+  # Any OTLP-compatible collector works the same way (Grafana Alloy, the
+  # OpenTelemetry Collector, Jaeger with OTLP enabled, Honeycomb, …).
+  otel-collector:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    profiles: ["observability"]
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888" # dashboard UI
+      - "4317:4317" # OTLP/gRPC
+      - "4318:4318" # OTLP/HTTP
 
 volumes:
   loom-pgdata:

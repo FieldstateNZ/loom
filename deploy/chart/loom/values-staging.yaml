@@ -1,0 +1,71 @@
+# Staging profile — a single-node k3s cluster on a modest (~16GB) home server.
+#
+# Usage:
+#   helm upgrade --install loom deploy/chart/loom \
+#     -n loom --create-namespace \
+#     -f deploy/chart/loom/values-staging.yaml
+#
+# This profile uses the BUNDLED dev PostgreSQL for convenience, so the only
+# Secret you must create carries the app secrets (encryption key + admin token);
+# DATABASE_URL is provided by the bundled DB. See deploy/README.md.
+
+replicaCount: 1
+
+image:
+  # Track the rolling staging tag. Pin to a digest/version for reproducibility.
+  tag: "latest"
+  pullPolicy: Always
+
+# Small footprint for a shared home server.
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    memory: 256Mi
+
+config:
+  runMigrations: true
+  rustLog: "info,loom_server=debug"
+
+# The bundled DB only needs the app secrets in the Secret below.
+secrets:
+  existingSecret: "loom-secrets"
+  keys:
+    encryptionKey: "LOOM_ENCRYPTION_KEY"
+    rootAdminToken: "LOOM_ROOT_ADMIN_TOKEN"
+
+# Bundled single-node PostgreSQL — fine for staging, never for production.
+postgresql:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 4Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+# Example ingress via k3s' bundled Traefik OR ingress-nginx. The annotations
+# below target ingress-nginx; if you use Traefik, drop className to "traefik"
+# and translate the buffering/timeout settings (Traefik streams SSE by default,
+# but set a long `serversTransport` responseHeaderTimeout for safety).
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+  hosts:
+    - host: loom.staging.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Observability is off by default in staging; flip on and point at your collector.
+otel:
+  enabled: false

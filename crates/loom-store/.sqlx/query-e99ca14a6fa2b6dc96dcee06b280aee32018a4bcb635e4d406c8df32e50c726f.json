@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE batch_jobs SET status = 'canceling', updated_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e99ca14a6fa2b6dc96dcee06b280aee32018a4bcb635e4d406c8df32e50c726f"
+}

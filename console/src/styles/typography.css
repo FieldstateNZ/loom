@@ -1,0 +1,40 @@
+/* Loom Console — type tokens.
+   The rule: PROSE AND LABELS IN SANS, DATA IN MONO.
+   Every number that is data (cost, tokens, counts, timestamps, keys, IDs)
+   renders in IBM Plex Mono — that is the instrument-panel signature. */
+
+:root {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- Size scale (dense console; base UI text is 13px) ---- */
+  --fs-11: 11px;   /* eyebrow labels, table captions, cache markers */
+  --fs-12: 12px;   /* table cells (dense), badges, help text */
+  --fs-13: 13px;   /* base UI text, inputs, buttons */
+  --fs-14: 14px;   /* emphasized body, transcript prose */
+  --fs-16: 16px;   /* section titles */
+  --fs-18: 18px;   /* page titles */
+  --fs-22: 22px;   /* stat tile numbers (secondary) */
+  --fs-28: 28px;   /* stat tile numbers (primary) */
+  --fs-36: 36px;   /* the money number */
+
+  /* ---- Line heights ---- */
+  --lh-tight: 1.15;   /* @kind font */ /* big numbers, titles */
+  --lh-snug: 1.35;    /* @kind font */ /* table cells, controls */
+  --lh-body: 1.55;    /* @kind font */ /* prose, transcripts */
+
+  /* ---- Weights (only these three ship) ---- */
+  --w-reg: 400;  /* @kind font */
+  --w-med: 500;  /* @kind font */
+  --w-semi: 600; /* @kind font */
+
+  /* ---- Tracking ---- */
+  --track-label: 0.07em;   /* uppercase mono eyebrows */
+  --track-tight: -0.015em; /* numbers ≥ 22px */
+
+  /* ---- Semantic type aliases ---- */
+  --text-eyebrow: var(--w-med) var(--fs-11) / 1.2 var(--font-mono);   /* + uppercase + tracking */
+  --text-ui: var(--w-reg) var(--fs-13) / var(--lh-snug) var(--font-sans);
+  --text-data: var(--w-reg) var(--fs-12) / var(--lh-snug) var(--font-mono);
+  --text-title: var(--w-semi) var(--fs-18) / var(--lh-tight) var(--font-sans);
+}

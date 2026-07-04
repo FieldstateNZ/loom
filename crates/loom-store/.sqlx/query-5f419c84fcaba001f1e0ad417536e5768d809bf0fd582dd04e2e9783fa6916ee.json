@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO virtual_keys (\n                id, tenant_id, key_hash, key_prefix, name, scopes,\n                budget_limit_amount, budget_window, budget_action\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING\n                id, tenant_id, key_hash, key_prefix, name, status, scopes,\n                budget_limit_amount, budget_window, budget_action,\n                rate_limit_requests_per_min, rate_limit_tokens_per_min,\n                created_at, last_used_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "key_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "scopes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "budget_limit_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 8,
+        "name": "budget_window",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "budget_action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "rate_limit_requests_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "rate_limit_tokens_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Numeric",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "5f419c84fcaba001f1e0ad417536e5768d809bf0fd582dd04e2e9783fa6916ee"
+}

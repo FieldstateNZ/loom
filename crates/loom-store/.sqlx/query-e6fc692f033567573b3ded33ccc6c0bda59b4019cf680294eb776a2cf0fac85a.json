@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT budget_limit_amount, budget_window, budget_action\n            FROM tenants\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "budget_limit_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 1,
+        "name": "budget_window",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "budget_action",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e6fc692f033567573b3ded33ccc6c0bda59b4019cf680294eb776a2cf0fac85a"
+}

@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id, tenant_id, key_hash, key_prefix, name, status, scopes,\n                budget_limit_amount, budget_window, budget_action,\n                rate_limit_requests_per_min, rate_limit_tokens_per_min,\n                created_at, last_used_at\n            FROM virtual_keys\n            WHERE key_hash = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "key_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "scopes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "budget_limit_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 8,
+        "name": "budget_window",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "budget_action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "rate_limit_requests_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "rate_limit_tokens_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "8207421ca1042db6aa9ce3d74dc05a3066e822316b259fa8c83b862bf6ae70be"
+}

@@ -1,0 +1,959 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Loom gateway API",
+    "description": "Multi-tenant LLM gateway: tenant-scoped conversations and turns over pluggable providers.",
+    "contact": {
+      "name": "Fieldstate",
+      "email": "hello@fieldstate.nz"
+    },
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/batches": {
+      "post": {
+        "tags": [
+          "batches"
+        ],
+        "summary": "`POST /v1/batches` — create a batch from a list of items.",
+        "description": "Budget and rate limits are enforced up front with the **same** check the\ninteractive turn paths use ([`crate::v1::enforce_limits`]), so a tenant whose\nbudget action is `block` cannot bypass the block by submitting work as a\nbatch. The rate-limit check counts a batch create as a **single** request\n(not one per item); the budget block is the primary guard against a large\nbatch running up spend past a hard cap.",
+        "operationId": "create_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Batch created (status = created)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid virtual key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Budget exceeded (block action)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Capability unsupported or provider not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/batches/{id}": {
+      "get": {
+        "tags": [
+          "batches"
+        ],
+        "summary": "`GET /v1/batches/{id}` — the batch's status and counts.",
+        "operationId": "get_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Batch id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The batch status and counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such batch for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/batches/{id}/cancel": {
+      "post": {
+        "tags": [
+          "batches"
+        ],
+        "summary": "`POST /v1/batches/{id}/cancel` — request cancellation of a batch.",
+        "operationId": "cancel_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Batch id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The batch, transitioned toward cancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such batch for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/batches/{id}/results": {
+      "get": {
+        "tags": [
+          "batches"
+        ],
+        "summary": "`GET /v1/batches/{id}/results` — the per-item results as streamed JSONL\n(one `{custom_id, status, result}` object per line).",
+        "operationId": "get_batch_results",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Batch id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSONL stream, one result object per line",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such batch for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`POST /v1/conversations` — create a tenant-scoped conversation.",
+        "operationId": "create_conversation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Conversation created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid virtual key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{id}": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`GET /v1/conversations/{id}` — fetch a conversation with a page of its\nhistory, scoped to the caller's tenant.",
+        "operationId": "get_conversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max messages to return (default 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Messages to skip from the start",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversation and a page of its messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`DELETE /v1/conversations/{id}` — delete a conversation scoped to the\ncaller's tenant.",
+        "operationId": "delete_conversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "No such conversation for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{id}/turns": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`POST /v1/conversations/{id}/turns` — append a user turn, run the bound\nprovider, and return (or stream) the assistant turn, persisting both.",
+        "operationId": "create_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The assistant message, or an SSE stream when stream=true",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation for this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Capability unsupported or provider not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/turns": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`POST /v1/turns` — run the provider on a fully-inline conversation with **no**\npersistence. Shares [`execute_turn`] with the stateful path for parity.",
+        "operationId": "stateless_turn",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatelessTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The assistant message, or an SSE stream when stream=true",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Capability unsupported or provider not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "usage"
+        ],
+        "summary": "`GET /v1/usage` — tenant-scoped usage rollups grouped by key, model, or\nconversation, over an optional `[from, to]` time window.",
+        "operationId": "usage_rollup",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive lower bound (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive upper bound (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "description": "key | model | conversation (default model)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Grouped token and cost rollups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid group_by or time bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid virtual key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/whoami": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "`GET /v1/whoami` — echoes the resolved [`TenantContext`]. Useful for smoke\ntests of the auth layer.",
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "description": "The authenticated tenant identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid virtual key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchCountsDto": {
+        "type": "object",
+        "description": "Per-status item counts in a batch response.",
+        "required": [
+          "processing",
+          "succeeded",
+          "errored",
+          "canceled",
+          "expired"
+        ],
+        "properties": {
+          "canceled": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Items that were canceled."
+          },
+          "errored": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Items that failed."
+          },
+          "expired": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Items that expired."
+          },
+          "processing": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Items still being processed."
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Items that completed successfully."
+          }
+        }
+      },
+      "BatchItemInput": {
+        "type": "object",
+        "description": "One item of a batch create request: the inline stateless-turn shape plus an\noptional caller correlation id.",
+        "required": [
+          "provider",
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "custom_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A caller-facing correlation id, unique within the batch. Defaults to\n`item-{index}` when omitted."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The full, inline message history to run."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model identifier, as the provider expects it."
+          },
+          "options": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Request-time provider options."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider to run against (e.g. `\"anthropic\"`)."
+          },
+          "system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An optional system prompt."
+          },
+          "system_cache": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "An optional prompt-cache breakpoint on the system prompt."
+          }
+        }
+      },
+      "BatchJobDto": {
+        "type": "object",
+        "description": "A batch job as returned by the API.",
+        "required": [
+          "id",
+          "provider",
+          "status",
+          "total_items",
+          "counts",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/BatchCountsDto",
+            "description": "Per-status item counts."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the job was created."
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the job ended, if it has."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last transient provider/poll error, if any."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The job id."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider the job runs against."
+          },
+          "provider_batch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provider-native batch id, once submitted."
+          },
+          "status": {
+            "type": "string",
+            "description": "The lifecycle status (`created`, `submitting`, `in_progress`,\n`canceling`, `ended`)."
+          },
+          "total_items": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The total number of items."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the job was last updated."
+          }
+        }
+      },
+      "CreateBatchRequest": {
+        "type": "object",
+        "description": "Request body for creating a batch.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchItemInput"
+            },
+            "description": "The batch's items, in submission order."
+          }
+        }
+      },
+      "CreateConversationRequest": {
+        "type": "object",
+        "description": "Request body for creating a conversation.",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Free-form caller metadata (tags, correlation IDs, …)."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model identifier, as the provider expects it."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider to bind the conversation to (e.g. `\"anthropic\"`)."
+          },
+          "system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An optional system prompt applied to the whole conversation."
+          }
+        }
+      },
+      "StatelessTurnRequest": {
+        "type": "object",
+        "description": "Request body for a stateless turn: the whole conversation is supplied inline\nand nothing is persisted.",
+        "required": [
+          "provider",
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The full, inline message history to run."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model identifier, as the provider expects it."
+          },
+          "options": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Request-time provider options."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider to run against (e.g. `\"anthropic\"`)."
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Whether to stream the assistant turn as Server-Sent Events."
+          },
+          "system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An optional system prompt."
+          },
+          "system_cache": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "An optional prompt-cache breakpoint on the system prompt."
+          }
+        }
+      },
+      "TurnRequest": {
+        "type": "object",
+        "description": "Request body for appending a turn to a stored conversation.",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The user turn's content parts, in provider-significant order."
+          },
+          "options": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Request-time provider options (sampling, tools, …)."
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Whether to stream the assistant turn as Server-Sent Events."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "virtual_key": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "virtual key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "conversations",
+      "description": "Tenant-scoped conversation and turn endpoints"
+    },
+    {
+      "name": "usage",
+      "description": "Spend and token usage rollups"
+    },
+    {
+      "name": "batches",
+      "description": "Asynchronous batch jobs (bulk turns at the discounted batch tier)"
+    }
+  ]
+}
