@@ -5,8 +5,8 @@
 use chrono::{TimeZone, Utc};
 use loom_core::{
     CacheHint, CacheNegotiation, CacheTtl, Citation, ContentPart, Conversation,
-    ConversationOptions, MediaSource, Message, ProviderBinding, Role, ServerTool, ToolDefinition,
-    Usage,
+    ConversationOptions, McpServerRef, MediaSource, Message, ProviderBinding, Role, ServerTool,
+    ToolDefinition, Usage,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -193,12 +193,44 @@ fn conversation_options_roundtrips() {
         // The Raw passthrough carries a native tool definition verbatim.
         ServerTool::Raw(json!({ "type": "web_search_20250305", "name": "web_search" })),
     ];
+    options.mcp_servers = vec![
+        McpServerRef::named("github"),
+        McpServerRef {
+            name: "inline".to_owned(),
+            url: Some("https://mcp.example.com/mcp".to_owned()),
+            authorization: Some("tok".to_owned()),
+            tool_configuration: Some(json!({ "enabled": true })),
+        },
+    ];
     options.provider_options.insert(
         "anthropic".to_owned(),
         json!({ "tool_choice": { "type": "auto" }, "top_p": 0.9 }),
     );
     assert_json_roundtrip(&options);
     assert_json_roundtrip(&ConversationOptions::new());
+}
+
+#[test]
+fn mcp_server_ref_debug_redacts_the_authorization_token() {
+    // The bearer token must never appear in a log line, panic message, or test
+    // failure — Debug redacts it while still showing the other fields.
+    let server = McpServerRef {
+        name: "github".to_owned(),
+        url: Some("https://mcp.example.com/mcp".to_owned()),
+        authorization: Some("super-secret-token".to_owned()),
+        tool_configuration: None,
+    };
+    let debug = format!("{server:?}");
+    assert!(
+        !debug.contains("super-secret-token"),
+        "token must be redacted"
+    );
+    assert!(debug.contains("<redacted>"));
+    assert!(debug.contains("github"));
+
+    // A named reference carries no token and shows None.
+    let named = format!("{:?}", McpServerRef::named("github"));
+    assert!(named.contains("authorization: None"));
 }
 
 #[test]

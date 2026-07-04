@@ -283,8 +283,13 @@ async fn create_turn(
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::not_found("conversation not found"))?;
 
-    let options = req.options.unwrap_or_default();
+    let mut options = req.options.unwrap_or_default();
     let user_turn = Message::new(Role::User, req.content);
+
+    // Resolve named MCP server references to their URL + decrypted token
+    // *before* persisting the user turn, so an unconfigured server fails fast
+    // without mutating history and the auth token is injected server-side.
+    crate::provider::resolve_mcp_servers(&state, ctx.tenant_id, &mut options).await?;
 
     // Resolve the provider and negotiate capabilities *before* persisting the
     // user turn, so a doomed request (no credential, unsupported capability)
@@ -375,12 +380,16 @@ async fn stateless_turn(
         return Err(ApiError::bad_request("messages must not be empty"));
     }
 
-    let options = req.options.unwrap_or_default();
+    let mut options = req.options.unwrap_or_default();
     let mut conversation =
         Conversation::new(ctx.tenant_id, ProviderBinding::new(req.provider, req.model));
     conversation.system = req.system;
     conversation.system_cache = req.system_cache;
     conversation.messages = req.messages;
+
+    // Resolve named MCP server references (URL + decrypted token injected
+    // server-side) before dispatch.
+    crate::provider::resolve_mcp_servers(&state, ctx.tenant_id, &mut options).await?;
 
     let provider = state
         .resolve_provider(ctx.tenant_id, &conversation.binding.provider)

@@ -35,8 +35,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use loom_core::{
-    CacheHint, CacheTtl, Citation, ContentPart, Conversation, ConversationOptions, MediaSource,
-    Message, Role, ServerTool, ToolDefinition, Usage,
+    CacheHint, CacheTtl, Citation, ContentPart, Conversation, ConversationOptions, McpServerRef,
+    MediaSource, Message, Role, ServerTool, ToolDefinition, Usage,
 };
 use loom_provider::StopReason;
 use serde_json::{json, Map, Value};
@@ -105,6 +105,19 @@ pub fn translate_request(conversation: &Conversation, options: &ConversationOpti
     tools.extend(options.server_tools.iter().map(server_tool_to_native));
     if !tools.is_empty() {
         root.insert("tools".into(), Value::Array(tools));
+    }
+
+    // External MCP servers the model may call through Anthropic's connector.
+    // For a named reference the URL and authorization token are resolved and
+    // injected upstream (in loom-server), so by the time a ref reaches here it
+    // carries whatever the request should send verbatim.
+    if !options.mcp_servers.is_empty() {
+        let servers: Vec<Value> = options
+            .mcp_servers
+            .iter()
+            .map(mcp_server_to_native)
+            .collect();
+        root.insert("mcp_servers".into(), Value::Array(servers));
     }
 
     if let Some(temperature) = options.temperature {
@@ -207,6 +220,13 @@ pub fn required_betas(_conversation: &Conversation, options: &ConversationOption
             _ => None,
         };
         if let Some(token) = feature.and_then(feature_beta) {
+            betas.insert(token.to_owned());
+        }
+    }
+
+    // Attaching external MCP servers requires the connector's beta flag.
+    if !options.mcp_servers.is_empty() {
+        if let Some(token) = feature_beta(BetaFeature::McpConnector) {
             betas.insert(token.to_owned());
         }
     }
@@ -458,6 +478,30 @@ fn server_tool_to_native(tool: &ServerTool) -> Value {
     }
 }
 
+/// Maps an [`McpServerRef`] to Anthropic's native `mcp_servers` entry.
+///
+/// Anthropic's connector expects `{ "type": "url", "name", "url",
+/// "authorization_token"?, "tool_configuration"? }`. The authorization token is
+/// emitted only when present — for a named reference it has been injected
+/// upstream after decryption; for an inline reference the caller supplied it.
+/// The token is a bearer secret and appears **only** in the outbound request
+/// body, never in a response or in persisted history.
+fn mcp_server_to_native(server: &McpServerRef) -> Value {
+    let mut obj = Map::new();
+    obj.insert("type".into(), json!("url"));
+    obj.insert("name".into(), json!(server.name));
+    if let Some(url) = &server.url {
+        obj.insert("url".into(), json!(url));
+    }
+    if let Some(authorization) = &server.authorization {
+        obj.insert("authorization_token".into(), json!(authorization));
+    }
+    if let Some(tool_configuration) = &server.tool_configuration {
+        obj.insert("tool_configuration".into(), tool_configuration.clone());
+    }
+    Value::Object(obj)
+}
+
 /// Serialises a [`MediaSource`] to its native Anthropic `source` object.
 ///
 /// The domain type's serde representation already matches Anthropic's shape
@@ -703,6 +747,21 @@ pub fn block_to_part(block: &Value) -> ContentPart {
             id: str_field(block, "id"),
             name: str_field(block, "name"),
             input: block.get("input").cloned().unwrap_or(Value::Null),
+        },
+        // MCP connector blocks carry provider-specific fields (`server_name`,
+        // `is_error`, …) that Loom's typed server-tool parts do not model, so
+        // they ride through the escape hatch **verbatim** rather than being
+        // reshaped — this keeps MCP tool use/results lossless and round-trip
+        // exact. `mcp_tool_result` is matched here, before the generic
+        // `<tool>_tool_result` arm below, so its extra fields are not dropped.
+        "mcp_tool_use" | "mcp_tool_result" => ContentPart::ProviderExtension {
+            provider: crate::PROVIDER_NAME.to_owned(),
+            kind: block
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            payload: block.clone(),
         },
         // Provider-executed tool results share a `<tool>_tool_result` naming
         // convention; the result payload is preserved verbatim.

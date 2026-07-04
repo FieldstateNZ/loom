@@ -135,6 +135,11 @@ pub fn required_capabilities(
         required.insert(Capability::ClientTools);
     }
 
+    // Offering external MCP servers requires the provider's MCP connector.
+    if !options.mcp_servers.is_empty() {
+        required.insert(Capability::McpConnector);
+    }
+
     // Server-side tools the caller offers require their provider-hosted
     // capability. A `Raw` passthrough is forward-compat — Loom cannot infer
     // which capability it exercises, so it is left to the provider.
@@ -236,6 +241,14 @@ mod tests {
         let required = required_capabilities(&conversation(), &options);
         assert!(required.contains(&Capability::ServerToolWebSearch));
         assert!(required.contains(&Capability::ServerToolCodeExecution));
+    }
+
+    #[test]
+    fn offered_mcp_servers_require_the_connector_capability() {
+        let mut options = ConversationOptions::new();
+        options.mcp_servers = vec![loom_core::McpServerRef::named("github")];
+        let required = required_capabilities(&conversation(), &options);
+        assert!(required.contains(&Capability::McpConnector));
     }
 
     #[test]

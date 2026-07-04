@@ -395,6 +395,187 @@ async fn streaming_turn_with_anthropic_fixture() {
     assert_eq!(messages[1]["content"][0]["text"], "Hello, world");
 }
 
+/// A minimal non-streaming Anthropic Messages response body.
+const ANTHROPIC_JSON_RESPONSE: &str = r#"{
+    "id": "msg_mcp",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-4-8",
+    "content": [{ "type": "text", "text": "done" }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 5, "output_tokens": 2 }
+}"#;
+
+/// A named MCP server's authorization token is injected into the upstream
+/// Anthropic request server-side, and never appears in the admin listing, the
+/// turn response, or persisted history.
+#[tokio::test]
+async fn named_mcp_server_token_is_injected_upstream_and_never_leaks() {
+    const MCP_TOKEN: &str = "mcp-secret-do-not-leak";
+
+    // A wiremock stand-in that records the request bodies it receives.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_string(ANTHROPIC_JSON_RESPONSE),
+        )
+        .mount(&server)
+        .await;
+
+    let (_pg, app) = setup(None).await;
+    let tenant = create_tenant(&app, "acme").await;
+    let key = create_key(&app, tenant).await;
+
+    // Store the Anthropic credential (base URL → wiremock).
+    let cred = send(
+        &app,
+        request(
+            "PUT",
+            &format!("/admin/tenants/{tenant}/credentials/anthropic"),
+            Some(ADMIN_TOKEN),
+            Some(json!({ "api_key": "sk-ant-test", "base_url": server.uri() })),
+        ),
+    )
+    .await;
+    assert_eq!(cred.status(), StatusCode::OK);
+
+    // Register the named MCP server with its secret token.
+    let reg = send(
+        &app,
+        request(
+            "PUT",
+            &format!("/admin/tenants/{tenant}/mcp-servers/github"),
+            Some(ADMIN_TOKEN),
+            Some(json!({
+                "url": "https://mcp.githubcopilot.com/mcp",
+                "authorization_token": MCP_TOKEN,
+                "tool_configuration": { "enabled": true }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(reg.status(), StatusCode::OK);
+    let reg_body = json_body(reg).await;
+    // The registration response confirms a token is held but never echoes it.
+    assert_eq!(reg_body["has_authorization"], json!(true));
+    assert!(
+        !reg_body.to_string().contains(MCP_TOKEN),
+        "registration response must not echo the token"
+    );
+
+    // The admin listing likewise never exposes the token.
+    let list = send(
+        &app,
+        request(
+            "GET",
+            &format!("/admin/tenants/{tenant}/mcp-servers"),
+            Some(ADMIN_TOKEN),
+            None,
+        ),
+    )
+    .await;
+    let list_text = text_body(list).await;
+    assert!(list_text.contains("\"github\""));
+    assert!(
+        !list_text.contains(MCP_TOKEN),
+        "admin listing must not expose the token"
+    );
+
+    // Run a turn that references the server by name only.
+    let convo = create_conversation(&app, &key, "anthropic", "claude-opus-4-8").await;
+    let turn = send(
+        &app,
+        request(
+            "POST",
+            &format!("/v1/conversations/{convo}/turns"),
+            Some(&key),
+            Some(json!({
+                "content": [{ "type": "text", "text": "search my repos" }],
+                "stream": false,
+                "options": { "mcp_servers": [{ "name": "github" }] }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(turn.status(), StatusCode::OK);
+    let turn_text = text_body(turn).await;
+    assert!(
+        !turn_text.contains(MCP_TOKEN),
+        "the turn response must not contain the MCP token"
+    );
+
+    // The upstream request DID carry the injected token (server-side injection),
+    // in the native `mcp_servers` field, with the resolved URL and config.
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock records requests");
+    let upstream: Value =
+        serde_json::from_slice(&requests.last().unwrap().body).expect("upstream body is JSON");
+    let servers = upstream["mcp_servers"]
+        .as_array()
+        .expect("mcp_servers array");
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0]["name"], json!("github"));
+    assert_eq!(
+        servers[0]["url"],
+        json!("https://mcp.githubcopilot.com/mcp")
+    );
+    assert_eq!(servers[0]["authorization_token"], json!(MCP_TOKEN));
+    assert_eq!(servers[0]["tool_configuration"], json!({ "enabled": true }));
+
+    // Persisted history contains neither the token nor the options.
+    let history = send(
+        &app,
+        request(
+            "GET",
+            &format!("/v1/conversations/{convo}"),
+            Some(&key),
+            None,
+        ),
+    )
+    .await;
+    let history_text = text_body(history).await;
+    assert!(
+        !history_text.contains(MCP_TOKEN),
+        "persisted history must not contain the MCP token"
+    );
+}
+
+/// A turn referencing an MCP server that is not registered for the tenant fails
+/// fast with a structured `422`, without dispatching to the provider.
+#[tokio::test]
+async fn turn_referencing_unregistered_mcp_server_is_unprocessable() {
+    let provider = MockProvider::new("mock", "mock-model", [Capability::McpConnector])
+        .with_completion(Message::assistant("unused"));
+    let (_pg, app) = setup(Some(Arc::new(FixedFactory(Arc::new(provider))))).await;
+    let tenant = create_tenant(&app, "acme").await;
+    let key = create_key(&app, tenant).await;
+
+    let resp = send(
+        &app,
+        request(
+            "POST",
+            "/v1/turns",
+            Some(&key),
+            Some(json!({
+                "provider": "mock",
+                "model": "mock-model",
+                "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hi" }] }],
+                "options": { "mcp_servers": [{ "name": "unregistered" }] }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = json_body(resp).await;
+    assert_eq!(body["error"]["code"], json!("mcp_server_not_configured"));
+    let _ = tenant;
+}
+
 #[tokio::test]
 async fn stateless_turn_parity_with_stateful() {
     let provider = MockProvider::new("mock", "mock-model", [Capability::ClientTools])

@@ -34,6 +34,10 @@
 //! - `PUT`/`DELETE /admin/tenants/{id}/budget`, `PUT`/`DELETE
 //!   /admin/keys/{id}/budget`, `PUT`/`DELETE /admin/keys/{id}/rate-limit` —
 //!   budget and rate-limit administration (admin auth).
+//! - `GET /admin/tenants/{id}/mcp-servers`,
+//!   `PUT`/`DELETE /admin/tenants/{id}/mcp-servers/{name}` — the per-tenant MCP
+//!   server registry; conversations reference these by name and Loom injects
+//!   the decrypted auth token server-side (admin auth).
 //!
 //! Budgets and per-key rate limits are enforced before the provider call on
 //! both turn paths; a blocked budget returns `402 budget_exceeded` and a tripped

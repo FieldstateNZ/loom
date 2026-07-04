@@ -54,7 +54,7 @@ pub use cache::{CacheHint, CacheNegotiation, CacheTtl};
 pub use content::{Citation, ContentPart, MediaSource};
 pub use conversation::{Conversation, ProviderBinding};
 pub use message::{Message, Role};
-pub use options::{ConversationOptions, ServerTool, ToolDefinition};
+pub use options::{ConversationOptions, McpServerRef, ServerTool, ToolDefinition};
 pub use usage::Usage;
 
 /// The crate version, sourced from Cargo at build time.

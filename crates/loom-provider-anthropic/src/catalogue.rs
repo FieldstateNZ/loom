@@ -59,6 +59,8 @@ pub enum BetaFeature {
     WebSearch,
     /// The provider-hosted code execution server tool.
     CodeExecution,
+    /// The MCP connector (attaching external MCP servers to a request).
+    McpConnector,
 }
 
 /// The `anthropic-beta` token a feature requires by default, or `None` when the
@@ -74,6 +76,8 @@ pub fn feature_beta(feature: BetaFeature) -> Option<&'static str> {
         BetaFeature::WebSearch => None,
         // Code execution ships behind a dated beta flag.
         BetaFeature::CodeExecution => Some("code-execution-2025-05-22"),
+        // The MCP connector ships behind a dated beta flag.
+        BetaFeature::McpConnector => Some("mcp-client-2025-04-04"),
     }
 }
 
