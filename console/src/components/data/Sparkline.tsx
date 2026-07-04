@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 export interface SparklineProps {
-  data?: number[];
+  data?: readonly number[];
   width?: number | string;
   height?: number | string;
   color?: string | undefined;

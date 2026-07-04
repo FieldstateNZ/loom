@@ -4,7 +4,7 @@ import type { WebSearchResult } from "../../api/types.ts";
 
 export interface BlockWebSearchProps {
   query: string;
-  results?: WebSearchResult[];
+  results?: readonly WebSearchResult[];
   style?: CSSProperties;
 }
 

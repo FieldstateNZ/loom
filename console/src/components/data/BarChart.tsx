@@ -4,12 +4,12 @@ import { ChartLegend, type ChartSeries } from "./LineChart.tsx";
 const W = 600, H = 100, PAD_TOP = 6;
 
 export interface BarChartProps {
-  series?: ChartSeries[];
+  series?: readonly ChartSeries[];
   height?: number;
   yFormat?: (v: number) => string | number;
-  xLabels?: string[];
+  xLabels?: readonly string[];
   legend?: boolean;
-  titles?: string[];
+  titles?: readonly string[];
   style?: CSSProperties;
 }
 

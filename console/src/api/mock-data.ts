@@ -1,13 +1,10 @@
-// createMockClient — a LoomClient backed by a frozen in-memory seed.
-//
-// The seed is the design bundle's demo dataset (ui_kits/loom-console/data.js),
-// frozen at 2026-07-04 14:53 NZST. It exists so the console runs, and looks
-// right, with no gateway attached. Swap this out for an HTTP client to go live.
+// The frozen demo snapshot — the design bundle's dataset (ui_kits/loom-console/
+// data.js), captured 2026-07-04 14:53 NZST. It lets the console run and look
+// right with no gateway attached; the live client returns the same shape.
+import type { LoomSnapshot } from "./snapshot.ts";
 
-import type { LoomClient } from "./client.ts";
-import type { LoomSnapshot, Transcript, VirtualKey } from "./types.ts";
-
-const SNAPSHOT: LoomSnapshot = {
+/** The seed snapshot the mock client hands out (deep-cloned per call). */
+export const SNAPSHOT: LoomSnapshot = {
   now: "14:53:12 NZST · Jul 4",
   keys: [
     { id: "key_01", name: "lucidbrain-prod", tenant: "lucidbrain", status: "active", scopes: ["messages", "streaming", "mcp"], budgetSpent: 38.2, cap: 50, window: "daily", mode: "block", last: "18s ago", spend7: 52.3, rateRpm: 120 },
@@ -80,112 +77,3 @@ const SNAPSHOT: LoomSnapshot = {
     { id: "conv_c04e11f9", key: "lucidbrain-prod", model: "claude-opus-4-5", turns: 7, last: "12:40", cost: 0.2210, tokens: 301200, preview: "Plan the migration of the retrieval pipeline to the new embeddings…" },
   ],
 };
-
-// Turn-by-turn transcript for conv_9f2c4e8a — exercises every block type.
-const TRANSCRIPT: Transcript = {
-  id: "conv_9f2c4e8a",
-  key: "lucidbrain-prod",
-  model: "claude-sonnet-4-5",
-  totals: { cost: 0.0117, inTok: 1844, outTok: 510, cacheRead: 27200, cacheWrite: 3110 },
-  turns: [
-    { role: "user", time: "14:32:08", blocks: [
-      { type: "text", text: "What did we spend on caching last week, and was it worth it?" },
-    ] },
-    { role: "assistant", time: "14:32:11", model: "claude-sonnet-4-5",
-      usage: { cost: 0.0086, inTok: 1204, outTok: 388, cacheRead: 12400, cacheWrite: 3110, ms: 842 },
-      blocks: [
-        { type: "thinking", duration: "4.2s", text: "The user wants the cache ROI story. Query usage grouped by cache read/write, then compare against what uncached input would have cost at list pricing." },
-        { type: "cache", kind: "write", tokens: 3110 },
-        { type: "tool_use", name: "query_usage", via: "loom-admin", input: { group_by: "cache", window: "7d" }, result: { cache_read_tok: 8400000, cache_write_tok: 1100000, saved_usd: 18.7 } },
-        { type: "web_search", query: "anthropic prompt caching pricing", results: [
-          { title: "Prompt caching - Anthropic", url: "docs.anthropic.com/en/docs/prompt-caching", snippet: "Cache reads are billed at a fraction of base input tokens; writes carry a one-time premium.", cited: true },
-          { title: "Pricing - Anthropic", url: "anthropic.com/pricing" },
-        ] },
-        { type: "code_exec", lang: "python", code: "read_cost = 8.4e6 * 0.3 / 1e6\nfull_cost = 8.4e6 * 3.0 / 1e6\nprint(f\"saved ${full_cost - read_cost:.2f}\")", stdout: "saved $22.68", exitCode: 0 },
-        { type: "text", text: "Caching saved roughly $22.68 against list input pricing last week — an 87% discount on 8.4M replayed tokens. The write premium cost $4.10, so net ROI is strongly positive.\n\nIf LucidBrain keeps this traffic shape, expect ~$90/month in avoided input spend." },
-        { type: "unknown", blockType: "provider_usage_extension", data: { type: "provider_usage_extension", version: 2, payload: { speculative_tokens: 88 } } },
-      ] },
-    { role: "user", time: "14:33:02", blocks: [
-      { type: "text", text: "Chart that by day and post it to the finance channel." },
-    ] },
-    { role: "assistant", time: "14:33:05", model: "claude-sonnet-4-5",
-      usage: { cost: 0.0031, inTok: 640, outTok: 122, cacheRead: 14800, cacheWrite: 0, ms: 610 },
-      blocks: [
-        { type: "cache", kind: "read", tokens: 14800 },
-        { type: "tool_use", name: "post_message", via: "slack-mcp", input: { channel: "#finance", blocks: "…" }, result: "timeout after 30s", isError: true },
-        { type: "text", text: "The chart is ready, but posting to Slack failed — slack-mcp timed out. I can retry, or hand you the image to post manually." },
-      ] },
-  ],
-};
-
-const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-export function createMockClient(): LoomClient {
-  return {
-    async bootstrap() {
-      await delay(120);
-      return clone(SNAPSHOT);
-    },
-
-    async getTranscript(conversationId) {
-      await delay(80);
-      return conversationId === TRANSCRIPT.id ? clone(TRANSCRIPT) : null;
-    },
-
-    async createKey(input) {
-      await delay(160);
-      const secret = "loom_k1_9f2c4e8a7b3d5f01_" + input.name.replace(/[^a-z0-9]/gi, "_") + "_XA4Q";
-      const key: VirtualKey = {
-        id: "key_" + Math.floor(SNAPSHOT.stats.requests + Math.abs(hash(input.name))).toString(36),
-        name: input.name,
-        tenant: input.tenant,
-        status: "active",
-        scopes: input.scopes,
-        budgetSpent: 0,
-        cap: input.cap,
-        window: input.window,
-        mode: input.mode,
-        last: "just now",
-        spend7: 0,
-        rateRpm: 60,
-      };
-      return { key, secret };
-    },
-
-    async revokeKey(id) {
-      await delay(120);
-      const found = SNAPSHOT.keys.find((k) => k.id === id);
-      const base: VirtualKey = found ? clone(found) : {
-        id, name: id, tenant: "", status: "active", scopes: [], budgetSpent: 0,
-        cap: null, window: null, mode: "block", last: "", spend7: 0,
-      };
-      return { ...base, status: "revoked" };
-    },
-
-    async checkProviderConnectivity(providerId) {
-      await delay(900);
-      const p = SNAPSHOT.providers.find((x) => x.id === providerId);
-      if (p && p.status === "connected") {
-        return { ok: true, detail: `ok · 214ms round trip · models/list ${p.models} models` };
-      }
-      return { ok: false, detail: "failed · could not reach provider" };
-    },
-
-    async checkMcpConnectivity(serverId) {
-      await delay(900);
-      const s = SNAPSHOT.mcpServers.find((x) => x.id === serverId);
-      if (s && s.status === "connected") {
-        return { ok: true, detail: "ok · tools/list returned 12 tools" };
-      }
-      return { ok: false, detail: "failed · 401 unauthorized — rotate the token" };
-    },
-  };
-}
-
-// Deterministic id salt (no Math.random, keeps ids stable per name).
-function hash(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = (h << 5) + h + s.charCodeAt(i);
-  return h | 0;
-}

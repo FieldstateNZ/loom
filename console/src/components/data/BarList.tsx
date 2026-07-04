@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { BarItem } from "../../api/types.ts";
 
 export interface BarListProps {
-  items?: BarItem[];
+  items?: readonly BarItem[];
   color?: string;
   mono?: boolean;
   onSelect?: (item: BarItem) => void;

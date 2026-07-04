@@ -9,8 +9,8 @@ export interface StatTileProps {
   delta?: number | null;
   invertDelta?: boolean;
   sub?: ReactNode;
-  spark?: number[];
-  sparkColor?: string;
+  spark?: readonly number[];
+  sparkColor?: string | undefined;
   hero?: boolean;
   style?: CSSProperties;
 }

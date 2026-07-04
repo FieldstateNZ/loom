@@ -3,10 +3,10 @@ import type { CSSProperties } from "react";
 export interface ChartSeries {
   name: string;
   color: string;
-  data: number[];
+  data: readonly number[];
 }
 
-export function ChartLegend({ series, style }: { series: ChartSeries[]; style?: CSSProperties }) {
+export function ChartLegend({ series, style }: { series: readonly ChartSeries[]; style?: CSSProperties }) {
   return (
     <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", ...style }}>
       {series.map((s) => (
@@ -22,10 +22,10 @@ export function ChartLegend({ series, style }: { series: ChartSeries[]; style?: 
 const W = 600, H = 100, PAD_TOP = 6;
 
 export interface LineChartProps {
-  series?: ChartSeries[];
+  series?: readonly ChartSeries[];
   height?: number;
   yFormat?: (v: number) => string | number;
-  xLabels?: string[];
+  xLabels?: readonly string[];
   area?: boolean;
   legend?: boolean;
   style?: CSSProperties;
@@ -34,7 +34,7 @@ export interface LineChartProps {
 export function LineChart({ series = [], height = 170, yFormat = (v) => v, xLabels = [], area = false, legend = true, style }: LineChartProps) {
   const all = series.flatMap((s) => s.data);
   const max = Math.max(...all, 0) || 1;
-  const toPts = (data: number[]) => {
+  const toPts = (data: readonly number[]) => {
     const n = data.length;
     return data.map((v, i) => {
       const x = n === 1 ? W / 2 : (i / (n - 1)) * W;

@@ -14,7 +14,7 @@ interface CreateKeyDialogProps {
   open: boolean;
   onClose: () => void;
   onCreated: (key: VirtualKey) => void;
-  tenants: Tenant[];
+  tenants: readonly Tenant[];
 }
 
 function CreateKeyDialog({ open, onClose, onCreated, tenants }: CreateKeyDialogProps) {
@@ -28,13 +28,14 @@ function CreateKeyDialog({ open, onClose, onCreated, tenants }: CreateKeyDialogP
   const [win, setWin] = useState<BudgetWindow>("daily");
   const [block, setBlock] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [created, setCreated] = useState<VirtualKey | null>(null);
 
   const reset = () => {
     setStep(0); setName(""); setScopes({ messages: true, streaming: true, mcp: false });
     setCapOn(true); setCap("50"); setWin("daily"); setBlock(true);
-    setBusy(false); setSecret(null); setCreated(null);
+    setBusy(false); setError(null); setSecret(null); setCreated(null);
   };
   const close = () => { reset(); onClose(); };
 
@@ -47,10 +48,12 @@ function CreateKeyDialog({ open, onClose, onCreated, tenants }: CreateKeyDialogP
       mode: block ? "block" : "warn",
     };
     setBusy(true);
+    setError(null);
     const res = await client.createKey(input);
-    setSecret(res.secret);
-    setCreated(res.key);
     setBusy(false);
+    if (!res.ok) { setError(res.error.message); return; }
+    setSecret(res.value.secret);
+    setCreated(res.value.key);
     setStep(2);
   };
 
@@ -120,6 +123,9 @@ function CreateKeyDialog({ open, onClose, onCreated, tenants }: CreateKeyDialogP
               Uncapped keys still meter spend — you can add a cap later without reissuing.
             </p>
           )}
+          {error ? (
+            <p style={{ margin: 0, color: "var(--danger)", font: "var(--w-reg) var(--fs-12)/1.5 var(--font-sans)" }}>{error}</p>
+          ) : null}
         </div>
       )}
     </Dialog>
@@ -138,7 +144,7 @@ export function KeysScreen({ data, role, tenant }: KeysScreenProps) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<VirtualKey | null>(null);
-  const [keys, setKeys] = useState<VirtualKey[]>(data.keys);
+  const [keys, setKeys] = useState<readonly VirtualKey[]>(data.keys);
   const scoped = role === "tenant" ? keys.filter((k) => k.tenant === tenant) : keys;
   const rows = scoped.filter((k) => k.name.includes(query.toLowerCase()));
 
@@ -160,8 +166,8 @@ export function KeysScreen({ data, role, tenant }: KeysScreenProps) {
 
   const revoke = async () => {
     if (!revoking) return;
-    const updated = await client.revokeKey(revoking.id);
-    setKeys(keys.map((k) => (k.id === updated.id ? updated : k)));
+    const res = await client.revokeKey(revoking.id);
+    if (res.ok) setKeys(keys.map((k) => (k.id === res.value.id ? res.value : k)));
     setRevoking(null);
   };
 

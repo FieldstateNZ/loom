@@ -1,38 +1,41 @@
 // LoomClient — the console's view of Loom's admin + usage REST API.
 //
 // The console codes exclusively against this interface. `createMockClient()`
-// (mock.ts) satisfies it from a frozen in-memory seed for design/dev; a real
-// deployment drops in an HTTP implementation (e.g. `createHttpClient(baseUrl)`)
-// that fetches Loom's OpenAPI endpoints. Nothing else in the app changes.
+// (mock-client.ts) satisfies it from a frozen seed for design/dev;
+// `createHttpClient()` (http-client.ts) satisfies the same interface against a
+// running gateway. Reads that always degrade (bootstrap, getTranscript) return
+// their value directly; mutations that can fail return a {@link Result} so the
+// UI can branch on `.ok` instead of catching thrown errors.
+import type { LoomSnapshot, CreateKeyInput, ConnectivityResult } from "./snapshot.ts";
+import type { Transcript } from "./transcript.ts";
+import type { VirtualKey } from "./models.ts";
+import type { Result, LoomError } from "./result.ts";
 
-import type {
-  LoomSnapshot,
-  Transcript,
-  VirtualKey,
-  CreateKeyInput,
-  ConnectivityResult,
-} from "./types.ts";
-
+/** The one seam between the console and a Loom gateway (live or mocked). */
 export interface LoomClient {
-  /** GET the aggregate dashboard/collection snapshot the console boots from.
-   *  Maps onto the gateway's several admin/usage endpoints. */
+  /**
+   * GETs the aggregate dashboard/collection snapshot the console boots from.
+   * Degrades to empty collections rather than failing, so it returns the value
+   * directly.
+   */
   bootstrap(): Promise<LoomSnapshot>;
 
-  /** GET /conversations/:id — the turn-by-turn transcript, or null if absent. */
+  /** GETs a conversation's turn-by-turn transcript, or `null` if absent. */
   getTranscript(conversationId: string): Promise<Transcript | null>;
 
-  /** POST /keys — issue a virtual key. The plaintext secret is returned exactly
-   *  once (the shown-once moment); the gateway never exposes it again. */
-  createKey(input: CreateKeyInput): Promise<{ key: VirtualKey; secret: string }>;
+  /**
+   * Issues a virtual key. On success the plaintext secret is returned exactly
+   * once (the shown-once moment). Expected failures (missing admin token, a
+   * gateway rejection) come back as `err(...)` for the UI to surface.
+   */
+  createKey(input: CreateKeyInput): Promise<Result<{ key: VirtualKey; secret: string }, LoomError>>;
 
-  /** DELETE /keys/:id — revoke a key. Returns the updated record. */
-  revokeKey(id: string): Promise<VirtualKey>;
+  /** Revokes a key. Returns the updated record, or `err(...)` on failure. */
+  revokeKey(id: string): Promise<Result<VirtualKey, LoomError>>;
 
-  /** POST /providers/:id/check — provider credential connectivity probe. */
+  /** Probes a provider credential's connectivity. */
   checkProviderConnectivity(providerId: string): Promise<ConnectivityResult>;
 
-  /** POST /mcp/:id/check — MCP server tools/list reachability probe. */
+  /** Probes an MCP server's `tools/list` reachability. */
   checkMcpConnectivity(serverId: string): Promise<ConnectivityResult>;
 }
-
-export { createMockClient } from "./mock.ts";

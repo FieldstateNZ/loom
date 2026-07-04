@@ -11,8 +11,8 @@ export interface Column<T> {
 }
 
 export interface DataTableProps<T> {
-  columns: Column<T>[];
-  rows: T[];
+  columns: readonly Column<T>[];
+  rows: readonly T[];
   rowKey?: keyof T | ((row: T) => string | number);
   onRowClick?: (row: T) => void;
   dense?: boolean;
