@@ -261,7 +261,14 @@ fn rich_conversation(tenant_id: Uuid) -> Conversation {
             },
         ],
         usage: Some(usage),
-        raw: None,
+        // Exercises lossless persistence of the verbatim provider payload
+        // (messages.raw_provider_payload): the round-trip must preserve it.
+        raw: Some(json!({
+            "id": "msg_native_01",
+            "model": "claude-opus-4-8",
+            "stop_reason": "end_turn",
+            "content": [{ "type": "text", "text": "It is a red square." }]
+        })),
     };
     conversation.messages.push(assistant);
 
@@ -322,22 +329,28 @@ async fn append_and_paginate_messages() {
     store.create_conversation(&conversation).await.unwrap();
 
     let seq1 = store
-        .append_message(conversation.id, &Message::assistant("second"))
+        .append_message(tenant.id, conversation.id, &Message::assistant("second"))
         .await
         .unwrap();
     let seq2 = store
-        .append_message(conversation.id, &Message::user("third"))
+        .append_message(tenant.id, conversation.id, &Message::user("third"))
         .await
         .unwrap();
-    assert_eq!(seq1, 1);
-    assert_eq!(seq2, 2);
+    assert_eq!(seq1, Some(1));
+    assert_eq!(seq2, Some(2));
 
-    let all = store.list_messages(conversation.id, 100, 0).await.unwrap();
+    let all = store
+        .list_messages(tenant.id, conversation.id, 100, 0)
+        .await
+        .unwrap();
     assert_eq!(all.len(), 3);
     assert_eq!(all[0], Message::user("first"));
     assert_eq!(all[2], Message::user("third"));
 
-    let page = store.list_messages(conversation.id, 1, 1).await.unwrap();
+    let page = store
+        .list_messages(tenant.id, conversation.id, 1, 1)
+        .await
+        .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0], Message::assistant("second"));
 }
@@ -378,6 +391,41 @@ async fn tenant_isolation_blocks_cross_tenant_reads() {
             .unwrap()
             .is_none(),
         "cross-tenant read must return nothing"
+    );
+
+    // Tenant A can list its own messages.
+    let own_messages = store
+        .list_messages(tenant_a.id, conversation.id, 100, 0)
+        .await
+        .unwrap();
+    assert_eq!(own_messages.len(), 1);
+    assert_eq!(own_messages[0], Message::user("secret"));
+
+    // Tenant B must not read tenant A's messages, even with the id.
+    let leaked = store
+        .list_messages(tenant_b.id, conversation.id, 100, 0)
+        .await
+        .unwrap();
+    assert!(
+        leaked.is_empty(),
+        "cross-tenant list_messages must return nothing"
+    );
+
+    // Tenant B must not be able to append to tenant A's conversation.
+    let appended = store
+        .append_message(tenant_b.id, conversation.id, &Message::user("intruder"))
+        .await
+        .unwrap();
+    assert!(appended.is_none(), "cross-tenant append_message must no-op");
+    // And the history must be unchanged for the owner.
+    let after = store
+        .list_messages(tenant_a.id, conversation.id, 100, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        after.len(),
+        1,
+        "cross-tenant append must not mutate history"
     );
 
     // Nor delete it.

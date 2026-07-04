@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM conversations WHERE id = $1 FOR UPDATE",
+  "query": "SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,7 @@
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid"
       ]
     },
@@ -18,5 +19,5 @@
       false
     ]
   },
-  "hash": "b73e74952d1a91fdd6c3e526069a2a6c073986723268438df7f66935c5703e1a"
+  "hash": "a66673423ff172454bf21d6857cb354ed543c130c0ec8f348ed3a35d80c7f2fe"
 }

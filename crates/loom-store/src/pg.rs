@@ -63,6 +63,7 @@ fn build_message(
     role: String,
     content: serde_json::Value,
     usage: Option<serde_json::Value>,
+    raw: Option<serde_json::Value>,
 ) -> Result<Message> {
     let role: Role = serde_json::from_value(serde_json::Value::String(role))?;
     let content: Vec<ContentPart> = serde_json::from_value(content)?;
@@ -71,9 +72,9 @@ fn build_message(
         role,
         content,
         usage,
-        // The verbatim provider payload is not (yet) persisted as its own
-        // column; persisting it lands with the usage/audit work.
-        raw: None,
+        // The verbatim provider payload is preserved from
+        // `messages.raw_provider_payload` so history round-trips losslessly.
+        raw,
     })
 }
 
@@ -426,16 +427,20 @@ impl ConversationStore for PgStore {
                 .as_ref()
                 .map(serde_json::to_value)
                 .transpose()?;
+            let raw = message.raw.clone();
             sqlx::query!(
                 r#"
-                INSERT INTO messages (id, conversation_id, seq, role, content, usage)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO messages (
+                    id, conversation_id, seq, role, content, raw_provider_payload, usage
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
                 Uuid::new_v4(),
                 conversation.id,
                 seq,
                 role,
                 content,
+                raw,
                 usage,
             )
             .execute(&mut *tx)
@@ -466,7 +471,7 @@ impl ConversationStore for PgStore {
 
         let rows = sqlx::query!(
             r#"
-            SELECT role, content, usage
+            SELECT role, content, usage, raw_provider_payload
             FROM messages
             WHERE conversation_id = $1
             ORDER BY seq
@@ -478,7 +483,12 @@ impl ConversationStore for PgStore {
 
         let mut messages = Vec::with_capacity(rows.len());
         for row in rows {
-            messages.push(build_message(row.role, row.content, row.usage)?);
+            messages.push(build_message(
+                row.role,
+                row.content,
+                row.usage,
+                row.raw_provider_payload,
+            )?);
         }
 
         Ok(Some(Conversation {
@@ -495,19 +505,25 @@ impl ConversationStore for PgStore {
 
     async fn list_messages(
         &self,
+        tenant_id: Uuid,
         conversation_id: Uuid,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Message>> {
         let rows = sqlx::query!(
             r#"
-            SELECT role, content, usage
+            SELECT role, content, usage, raw_provider_payload
             FROM messages
             WHERE conversation_id = $1
+              AND EXISTS (
+                  SELECT 1 FROM conversations c
+                  WHERE c.id = $1 AND c.tenant_id = $2
+              )
             ORDER BY seq
-            LIMIT $2 OFFSET $3
+            LIMIT $3 OFFSET $4
             "#,
             conversation_id,
+            tenant_id,
             limit,
             offset,
         )
@@ -516,12 +532,22 @@ impl ConversationStore for PgStore {
 
         let mut messages = Vec::with_capacity(rows.len());
         for row in rows {
-            messages.push(build_message(row.role, row.content, row.usage)?);
+            messages.push(build_message(
+                row.role,
+                row.content,
+                row.usage,
+                row.raw_provider_payload,
+            )?);
         }
         Ok(messages)
     }
 
-    async fn append_message(&self, conversation_id: Uuid, message: &Message) -> Result<i32> {
+    async fn append_message(
+        &self,
+        tenant_id: Uuid,
+        conversation_id: Uuid,
+        message: &Message,
+    ) -> Result<Option<i32>> {
         let role = role_to_text(message.role);
         let content = serde_json::to_value(&message.content)?;
         let usage = message
@@ -529,27 +555,37 @@ impl ConversationStore for PgStore {
             .as_ref()
             .map(serde_json::to_value)
             .transpose()?;
+        let raw = message.raw.clone();
 
         let mut tx = self.pool.begin().await?;
-        // Serialise concurrent appends to the same conversation so the computed
-        // sequence number cannot collide.
-        sqlx::query!(
-            r#"SELECT id FROM conversations WHERE id = $1 FOR UPDATE"#,
+        // Lock the conversation row, but only if it belongs to the tenant. A
+        // conversation owned by another tenant (or a missing one) yields no
+        // row, so the append no-ops without touching another tenant's history.
+        let owned = sqlx::query!(
+            r#"SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 FOR UPDATE"#,
             conversation_id,
+            tenant_id,
         )
         .fetch_optional(&mut *tx)
         .await?;
+        if owned.is_none() {
+            tx.rollback().await?;
+            return Ok(None);
+        }
 
         let row = sqlx::query!(
             r#"
-            INSERT INTO messages (id, conversation_id, seq, role, content, usage)
+            INSERT INTO messages (
+                id, conversation_id, seq, role, content, raw_provider_payload, usage
+            )
             VALUES (
                 $1,
                 $2,
                 (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = $2),
                 $3,
                 $4,
-                $5
+                $5,
+                $6
             )
             RETURNING seq
             "#,
@@ -557,6 +593,7 @@ impl ConversationStore for PgStore {
             conversation_id,
             role,
             content,
+            raw,
             usage,
         )
         .fetch_one(&mut *tx)
@@ -570,7 +607,7 @@ impl ConversationStore for PgStore {
         .await?;
 
         tx.commit().await?;
-        Ok(row.seq)
+        Ok(Some(row.seq))
     }
 
     async fn delete_conversation(&self, tenant_id: Uuid, id: Uuid) -> Result<bool> {
@@ -590,10 +627,18 @@ impl UsageStore for PgStore {
     async fn record_event(&self, event: NewUsageEvent) -> Result<Uuid> {
         let id = Uuid::new_v4();
         let usage = &event.usage;
-        let input_tokens = usage.input_tokens.map_or(0, |v| v as i64);
-        let output_tokens = usage.output_tokens.map_or(0, |v| v as i64);
-        let cache_read_tokens = usage.cache_read_tokens.map_or(0, |v| v as i64);
-        let cache_write_tokens = usage.cache_write_tokens.map_or(0, |v| v as i64);
+        let input_tokens = usage
+            .input_tokens
+            .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
+        let output_tokens = usage
+            .output_tokens
+            .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
+        let cache_read_tokens = usage
+            .cache_read_tokens
+            .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
+        let cache_write_tokens = usage
+            .cache_write_tokens
+            .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
         let server_tool_counts = serde_json::to_value(&usage.server_tool_use)?;
         let raw_usage = usage.raw.clone();
 

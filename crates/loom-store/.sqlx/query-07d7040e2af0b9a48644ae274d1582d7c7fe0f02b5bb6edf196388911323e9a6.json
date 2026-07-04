@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT role, content, usage, raw_provider_payload\n            FROM messages\n            WHERE conversation_id = $1\n              AND EXISTS (\n                  SELECT 1 FROM conversations c\n                  WHERE c.id = $1 AND c.tenant_id = $2\n              )\n            ORDER BY seq\n            LIMIT $3 OFFSET $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "usage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_provider_payload",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "07d7040e2af0b9a48644ae274d1582d7c7fe0f02b5bb6edf196388911323e9a6"
+}
