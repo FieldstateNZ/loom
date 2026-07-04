@@ -16,7 +16,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
 rust_decimal = { workspace = true }
-utoipa = { workspace = true, optional = true }
+utoipa = { workspace = true, optional = true, features = ["decimal"] }
 
 [features]
 # Exposes `MockProvider`, a canned in-memory provider that downstream crates
@@ -24,7 +24,9 @@ utoipa = { workspace = true, optional = true }
 mock = []
 # Feature-gated `utoipa::ToSchema` derives on the streaming envelope, mirroring
 # `loom-core`'s `openapi` feature (which this one turns on in turn, since
-# `TurnEventKind` embeds `loom_core::ContentPart`/`Usage`).
+# `TurnEventKind` embeds `loom_core::ContentPart`/`Usage`). `utoipa`'s `decimal`
+# feature is enabled too, so `TurnCost.amount` (a `rust_decimal::Decimal`) gets
+# a `ToSchema` impl — mirroring `loom-server`'s own `utoipa` feature set.
 openapi = ["dep:utoipa", "loom-core/openapi"]
 
 [dev-dependencies]

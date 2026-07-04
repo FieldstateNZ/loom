@@ -9,10 +9,12 @@
 
 mod content_delta;
 mod stop_reason;
+mod turn_cost;
 mod turn_event;
 mod turn_event_kind;
 
 pub use content_delta::ContentDelta;
 pub use stop_reason::StopReason;
+pub use turn_cost::TurnCost;
 pub use turn_event::TurnEvent;
 pub use turn_event_kind::TurnEventKind;

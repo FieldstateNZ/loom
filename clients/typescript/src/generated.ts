@@ -984,6 +984,31 @@ export interface components {
             name: string;
         };
         /**
+         * @description Loom's authoritative priced cost for a turn, computed at turn time from the
+         *     gateway's pricing table.
+         *
+         *     This is distinct from the provider-hook [`Cost`](crate::Cost): that type is
+         *     the provider's own estimate (not [`Serialize`]), whereas `TurnCost` is the
+         *     gateway's own number, priced from its `(provider, model)` rate table via
+         *     `loom-store`'s `Pricer`. It rides on the non-streaming turn response and the
+         *     streaming `turn_ended` event, computed once per turn and never
+         *     double-priced. `None` on the turn response/event when no price is
+         *     configured for the (provider, model) — a pricing miss never fails the turn.
+         *
+         *     `/v1/usage` remains the asynchronous, eventually-consistent aggregate
+         *     (written best-effort through an outbox); `TurnCost` is the immediate,
+         *     authoritative per-turn figure computed inline at turn time.
+         */
+        TurnCost: {
+            /**
+             * @description The total monetary amount (serialized as a decimal string, matching the
+             *     usage-rollup cost fields).
+             */
+            amount: string;
+            /** @description ISO 4217 currency code — `"USD"` (the pricing table's currency). */
+            currency: string;
+        };
+        /**
          * @description A single streaming event: a normalised envelope plus the verbatim native
          *     provider event it was derived from.
          */
@@ -1037,6 +1062,7 @@ export interface components {
             /** @enum {string} */
             type: "usage";
         }) | {
+            cost?: null | components["schemas"]["TurnCost"];
             /** @description Why generation stopped. */
             stop_reason: components["schemas"]["StopReason"];
             /** @enum {string} */
@@ -1055,6 +1081,24 @@ export interface components {
             options?: null | components["schemas"]["ConversationOptions"];
             /** @description Whether to stream the assistant turn as Server-Sent Events. */
             stream?: boolean;
+        };
+        /**
+         * @description The `application/json` body returned by a non-streaming turn
+         *     (`POST /v1/conversations/{id}/turns`, `POST /v1/turns`).
+         *
+         *     `cost` is Loom's authoritative priced cost for this turn — computed once,
+         *     inline, from the effective price for the turn's `(provider, model)` at turn
+         *     time, not `GET /v1/usage`'s eventually-consistent, asynchronously drained
+         *     aggregate. It is `None` only when no price is configured for the
+         *     (provider, model); a pricing miss never fails the turn. The streaming
+         *     counterpart (`stream=true`) carries the identical value on the terminal
+         *     `turn_ended` [`TurnEvent`](loom_provider::TurnEvent)'s `cost` field, so a
+         *     caller sees the same number whether it streams or not.
+         */
+        TurnResponse: {
+            cost?: null | components["schemas"]["TurnCost"];
+            /** @description The assistant's turn. */
+            message: components["schemas"]["Message"];
         };
         /**
          * @description A snapshot of the resource usage a provider reported for a response.
@@ -1517,13 +1561,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true` */
+            /** @description The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Message"];
+                    "application/json": components["schemas"]["TurnResponse"];
                     "text/event-stream": components["schemas"]["TurnEvent"];
                 };
             };
@@ -1589,13 +1633,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true` */
+            /** @description The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Message"];
+                    "application/json": components["schemas"]["TurnResponse"];
                     "text/event-stream": components["schemas"]["TurnEvent"];
                 };
             };

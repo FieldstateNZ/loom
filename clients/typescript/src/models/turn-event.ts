@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { DeepReadonly } from "../deep-readonly.types.js";
 import { contentDeltaSchema } from "./content-delta.js";
 import { contentPartSchema } from "./content-part.js";
+import { turnCostSchema } from "./turn-cost.js";
 import { usageSchema } from "./usage.js";
 
 /**
@@ -57,6 +58,11 @@ export const turnEventKindSchema = z.discriminatedUnion("type", [
     type: z.literal("turn_ended"),
     stop_reason: stopReasonSchema,
     usage: usageSchema.optional(),
+    // Loom's authoritative priced cost for the turn, injected by the gateway
+    // (never set by a provider). Absent — not `null` — when no price is
+    // configured for the (provider, model), matching the non-streaming
+    // `TurnResponse.cost` for the same input.
+    cost: turnCostSchema.optional(),
   }),
   z.object({
     type: z.literal("other"),

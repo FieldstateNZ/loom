@@ -1,6 +1,6 @@
 /**
  * {@link collect} — reassembles the final assistant message, usage snapshot,
- * and stop reason from a streamed turn.
+ * stop reason, and priced cost from a streamed turn.
  *
  * Mirrors the server-side `TurnAccumulator` fold
  * (`crates/loom-server/src/v1/runner/stream.rs`) exactly: only *complete*
@@ -9,10 +9,11 @@
  * `content_part_delta` is ignored, the same way the gateway ignores them when
  * it reassembles the message it persists. `usage` is taken from a bare `usage`
  * event and then superseded by the `usage` carried on `turn_ended`, when
- * present; `stopReason` comes from `turn_ended.stop_reason`. Because the fold
- * is identical, a caller who drains a whole stream through {@link collect}
- * gets the same {@link Message} `client.turn()` would return for the same
- * input.
+ * present; `stopReason` and `cost` both come from `turn_ended` (`cost` is
+ * `null` when the event carried none). Because the fold is identical, a caller
+ * who drains a whole stream through {@link collect} gets the same
+ * {@link Message} *and* the same {@link TurnCost} that a non-streaming
+ * `client.turn()` call's `TurnResponse` would return for the same input.
  *
  * A mid-stream failure — any yielded {@link Result} with `ok: false`, e.g. a
  * decoded {@link LoomStreamError} — short-circuits the fold and is returned
@@ -26,6 +27,7 @@ import { decodeError } from "./loom-error.js";
 import type { LoomError } from "./loom-error.types.js";
 import type { ContentPart } from "./models/content-part.js";
 import type { StopReason, TurnEvent, TurnEventKind } from "./models/turn-event.js";
+import type { TurnCost } from "./models/turn-cost.js";
 import type { Usage } from "./models/usage.js";
 import { err, ok } from "./result.js";
 import type { Result } from "./result.types.js";
@@ -33,7 +35,7 @@ import type { Result } from "./result.types.js";
 /**
  * Drains a stream of {@link Result}-wrapped {@link TurnEvent}s — such as the
  * generator returned by `client.streamTurn(init)` — and reassembles the
- * turn's final message, usage, and stop reason.
+ * turn's final message, usage, stop reason, and priced cost.
  *
  * @param events - The turn event stream to drain.
  */
@@ -43,6 +45,7 @@ export async function collect(
   const parts = new Map<number, ContentPart>();
   let usage: Usage | undefined;
   let stopReason: StopReason | undefined;
+  let cost: TurnCost | null = null;
 
   for await (const event of events) {
     if (!event.ok) return event;
@@ -57,6 +60,7 @@ export async function collect(
       case "turn_ended":
         stopReason = kind.stop_reason;
         if (kind.usage) usage = kind.usage;
+        cost = kind.cost ?? null;
         break;
       default:
         break;
@@ -73,6 +77,7 @@ export async function collect(
     message: { role: "assistant", content, usage: usage ?? {} },
     usage: usage ?? {},
     stopReason,
+    cost,
   });
 }
 

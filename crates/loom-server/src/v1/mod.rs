@@ -4,8 +4,9 @@
 //! handlers receive a resolved [`TenantContext`](crate::auth::TenantContext) and
 //! scope every store call to it. The turn endpoints resolve the bound
 //! [`Provider`](loom_provider::Provider) through the [`AppState`], run
-//! capability negotiation, and either return the assistant `Message`
-//! (non-streaming) or an SSE stream of `TurnEvent` envelopes (streaming). The
+//! capability negotiation, and either return a [`turn_response::TurnResponse`]
+//! (non-streaming) or an SSE stream of `TurnEvent` envelopes (streaming). Both
+//! carry Loom's authoritative per-turn `cost`, computed once at turn time. The
 //! stateful and stateless turn paths share one core runner
 //! ([`runner::execute_turn`]) so their behaviour cannot drift.
 //!
@@ -17,6 +18,7 @@
 //! - [`conversations`] — conversation create/fetch/delete handlers.
 //! - [`turns`] — the stateful and stateless turn handlers, plus
 //!   [`turns::enforce_limits`] (shared with the batch API).
+//! - [`turn_response`] — the non-streaming turn response envelope.
 //! - [`runner`] — the turn runner and SSE reassembly.
 //! - [`usage`] — `GET /v1/usage`.
 //! - [`mcp`] — `GET /v1/mcp-servers`.
@@ -25,6 +27,7 @@ mod conversations;
 mod mcp;
 mod requests;
 mod runner;
+mod turn_response;
 mod turns;
 mod usage;
 mod whoami;
@@ -160,6 +163,10 @@ impl Modify for SecurityAddon {
         mcp::McpServerList,
         crate::admin::AdminUsageResponse,
         crate::admin::AdminUsageRow,
+        // The authoritative per-turn priced cost (#23): the non-streaming
+        // envelope and the type it and `TurnEventKind::TurnEnded` both embed.
+        turn_response::TurnResponse,
+        loom_provider::TurnCost,
     )),
     tags(
         (name = "conversations", description = "Tenant-scoped conversation and turn endpoints"),

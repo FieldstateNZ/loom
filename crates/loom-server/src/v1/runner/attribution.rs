@@ -1,15 +1,18 @@
 //! Usage attribution and recording for a completed turn.
 //!
 //! [`UsageAttribution`] is the identity a turn's usage is recorded against;
-//! [`record_turn_usage`] prices and records it (best effort). Shared by the
-//! non-streaming path in [`super`] and the streamed-turn settlement in
-//! [`super::stream`].
+//! [`record_turn_usage`] prices and records it (best effort) — the *same*
+//! priced [`Decimal`] returned here is what [`turn_cost`] wraps as the wire-level
+//! [`TurnCost`] for the turn response/event, so a turn is never priced twice.
+//! Shared by the non-streaming path in [`super`] and the streamed-turn
+//! settlement in [`super::stream`].
 
 use chrono::Utc;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use loom_core::Usage;
+use loom_provider::TurnCost;
 use loom_store::{NewUsageEvent, Pricer, PricingStore};
 
 use crate::state::AppState;
@@ -87,4 +90,36 @@ pub(super) async fn record_turn_usage(
     };
     state.usage_recorder().record(state.store(), event).await;
     cost
+}
+
+/// Wraps a priced [`Decimal`] — as returned by [`record_turn_usage`] — in
+/// Loom's wire-level [`TurnCost`], in the gateway's sole accounting currency.
+///
+/// # Consistency semantics
+///
+/// This is the *authoritative* cost for the turn: it is computed once, inline,
+/// at turn time, from the effective price for the turn's `(provider, model)` —
+/// the same [`Pricer`] lookup that produces the [`NewUsageEvent`] recorded to
+/// the usage outbox in [`record_turn_usage`]. It is **not** derived from
+/// `GET /v1/usage`, which remains the eventually-consistent, asynchronously
+/// drained aggregate; a caller that wants the turn's cost immediately (rather
+/// than polling the rollup once the outbox has settled) reads it here. `None`
+/// only when no price is configured for the (provider, model) at turn time —
+/// a pricing miss is never surfaced as a turn failure.
+///
+/// `"USD"` is hard-coded rather than read from [`ModelPrice::currency`]
+/// (`loom_store`'s price row): every seeded price is USD today and the
+/// gateway's other cost surfaces (the `loom.cost_usd` telemetry attribute, the
+/// usage rollup) make the same single-currency assumption. Should Loom ever
+/// price a model in a different currency, this is the one place that needs to
+/// change — [`record_turn_usage`] already threads the full [`ModelPrice`]
+/// through [`Pricer::cost`], so the currency is there to be picked up.
+///
+/// [`ModelPrice`]: loom_store::ModelPrice
+/// [`ModelPrice::currency`]: loom_store::ModelPrice::currency
+pub(super) fn turn_cost(amount: Option<Decimal>) -> Option<TurnCost> {
+    amount.map(|amount| TurnCost {
+        amount,
+        currency: "USD".to_owned(),
+    })
 }

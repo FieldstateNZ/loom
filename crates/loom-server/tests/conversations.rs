@@ -216,6 +216,7 @@ fn text_stream_events(text: &str) -> Vec<TurnEvent> {
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::EndTurn,
                 usage: None,
+                cost: None,
             },
             json!({ "type": "message_stop" }),
         ),
@@ -245,8 +246,11 @@ async fn create_turn_and_history_with_mock() {
     .await;
     assert_eq!(turn.status(), StatusCode::OK);
     let body = json_body(turn).await;
-    assert_eq!(body["role"], "assistant");
-    assert_eq!(body["content"][0]["text"], "hi from mock");
+    // Non-streaming turns return the `{ message, cost }` envelope; `mock`/
+    // `mock-model` has no seeded price, so `cost` is `None`.
+    assert_eq!(body["message"]["role"], "assistant");
+    assert_eq!(body["message"]["content"][0]["text"], "hi from mock");
+    assert_eq!(body["cost"], Value::Null);
 
     // History shows the user turn then the assistant turn, in order.
     let history = send(
@@ -618,10 +622,18 @@ async fn stateless_turn_parity_with_stateful() {
     .await;
     let stateful_body = json_body(stateful).await;
 
-    // Same assistant message from both paths.
-    assert_eq!(stateless_body["role"], "assistant");
-    assert_eq!(stateless_body["content"], stateful_body["content"]);
-    assert_eq!(stateless_body["content"][0]["text"], "parity answer");
+    // Same assistant message — and the same (unpriced) `cost` — from both
+    // paths: both endpoints share the `{ message, cost }` envelope.
+    assert_eq!(stateless_body["message"]["role"], "assistant");
+    assert_eq!(
+        stateless_body["message"]["content"],
+        stateful_body["message"]["content"]
+    );
+    assert_eq!(
+        stateless_body["message"]["content"][0]["text"],
+        "parity answer"
+    );
+    assert_eq!(stateless_body["cost"], stateful_body["cost"]);
 }
 
 #[tokio::test]

@@ -514,11 +514,11 @@
         },
         "responses": {
           "200": {
-            "description": "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`",
+            "description": "The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true`",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Message"
+                  "$ref": "#/components/schemas/TurnResponse"
                 }
               },
               "text/event-stream": {
@@ -611,11 +611,11 @@
         },
         "responses": {
           "200": {
-            "description": "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`",
+            "description": "The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true`",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Message"
+                  "$ref": "#/components/schemas/TurnResponse"
                 }
               },
               "text/event-stream": {
@@ -2043,6 +2043,24 @@
           }
         }
       },
+      "TurnCost": {
+        "type": "object",
+        "description": "Loom's authoritative priced cost for a turn, computed at turn time from the\ngateway's pricing table.\n\nThis is distinct from the provider-hook [`Cost`](crate::Cost): that type is\nthe provider's own estimate (not [`Serialize`]), whereas `TurnCost` is the\ngateway's own number, priced from its `(provider, model)` rate table via\n`loom-store`'s `Pricer`. It rides on the non-streaming turn response and the\nstreaming `turn_ended` event, computed once per turn and never\ndouble-priced. `None` on the turn response/event when no price is\nconfigured for the (provider, model) — a pricing miss never fails the turn.\n\n`/v1/usage` remains the asynchronous, eventually-consistent aggregate\n(written best-effort through an outbox); `TurnCost` is the immediate,\nauthoritative per-turn figure computed inline at turn time.",
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "The total monetary amount (serialized as a decimal string, matching the\nusage-rollup cost fields)."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code — `\"USD\"` (the pricing table's currency)."
+          }
+        }
+      },
       "TurnEvent": {
         "type": "object",
         "description": "A single streaming event: a normalised envelope plus the verbatim native\nprovider event it was derived from.",
@@ -2186,6 +2204,17 @@
               "type"
             ],
             "properties": {
+              "cost": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TurnCost",
+                    "description": "Loom's authoritative priced cost for this turn — computed inline,\nserver-side, from the effective price for the turn's\n`(provider, model)` at turn time, the same figure recorded to the\nusage outbox. Always `None` as emitted by a [`Provider`]\n(`Provider`s never know Loom's pricing table); the gateway injects\nthe priced value into this same field on the terminal frame before\nit reaches the client, so a streamed turn gets its authoritative\ncost without waiting for the eventually-consistent `/v1/usage`\nrollup. `None` on the outgoing frame too when no price is\nconfigured for the (provider, model) — a pricing miss never fails\nthe turn.\n\n[`Provider`]: crate::Provider"
+                  }
+                ]
+              },
               "stop_reason": {
                 "$ref": "#/components/schemas/StopReason",
                 "description": "Why generation stopped."
@@ -2262,6 +2291,30 @@
           "stream": {
             "type": "boolean",
             "description": "Whether to stream the assistant turn as Server-Sent Events."
+          }
+        }
+      },
+      "TurnResponse": {
+        "type": "object",
+        "description": "The `application/json` body returned by a non-streaming turn\n(`POST /v1/conversations/{id}/turns`, `POST /v1/turns`).\n\n`cost` is Loom's authoritative priced cost for this turn — computed once,\ninline, from the effective price for the turn's `(provider, model)` at turn\ntime, not `GET /v1/usage`'s eventually-consistent, asynchronously drained\naggregate. It is `None` only when no price is configured for the\n(provider, model); a pricing miss never fails the turn. The streaming\ncounterpart (`stream=true`) carries the identical value on the terminal\n`turn_ended` [`TurnEvent`](loom_provider::TurnEvent)'s `cost` field, so a\ncaller sees the same number whether it streams or not.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "cost": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TurnCost",
+                "description": "Loom's authoritative priced cost for this turn, or `None` when no price\nis configured for the (provider, model)."
+              }
+            ]
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message",
+            "description": "The assistant's turn."
           }
         }
       },

@@ -15,8 +15,8 @@ import type { LoomError } from "./loom-error.types.js";
 import { conversationSchema } from "./models/conversation.js";
 import type { Conversation } from "./models/conversation.js";
 import { mcpServerListResponseSchema } from "./models/mcp-server-list.js";
-import type { Message } from "./models/message.js";
 import type { TurnEvent } from "./models/turn-event.js";
+import type { TurnResponse } from "./models/turn-response.js";
 import { usageRollupResponseSchema } from "./models/usage-rollup.js";
 import type { UsageGroupBy, UsageRollupResponse } from "./models/usage-rollup.js";
 import { whoAmISchema } from "./models/whoami.js";
@@ -67,8 +67,13 @@ export class LoomClient {
     return this.transport.requestJson(z.void(), "DELETE", `/v1/conversations/${id}`);
   }
 
-  /** Runs a stateless (non-persisted) turn, returning the assistant message. */
-  async turn(init: StatelessTurnInit): Promise<Result<Message, LoomError>> {
+  /**
+   * Runs a stateless (non-persisted) turn, returning the assistant
+   * {@link TurnResponse} — `{ message, cost }`. `cost` is Loom's authoritative
+   * priced cost for the turn, computed inline at turn time; `null` when no
+   * price is configured for the (provider, model).
+   */
+  async turn(init: StatelessTurnInit): Promise<Result<TurnResponse, LoomError>> {
     return runStatelessTurn(this.transport, init);
   }
 

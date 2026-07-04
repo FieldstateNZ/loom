@@ -49,11 +49,18 @@ fn plain_text_maps_to_the_expected_event_sequence() {
         }
     );
     match &kinds[5] {
-        TurnEventKind::TurnEnded { stop_reason, usage } => {
+        TurnEventKind::TurnEnded {
+            stop_reason,
+            usage,
+            cost,
+        } => {
             assert_eq!(*stop_reason, StopReason::EndTurn);
             let usage = usage.as_ref().expect("message_delta couples usage");
             assert_eq!(usage.input_tokens, Some(10));
             assert_eq!(usage.output_tokens, Some(7));
+            // The provider layer never prices a turn — only loom-server does,
+            // injecting `cost` into the outgoing frame from its pricing table.
+            assert!(cost.is_none());
         }
         other => panic!("expected TurnEnded, got {other:?}"),
     }

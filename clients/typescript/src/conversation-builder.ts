@@ -13,9 +13,9 @@ import type { ConversationInit } from "./conversation-init.types.js";
 import { DEFAULT_PROVIDER } from "./defaults.js";
 import type { LoomError } from "./loom-error.types.js";
 import { conversationSchema } from "./models/conversation.js";
-import { messageSchema } from "./models/message.js";
+import { turnResponseSchema } from "./models/turn-response.js";
 import type { Conversation, ConversationOptions, McpServerRef } from "./models/index.js";
-import type { Message, ServerTool, ToolDefinition, TurnEvent } from "./models/index.js";
+import type { ServerTool, ToolDefinition, TurnEvent, TurnResponse } from "./models/index.js";
 import { pageQuery } from "./page-query.js";
 import type { PageParams } from "./page-query.types.js";
 import { ok } from "./result.js";
@@ -139,13 +139,18 @@ export class ConversationBuilder {
     return this.transport.requestJson(conversationSchema, "GET", path);
   }
 
-  /** Appends a user turn and returns the assistant {@link Message} (non-streaming). */
-  async send(input: TurnInput): Promise<Result<Message, LoomError>> {
+  /**
+   * Appends a user turn and returns the assistant {@link TurnResponse} —
+   * `{ message, cost }` (non-streaming). `cost` is Loom's authoritative priced
+   * cost for the turn; `null` when no price is configured for the
+   * (provider, model).
+   */
+  async send(input: TurnInput): Promise<Result<TurnResponse, LoomError>> {
     const id = await this.ensureId();
     if (!id.ok) return id;
     const path = `/v1/conversations/${id.value}/turns`;
     const body = { content: toContent(input), stream: false, options: this.buildOptions() };
-    return this.transport.requestJson(messageSchema, "POST", path, body);
+    return this.transport.requestJson(turnResponseSchema, "POST", path, body);
   }
 
   /** Appends a user turn and streams the assistant turn as {@link TurnEvent}s. */

@@ -16,6 +16,7 @@ use crate::state::AppState;
 
 use super::requests::{StatelessTurnRequest, TurnRequest};
 use super::runner::execute_turn;
+use super::turn_response::TurnResponse;
 
 /// `POST /v1/conversations/{id}/turns` — append a user turn, run the bound
 /// provider, and return (or stream) the assistant turn, persisting both.
@@ -26,8 +27,8 @@ use super::runner::execute_turn;
     params(("id" = Uuid, Path, description = "Conversation id")),
     request_body = TurnRequest,
     responses(
-        (status = 200, description = "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`", content(
-            (Message = "application/json"),
+        (status = 200, description = "The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true`", content(
+            (TurnResponse = "application/json"),
             (loom_provider::TurnEvent = "text/event-stream"),
         )),
         (status = 404, description = "No such conversation for this tenant", body = Object),
@@ -102,8 +103,8 @@ pub(super) async fn create_turn(
     tag = "conversations",
     request_body = StatelessTurnRequest,
     responses(
-        (status = 200, description = "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`", content(
-            (Message = "application/json"),
+        (status = 200, description = "The assistant turn: a JSON `TurnResponse` (`{ message, cost }`) when `stream=false`, or an SSE stream of `TurnEvent` envelopes — whose terminal `turn_ended` carries the same `cost` — when `stream=true`", content(
+            (TurnResponse = "application/json"),
             (loom_provider::TurnEvent = "text/event-stream"),
         )),
         (status = 400, description = "Malformed request", body = Object),

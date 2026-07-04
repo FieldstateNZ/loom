@@ -20,6 +20,8 @@
 //! - [`TurnEvent`] — the streaming envelope, carrying **both** a normalised
 //!   [`TurnEventKind`] and the verbatim native provider event, honouring Loom's
 //!   fidelity promise at the streaming level.
+//! - [`TurnCost`] — Loom's authoritative priced cost for a turn, computed
+//!   server-side at turn time; distinct from the provider-hook [`Cost`].
 //! - [`ProviderRegistry`] — name → provider lookup, designed to admit dynamic
 //!   loading later.
 //! - [`ProviderError`] — structured errors that preserve provider-native error
@@ -46,7 +48,7 @@ pub use capability::{
     ensure_supported, required_capabilities, Capability, ModelDescriptor, ProviderDescriptor,
 };
 pub use error::{Cost, ProviderError};
-pub use event::{ContentDelta, StopReason, TurnEvent, TurnEventKind};
+pub use event::{ContentDelta, StopReason, TurnCost, TurnEvent, TurnEventKind};
 pub use provider::{Provider, TurnEventStream};
 pub use registry::ProviderRegistry;
 
@@ -239,16 +241,43 @@ mod tests {
     fn turn_event_round_trips_through_serde() {
         let mut usage = loom_core::Usage::new();
         usage.output_tokens = Some(7);
+        let cost = TurnCost {
+            amount: rust_decimal::Decimal::new(125, 2), // 1.25
+            currency: "USD".to_owned(),
+        };
         let event = TurnEvent::new(
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::MaxTokens,
                 usage: Some(usage),
+                cost: Some(cost),
             },
             serde_json::json!({ "type": "message_delta" }),
         );
         let json = serde_json::to_value(&event).expect("serialize");
+        assert_eq!(json["kind"]["cost"]["amount"], "1.25");
+        assert_eq!(json["kind"]["cost"]["currency"], "USD");
         let back: TurnEvent = serde_json::from_value(json).expect("deserialize");
         assert_eq!(event, back);
+    }
+
+    #[test]
+    fn turn_ended_omits_cost_when_absent() {
+        // Backward compatibility: a client that predates `TurnCost` sees the
+        // same `turn_ended` shape as before — `cost` is missing from the JSON
+        // object entirely, not present-and-`null`.
+        let event = TurnEvent::new(
+            TurnEventKind::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                usage: None,
+                cost: None,
+            },
+            serde_json::json!({ "type": "message_stop" }),
+        );
+        let json = serde_json::to_value(&event).expect("serialize");
+        assert!(
+            json["kind"].get("cost").is_none(),
+            "cost must be omitted, not null, when absent: {json}"
+        );
     }
 
     #[test]

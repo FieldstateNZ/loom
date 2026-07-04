@@ -6,8 +6,14 @@
 //!
 //! Split across three files by concern: this module holds `execute_turn`
 //! itself plus the small digest/stop-reason helpers it shares with
-//! [`stream`]; [`attribution`] holds usage attribution and recording; and
-//! [`stream`] holds the SSE streaming machinery.
+//! [`stream`]; [`attribution`] holds usage attribution, pricing, and recording
+//! (including [`attribution::turn_cost`], which wraps a priced amount as the
+//! wire-level `TurnCost`); and [`stream`] holds the SSE streaming machinery.
+//!
+//! The non-streaming branch below returns [`TurnResponse`] — `{ message,
+//! cost }` — and the streaming branch injects the same `cost` into the
+//! terminal `turn_ended` frame (see `stream::SseState`), so both turn paths
+//! carry Loom's authoritative, computed-once-at-turn-time price.
 
 use std::time::Instant;
 
@@ -29,8 +35,9 @@ use crate::telemetry;
 mod attribution;
 mod stream;
 
-use self::attribution::{record_turn_usage, UsageAttribution};
+use self::attribution::{record_turn_usage, turn_cost, UsageAttribution};
 use self::stream::sse_response;
+use super::turn_response::TurnResponse;
 
 /// Response header set when a `warn`-action budget is over its soft limit.
 const BUDGET_WARNING_HEADER: &str = "x-loom-budget-warning";
@@ -147,7 +154,15 @@ pub(super) async fn execute_turn(
                 .await
                 .map_err(ApiError::from_store)?;
         }
-        Json(message).into_response()
+        // `cost` is Loom's authoritative priced cost for this turn — the same
+        // value just recorded to the usage outbox above, wrapped as the
+        // wire-level `TurnCost` (never re-priced). See `turn_cost`'s doc for
+        // the consistency semantics against `/v1/usage`.
+        Json(TurnResponse {
+            message,
+            cost: turn_cost(cost),
+        })
+        .into_response()
     };
 
     // A `warn`-action budget over its soft limit lets the turn proceed but flags
