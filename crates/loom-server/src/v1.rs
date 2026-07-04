@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
+use std::time::Instant;
 
 use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, Sse};
@@ -22,6 +23,7 @@ use http::header::HeaderValue;
 use http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use tracing::Instrument;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
 use uuid::Uuid;
@@ -42,6 +44,7 @@ use crate::budget::{self, BudgetWarning};
 use crate::error::ApiError;
 use crate::extract;
 use crate::state::AppState;
+use crate::telemetry;
 
 /// Response header set when a `warn`-action budget is over its soft limit.
 const BUDGET_WARNING_HEADER: &str = "x-loom-budget-warning";
@@ -619,29 +622,85 @@ async fn execute_turn(
         model: conversation.binding.model.clone(),
     };
 
+    // The turn span roots the provider (and store) spans for this turn; it nests
+    // under the HTTP request span the outer middleware opened. It carries the
+    // tenant and model, never message content.
+    let turn_span = tracing::info_span!(
+        "conversation.turn",
+        "loom.tenant.id" = %attribution.tenant_id,
+        "gen_ai.system" = %attribution.provider,
+        "gen_ai.request.model" = %attribution.model,
+        "loom.stream" = stream,
+    );
+    let started = Instant::now();
+
     let mut response = if stream {
+        let provider_span = telemetry::provider_span(
+            &turn_span,
+            &attribution.provider,
+            &attribution.model,
+            true,
+            attribution.tenant_id,
+        );
         let events = provider
             .stream(&conversation, &options)
+            .instrument(provider_span.clone())
             .await
             .map_err(ApiError::from_provider)?;
+        // Input content is attached only when the debug capture flag is set; the
+        // span stays open across the whole stream so the output content and final
+        // usage attributes are recorded when the stream settles.
+        telemetry::record_input_content(&provider_span, || content_digest(&conversation));
+        state.metrics().stream_started();
         let persist_target = persist.then_some((conversation.tenant_id, conversation.id));
-        sse_response(events, state.clone(), attribution, persist_target)
+        sse_response(
+            events,
+            state.clone(),
+            attribution,
+            persist_target,
+            provider_span,
+            started,
+        )
     } else {
+        let provider_span = telemetry::provider_span(
+            &turn_span,
+            &attribution.provider,
+            &attribution.model,
+            false,
+            attribution.tenant_id,
+        );
         let message = provider
             .complete(&conversation, &options)
+            .instrument(provider_span.clone())
             .await
             .map_err(ApiError::from_provider)?;
+        state.metrics().record_provider_call(
+            &attribution.provider,
+            &attribution.model,
+            false,
+            started.elapsed(),
+        );
         // Capture usage for every turn, before persisting the message.
-        record_turn_usage(
-            state,
-            &attribution,
-            message.usage.clone().unwrap_or_default(),
-        )
-        .await;
+        let usage = message.usage.clone().unwrap_or_default();
+        let cost = record_turn_usage(state, &attribution, usage.clone()).await;
+        telemetry::record_provider_result(
+            &provider_span,
+            &usage,
+            cost,
+            stop_reason_from_message(&message).as_deref(),
+        );
+        telemetry::record_input_content(&provider_span, || content_digest(&conversation));
+        telemetry::record_output_content(&provider_span, || message_digest(&message));
         if persist {
+            let store_span = tracing::info_span!(
+                parent: &turn_span,
+                "store.append_message",
+                "loom.conversation.id" = %conversation.id,
+            );
             state
                 .store()
                 .append_message(conversation.tenant_id, conversation.id, &message)
+                .instrument(store_span)
                 .await
                 .map_err(ApiError::from_store)?;
         }
@@ -666,7 +725,11 @@ async fn execute_turn(
 /// is never lost and cost can be recomputed later. The write itself goes through
 /// the state's [`UsageRecorder`](crate::usage::UsageRecorder), which parks the
 /// event in the outbox on failure — a usage-write fault never fails the turn.
-async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usage: Usage) {
+async fn record_turn_usage(
+    state: &AppState,
+    attribution: &UsageAttribution,
+    usage: Usage,
+) -> Option<Decimal> {
     let cost = match state
         .store()
         .get_effective_price(&attribution.provider, &attribution.model, Utc::now())
@@ -690,6 +753,18 @@ async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usa
             .saturating_add(usage.cache_write_tokens.unwrap_or(0));
         state.rate_limiter().record_tokens(key_id, tokens);
     }
+    // Emit token/cost metrics by tenant + model (no-ops without a meter).
+    state.metrics().record_tokens(
+        attribution.tenant_id,
+        &attribution.model,
+        usage.input_tokens.unwrap_or(0),
+        usage.output_tokens.unwrap_or(0),
+    );
+    if let Some(cost) = cost {
+        state
+            .metrics()
+            .record_cost(attribution.tenant_id, &attribution.model, cost);
+    }
     let event = NewUsageEvent {
         tenant_id: attribution.tenant_id,
         virtual_key_id: attribution.virtual_key_id,
@@ -700,6 +775,51 @@ async fn record_turn_usage(state: &AppState, attribution: &UsageAttribution, usa
         cost,
     };
     state.usage_recorder().record(state.store(), event).await;
+    cost
+}
+
+/// A best-effort stop-reason string for a completed non-streaming turn, read
+/// from the provider's verbatim native response payload. Content is never read —
+/// only the `stop_reason` field. `None` when absent.
+fn stop_reason_from_message(message: &Message) -> Option<String> {
+    message
+        .raw
+        .as_ref()?
+        .get("stop_reason")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// A compact, telemetry-only digest of a conversation's inputs (system prompt +
+/// messages) as JSON. Built **only** when content capture is enabled.
+fn content_digest(conversation: &Conversation) -> String {
+    serde_json::json!({
+        "system": conversation.system,
+        "messages": conversation.messages,
+    })
+    .to_string()
+}
+
+/// A compact, telemetry-only digest of an assistant message as JSON. Built
+/// **only** when content capture is enabled.
+fn message_digest(message: &Message) -> String {
+    serde_json::to_string(message).unwrap_or_default()
+}
+
+/// The stable snake_case label for a [`StopReason`], mirroring its serde
+/// representation and preserving the verbatim string for `Other`.
+fn stop_reason_label(reason: &loom_provider::StopReason) -> String {
+    use loom_provider::StopReason;
+    match reason {
+        StopReason::EndTurn => "end_turn".to_owned(),
+        StopReason::MaxTokens => "max_tokens".to_owned(),
+        StopReason::StopSequence => "stop_sequence".to_owned(),
+        StopReason::ToolUse => "tool_use".to_owned(),
+        StopReason::PauseTurn => "pause_turn".to_owned(),
+        StopReason::Refusal => "refusal".to_owned(),
+        StopReason::Other(s) => s.clone(),
+        _ => "unknown".to_owned(),
+    }
 }
 
 /// The mutable state driving the SSE `unfold`.
@@ -711,6 +831,13 @@ struct SseState {
     /// `(tenant_id, conversation_id)` for message persistence, or `None` for a
     /// stateless turn. Usage is recorded regardless.
     persist: Option<(Uuid, Uuid)>,
+    /// The provider span, kept open across the whole stream so first-token
+    /// latency, final usage and the stop reason are recorded on it.
+    span: tracing::Span,
+    /// When the turn started, for first-token latency and provider duration.
+    started: Instant,
+    /// Whether the first-token event has already been recorded.
+    first_token_seen: bool,
     finalized: bool,
     done: bool,
 }
@@ -727,6 +854,8 @@ fn sse_response(
     app_state: AppState,
     attribution: UsageAttribution,
     persist: Option<(Uuid, Uuid)>,
+    span: tracing::Span,
+    started: Instant,
 ) -> Response {
     let initial = SseState {
         events,
@@ -734,6 +863,9 @@ fn sse_response(
         state: app_state,
         attribution,
         persist,
+        span,
+        started,
+        first_token_seen: false,
         finalized: false,
         done: false,
     };
@@ -745,6 +877,12 @@ fn sse_response(
         match state.events.next().await {
             Some(Ok(event)) => {
                 state.accumulator.ingest(&event);
+                // Record first-token latency (request start → first content
+                // event) as a span event, once.
+                if !state.first_token_seen && is_first_content(&event) {
+                    telemetry::record_first_token(&state.span, state.started.elapsed());
+                    state.first_token_seen = true;
+                }
                 let frame = Event::default()
                     .json_data(&event)
                     .unwrap_or_else(|_| Event::default().data("{}"));
@@ -806,18 +944,37 @@ impl SseState {
         let message = self.accumulator.message();
         // Usage is finalised from the accumulator's message_delta/turn-end
         // snapshot and recorded for every streamed turn.
-        record_turn_usage(
-            &self.state,
-            &self.attribution,
-            message.usage.clone().unwrap_or_default(),
-        )
-        .await;
+        let usage = message.usage.clone().unwrap_or_default();
+        let cost = record_turn_usage(&self.state, &self.attribution, usage.clone()).await;
+
+        // Settle the span kept open across the stream: final usage, cost, stop
+        // reason and (only when opted in) the output content.
+        telemetry::record_provider_result(
+            &self.span,
+            &usage,
+            cost,
+            self.accumulator.stop_reason_label().as_deref(),
+        );
+        telemetry::record_output_content(&self.span, || message_digest(&message));
+        self.state.metrics().record_provider_call(
+            &self.attribution.provider,
+            &self.attribution.model,
+            true,
+            self.started.elapsed(),
+        );
+        self.state.metrics().stream_ended();
 
         if let Some((tenant_id, conversation_id)) = self.persist {
+            let store_span = tracing::info_span!(
+                parent: &self.span,
+                "store.append_message",
+                "loom.conversation.id" = %conversation_id,
+            );
             if let Err(err) = self
                 .state
                 .store()
                 .append_message(tenant_id, conversation_id, &message)
+                .instrument(store_span)
                 .await
             {
                 tracing::error!(
@@ -830,6 +987,17 @@ impl SseState {
     }
 }
 
+/// Whether an event carries the first assistant content — the trigger for the
+/// first-token latency measurement.
+fn is_first_content(event: &TurnEvent) -> bool {
+    matches!(
+        event.kind,
+        TurnEventKind::ContentPartStarted { .. }
+            | TurnEventKind::ContentPartDelta { .. }
+            | TurnEventKind::ContentPartComplete { .. }
+    )
+}
+
 /// Reassembles the assistant [`Message`] from a provider's normalised
 /// [`TurnEvent`] stream.
 ///
@@ -840,6 +1008,7 @@ impl SseState {
 struct TurnAccumulator {
     parts: BTreeMap<usize, loom_core::ContentPart>,
     usage: Option<Usage>,
+    stop_reason: Option<loom_provider::StopReason>,
 }
 
 impl TurnAccumulator {
@@ -856,10 +1025,11 @@ impl TurnAccumulator {
             TurnEventKind::Usage(usage) => {
                 self.usage = Some(usage.clone());
             }
-            TurnEventKind::TurnEnded {
-                usage: Some(usage), ..
-            } => {
-                self.usage = Some(usage.clone());
+            TurnEventKind::TurnEnded { stop_reason, usage } => {
+                self.stop_reason = Some(stop_reason.clone());
+                if let Some(usage) = usage {
+                    self.usage = Some(usage.clone());
+                }
             }
             _ => {}
         }
@@ -872,6 +1042,11 @@ impl TurnAccumulator {
         let mut message = Message::new(Role::Assistant, content);
         message.usage = self.usage.clone();
         message
+    }
+
+    /// The turn's stop reason as a telemetry label, if one was reported.
+    fn stop_reason_label(&self) -> Option<String> {
+        self.stop_reason.as_ref().map(stop_reason_label)
     }
 }
 

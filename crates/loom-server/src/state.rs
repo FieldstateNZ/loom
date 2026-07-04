@@ -16,6 +16,7 @@ use crate::error::ApiError;
 use crate::keys::KeyHasher;
 use crate::provider::{DefaultProviderFactory, ProviderFactory};
 use crate::rate_limit::RateLimiter;
+use crate::telemetry::Metrics;
 use crate::usage::{OutboxUsageRecorder, UsageRecorder};
 
 /// The state shared across all handlers.
@@ -38,6 +39,8 @@ struct Inner {
     rate_limiter: Arc<RateLimiter>,
     /// Short-TTL, in-process cache of current-window spend (per replica).
     budget_cache: Arc<BudgetCache>,
+    /// OpenTelemetry metric instruments (no-ops when no meter is installed).
+    metrics: Arc<Metrics>,
 }
 
 impl AppState {
@@ -59,6 +62,7 @@ impl AppState {
                 usage_recorder: Arc::new(OutboxUsageRecorder),
                 rate_limiter: Arc::new(RateLimiter::new()),
                 budget_cache: Arc::new(BudgetCache::new()),
+                metrics: Arc::new(Metrics::new()),
             }),
         }
     }
@@ -81,6 +85,7 @@ impl AppState {
                 usage_recorder: self.inner.usage_recorder.clone(),
                 rate_limiter: self.inner.rate_limiter.clone(),
                 budget_cache: self.inner.budget_cache.clone(),
+                metrics: self.inner.metrics.clone(),
             }),
         }
     }
@@ -102,6 +107,7 @@ impl AppState {
                 usage_recorder,
                 rate_limiter: self.inner.rate_limiter.clone(),
                 budget_cache: self.inner.budget_cache.clone(),
+                metrics: self.inner.metrics.clone(),
             }),
         }
     }
@@ -152,6 +158,12 @@ impl AppState {
     #[must_use]
     pub fn budget_cache(&self) -> &BudgetCache {
         &self.inner.budget_cache
+    }
+
+    /// The OpenTelemetry metric instruments (no-ops when no meter is installed).
+    #[must_use]
+    pub fn metrics(&self) -> &Metrics {
+        &self.inner.metrics
     }
 
     /// Resolves the [`Provider`] bound to `provider` for `tenant_id` via the

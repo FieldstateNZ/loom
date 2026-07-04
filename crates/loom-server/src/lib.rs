@@ -58,6 +58,7 @@ pub mod keys;
 pub mod provider;
 pub mod rate_limit;
 pub mod state;
+pub mod telemetry;
 pub mod usage;
 pub mod v1;
 
@@ -76,6 +77,7 @@ pub use crate::error::ApiError;
 pub use crate::keys::{generate_key, GeneratedKey, KeyEnv, KeyHasher};
 pub use crate::provider::{DefaultProviderFactory, ProviderFactory};
 pub use crate::state::AppState;
+pub use crate::telemetry::{Metrics, TelemetryGuard};
 pub use crate::usage::{OutboxUsageRecorder, UsageRecorder};
 pub use crate::v1::ApiDoc;
 
@@ -100,8 +102,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/openapi.json", get(v1::openapi_json))
         .merge(protected)
         .merge(admin)
+        // The outermost layer owns the per-request span, `x-request-id`
+        // propagation and the request-count/duration metrics; the turn,
+        // provider and store spans nest under it. A custom middleware (rather
+        // than tower-http's `TraceLayer`) keeps the span, request-id and metrics
+        // in one place.
+        .layer(from_fn_with_state(state.clone(), telemetry::trace_request))
         .with_state(state)
-        .layer(tower_http::trace::TraceLayer::new_for_http())
 }
 
 /// Liveness endpoint. Always `200 ok`.

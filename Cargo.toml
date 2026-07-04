@@ -50,6 +50,15 @@ rust_decimal = { version = "1", features = ["serde"] }
 # --- observability ---
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# OpenTelemetry: a version-lockstep set. `opentelemetry`, `opentelemetry_sdk`,
+# `opentelemetry-otlp` and `opentelemetry-semantic-conventions` move together on
+# the same minor; `tracing-opentelemetry` tracks them one minor ahead. Bump all
+# five together or the trait bounds between them stop lining up.
+opentelemetry = "0.32"
+opentelemetry_sdk = "0.32"
+opentelemetry-otlp = "0.32"
+opentelemetry-semantic-conventions = "0.32"
+tracing-opentelemetry = "0.33"
 # --- openapi ---
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # --- crypto / secrets ---

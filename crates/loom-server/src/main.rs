@@ -8,10 +8,9 @@
 use std::process::ExitCode;
 
 use loom_server::config::DEFAULT_BIND_ADDR;
-use loom_server::{build_router, AppState, Config};
+use loom_server::{build_router, telemetry, AppState, Config};
 use loom_store::PgStore;
 use tokio::net::TcpListener;
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -21,12 +20,10 @@ async fn main() -> ExitCode {
         return ExitCode::from(healthcheck());
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .json()
-        .init();
+    // Installs JSON logs and, when an OTLP endpoint is configured, the
+    // OpenTelemetry trace + metric exporters. The guard flushes them on drop, so
+    // it must outlive `run()`.
+    let _telemetry = telemetry::init();
 
     match run().await {
         Ok(()) => ExitCode::SUCCESS,

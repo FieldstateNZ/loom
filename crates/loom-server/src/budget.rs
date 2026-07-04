@@ -138,12 +138,15 @@ pub async fn enforce(
 
     let window = budget.window.as_str();
     match budget.action {
-        BudgetAction::Block => Err(ApiError::budget_exceeded(
-            scope,
-            budget.limit_amount,
-            spent,
-            window,
-        )),
+        BudgetAction::Block => {
+            state.metrics().record_budget_block(scope);
+            Err(ApiError::budget_exceeded(
+                scope,
+                budget.limit_amount,
+                spent,
+                window,
+            ))
+        }
         BudgetAction::Warn => {
             tracing::warn!(
                 scope,

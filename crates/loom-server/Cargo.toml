@@ -25,11 +25,24 @@ loom-store = { workspace = true }
 
 axum = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["trace"] }
 http = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+# --- opentelemetry (opt-in OTLP export of traces + metrics) ---
+opentelemetry = { workspace = true, features = ["trace", "metrics"] }
+opentelemetry_sdk = { workspace = true, features = ["trace", "metrics", "rt-tokio"] }
+opentelemetry-otlp = { workspace = true, features = [
+    "grpc-tonic",
+    "http-proto",
+    "reqwest-client",
+    "reqwest-rustls",
+    "trace",
+    "metrics",
+] }
+opentelemetry-semantic-conventions = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -61,3 +74,6 @@ loom-provider = { workspace = true, features = ["mock"] }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 wiremock = { workspace = true }
+# In-memory span/metric exporters for asserting telemetry without a collector.
+opentelemetry_sdk = { workspace = true, features = ["trace", "metrics", "rt-tokio", "testing"] }
+tracing-subscriber = { workspace = true }

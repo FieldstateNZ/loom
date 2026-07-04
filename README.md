@@ -98,8 +98,55 @@ with a clear diagnostic if one is missing or malformed.
 | `LOOM_BIND_ADDR` | no | `0.0.0.0:8080` | `host:port` to bind the HTTP listener. |
 | `LOOM_KEY_PEPPER` | no | derived | Pepper for the virtual-key lookup HMAC. When unset it is derived deterministically as `HMAC-SHA256(LOOM_ENCRYPTION_KEY, "loom.virtual-key.pepper.v1")`. Set it explicitly to decouple its lifecycle from the encryption key. |
 | `LOOM_RUN_MIGRATIONS` | no | `true` | Apply database migrations on startup; set `false`/`0`/`no`/`off` to skip. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — | OTLP collector endpoint. **Its presence turns telemetry export on**; unset means JSON logs only, no exporter (the default). Signal-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` override it. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | no | `grpc` | OTLP transport: `grpc` (tonic) or `http/protobuf` (HTTP). |
+| `OTEL_SERVICE_NAME` | no | `loom-server` | Logical service name on emitted spans/metrics. |
+| `OTEL_RESOURCE_ATTRIBUTES` | no | — | Extra resource attributes, e.g. `deployment.environment=prod,service.namespace=loom`. |
+| `LOOM_TELEMETRY_CAPTURE_CONTENT` | no | `0` | **Debug/privacy-sensitive.** When set (`1`/`true`/`yes`/`on`), attaches prompt/completion content to spans. Off by default; leave off wherever telemetry leaves a trusted boundary. |
 
 Generate an encryption key with `openssl rand -hex 32`.
+
+### Observability
+
+Loom sits in the middle of every request, so it is instrumented from day one with
+[OpenTelemetry](https://opentelemetry.io/) traces and metrics on top of the JSON
+structured logs. Export is **opt-in by endpoint**: with no
+`OTEL_EXPORTER_OTLP_ENDPOINT` set (tests, local dev) the server logs as usual and
+installs no exporter, so no collector is required. Set an endpoint to stream OTLP
+to any compatible backend (both `grpc` and `http/protobuf` transports are
+supported, selected by `OTEL_EXPORTER_OTLP_PROTOCOL`).
+
+**Spans** nest as HTTP request → conversation turn → provider call → store
+operation. The provider span carries `gen_ai.request.model`, input/output and
+cache token counts, computed cost, the stop reason and the tenant id; on a
+streamed turn it stays open across the whole SSE stream and records first-token
+latency as a span event. Every request reads or generates an `x-request-id`,
+attaches it to the request span (and thus every log for that request), and echoes
+it on the response.
+
+**Metrics** (OTLP): request count + duration histogram by route and status,
+provider-call duration histogram, input/output token counters by tenant + model,
+a spend counter by tenant + model, an active-streams up/down counter, and a
+budget-block counter by scope.
+
+**Privacy.** By default **no** message text, tool inputs/outputs or system prompts
+appear in any span, metric or log — only token counts, model, tenant, cost and
+stop reason. Setting `LOOM_TELEMETRY_CAPTURE_CONTENT=1` opts in to attaching
+content to spans for debugging; it is privacy-sensitive and must stay off wherever
+telemetry leaves a trusted boundary.
+
+**See traces locally.** The compose file bundles an optional OTLP collector +
+dashboard (the .NET Aspire dashboard) behind the `observability` profile:
+
+```bash
+# Start the stack with the collector, then uncomment the OTEL_* vars on the
+# loom-server service in docker-compose.yml.
+docker compose --profile observability up --build
+# Traces, metrics and logs at http://localhost:18888
+```
+
+Any OTLP backend works the same way — the OpenTelemetry Collector, Grafana Alloy,
+Jaeger (with OTLP enabled), Honeycomb, and so on.
 
 ### Endpoints
 
