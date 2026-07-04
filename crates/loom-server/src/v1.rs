@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, Sse};
@@ -651,7 +651,10 @@ async fn execute_turn(
         // span stays open across the whole stream so the output content and final
         // usage attributes are recorded when the stream settles.
         telemetry::record_input_content(&provider_span, || content_digest(&conversation));
-        state.metrics().stream_started();
+        // The active-streams gauge is incremented/decremented by an RAII guard
+        // owned by the SSE stream state (see `ActiveStreamGuard`), so it is
+        // balanced on every termination path — including a mid-stream client
+        // disconnect that drops the body future without a clean or error end.
         let persist_target = persist.then_some((conversation.tenant_id, conversation.id));
         sse_response(
             events,
@@ -822,6 +825,35 @@ fn stop_reason_label(reason: &loom_provider::StopReason) -> String {
     }
 }
 
+/// An RAII guard that keeps the `loom.streams.active` gauge balanced.
+///
+/// Constructing one increments the gauge; dropping one decrements it. Because
+/// the decrement lives in [`Drop`] it fires on *every* stream termination path —
+/// a clean end, a provider error, and (critically) a mid-stream client
+/// disconnect, where hyper drops the SSE body future without the unfold ever
+/// reaching its terminal branch. The gauge decrement is intentionally the guard's
+/// *sole* responsibility (it is not also done in [`SseState::finalize`]) so a
+/// stream can never be double-counted.
+struct ActiveStreamGuard {
+    metrics: telemetry::Metrics,
+}
+
+impl ActiveStreamGuard {
+    /// Marks a stream as open (increments the active-streams gauge). The paired
+    /// decrement fires when the guard is dropped.
+    fn new(metrics: telemetry::Metrics) -> Self {
+        metrics.stream_started();
+        Self { metrics }
+    }
+}
+
+impl Drop for ActiveStreamGuard {
+    fn drop(&mut self) {
+        // Synchronous and safe in `Drop`: a bare gauge decrement, no `.await`.
+        self.metrics.stream_ended();
+    }
+}
+
 /// The mutable state driving the SSE `unfold`.
 struct SseState {
     events: TurnEventStream,
@@ -840,6 +872,10 @@ struct SseState {
     first_token_seen: bool,
     finalized: bool,
     done: bool,
+    /// Balances the active-streams gauge for the lifetime of the stream. Held
+    /// only for its [`Drop`] side effect (decrement on every termination path);
+    /// never read directly.
+    _gauge: ActiveStreamGuard,
 }
 
 /// Builds the SSE [`Response`] for a streamed turn.
@@ -848,7 +884,10 @@ struct SseState {
 /// raw native event) as one `data:` frame. When the underlying stream ends —
 /// cleanly or via a provider error — a priced usage event is recorded and, for
 /// a stateful turn, the reassembled assistant [`Message`] is persisted (best
-/// effort).
+/// effort). If the client instead disconnects mid-stream (the SSE body future is
+/// dropped before either terminal branch runs), [`SseState`]'s own [`Drop`]
+/// settles the partial turn off-thread on a best-effort basis, and the
+/// active-streams gauge is balanced by [`ActiveStreamGuard`] regardless.
 fn sse_response(
     events: TurnEventStream,
     app_state: AppState,
@@ -857,6 +896,9 @@ fn sse_response(
     span: tracing::Span,
     started: Instant,
 ) -> Response {
+    // Increment the active-streams gauge now; the guard's `Drop` decrements it on
+    // whichever way the stream ends.
+    let gauge = ActiveStreamGuard::new(app_state.metrics().clone());
     let initial = SseState {
         events,
         accumulator: TurnAccumulator::new(),
@@ -868,6 +910,7 @@ fn sse_response(
         first_token_seen: false,
         finalized: false,
         done: false,
+        _gauge: gauge,
     };
 
     let body = stream::unfold(initial, |mut state| async move {
@@ -918,7 +961,9 @@ fn sse_response(
 impl SseState {
     /// Settles the turn once the stream ends: records a priced usage event
     /// (always) and, for a stateful turn, persists the reassembled assistant
-    /// message. Idempotent — a clean end and an error end cannot both run it.
+    /// message. Idempotent — a clean end, an error end and the [`Drop`]-path
+    /// best-effort settlement cannot both run it, because the first to run sets
+    /// the `finalized` flag the others check.
     ///
     /// Best effort throughout: a usage-write or persistence failure is logged,
     /// never surfaced mid-stream.
@@ -941,48 +986,104 @@ impl SseState {
         }
         self.finalized = true;
 
-        let message = self.accumulator.message();
         // Usage is finalised from the accumulator's message_delta/turn-end
         // snapshot and recorded for every streamed turn.
-        let usage = message.usage.clone().unwrap_or_default();
-        let cost = record_turn_usage(&self.state, &self.attribution, usage.clone()).await;
-
-        // Settle the span kept open across the stream: final usage, cost, stop
-        // reason and (only when opted in) the output content.
-        telemetry::record_provider_result(
-            &self.span,
-            &usage,
-            cost,
-            self.accumulator.stop_reason_label().as_deref(),
-        );
-        telemetry::record_output_content(&self.span, || message_digest(&message));
-        self.state.metrics().record_provider_call(
-            &self.attribution.provider,
-            &self.attribution.model,
-            true,
+        settle_stream_turn(
+            self.state.clone(),
+            self.attribution.clone(),
+            self.persist,
+            self.span.clone(),
             self.started.elapsed(),
-        );
-        self.state.metrics().stream_ended();
+            self.accumulator.message(),
+            self.accumulator.stop_reason_label(),
+        )
+        .await;
+    }
+}
 
-        if let Some((tenant_id, conversation_id)) = self.persist {
-            let store_span = tracing::info_span!(
-                parent: &self.span,
-                "store.append_message",
-                "loom.conversation.id" = %conversation_id,
+impl Drop for SseState {
+    /// Best-effort settlement for a stream dropped before [`finalize`] ran — a
+    /// mid-stream client disconnect, where hyper drops the SSE body future
+    /// without the unfold reaching its clean-end (`None`) or error branch.
+    ///
+    /// The `finalized` flag guards against double-recording: if [`finalize`]
+    /// already ran, this is a no-op (the active-streams gauge is still balanced
+    /// by the `_gauge` field's own `Drop`, which runs after this). Otherwise the
+    /// partial turn — the work the provider *did* do before the client went away
+    /// — is recorded and persisted on a detached task, since `Drop` cannot
+    /// `.await`. Handles are cloned out of `self`; the accumulated [`Usage`] is
+    /// whatever the stream reported before the disconnect (often empty, as the
+    /// usage snapshot rides the terminal event).
+    ///
+    /// [`finalize`]: SseState::finalize
+    fn drop(&mut self) {
+        if self.finalized {
+            return;
+        }
+        // Spawning needs a Tokio runtime; if the state is dropped outside one
+        // (e.g. during runtime teardown) skip the best-effort persist rather than
+        // panic. The gauge is still balanced by `_gauge`.
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        self.finalized = true;
+        handle.spawn(settle_stream_turn(
+            self.state.clone(),
+            self.attribution.clone(),
+            self.persist,
+            self.span.clone(),
+            self.started.elapsed(),
+            self.accumulator.message(),
+            self.accumulator.stop_reason_label(),
+        ));
+    }
+}
+
+/// Records the priced usage event and provider-duration metric for a streamed
+/// turn and, for a stateful turn, persists the reassembled assistant message.
+///
+/// Shared by [`SseState::finalize`] (the clean/error end) and [`SseState`]'s
+/// [`Drop`] (a mid-stream client disconnect) so the two paths record the turn
+/// identically. Best effort throughout: a usage-write or persistence failure is
+/// logged, never surfaced. Does **not** touch the active-streams gauge — that is
+/// owned solely by [`ActiveStreamGuard`].
+async fn settle_stream_turn(
+    state: AppState,
+    attribution: UsageAttribution,
+    persist: Option<(Uuid, Uuid)>,
+    span: tracing::Span,
+    elapsed: Duration,
+    message: Message,
+    stop_reason: Option<String>,
+) {
+    let usage = message.usage.clone().unwrap_or_default();
+    let cost = record_turn_usage(&state, &attribution, usage.clone()).await;
+
+    // Settle the span kept open across the stream: final usage, cost, stop
+    // reason and (only when opted in) the output content.
+    telemetry::record_provider_result(&span, &usage, cost, stop_reason.as_deref());
+    telemetry::record_output_content(&span, || message_digest(&message));
+    state
+        .metrics()
+        .record_provider_call(&attribution.provider, &attribution.model, true, elapsed);
+
+    if let Some((tenant_id, conversation_id)) = persist {
+        let store_span = tracing::info_span!(
+            parent: &span,
+            "store.append_message",
+            "loom.conversation.id" = %conversation_id,
+        );
+        if let Err(err) = state
+            .store()
+            .append_message(tenant_id, conversation_id, &message)
+            .instrument(store_span)
+            .await
+        {
+            tracing::error!(
+                error = %err,
+                conversation_id = %conversation_id,
+                "failed to persist streamed assistant turn"
             );
-            if let Err(err) = self
-                .state
-                .store()
-                .append_message(tenant_id, conversation_id, &message)
-                .instrument(store_span)
-                .await
-            {
-                tracing::error!(
-                    error = %err,
-                    conversation_id = %conversation_id,
-                    "failed to persist streamed assistant turn"
-                );
-            }
         }
     }
 }
