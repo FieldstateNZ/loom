@@ -26,7 +26,10 @@ use super::runner::execute_turn;
     params(("id" = Uuid, Path, description = "Conversation id")),
     request_body = TurnRequest,
     responses(
-        (status = 200, description = "The assistant message, or an SSE stream when stream=true", body = Object),
+        (status = 200, description = "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`", content(
+            (Message = "application/json"),
+            (loom_provider::TurnEvent = "text/event-stream"),
+        )),
         (status = 404, description = "No such conversation for this tenant", body = Object),
         (status = 422, description = "Capability unsupported or provider not configured", body = Object),
     ),
@@ -99,7 +102,10 @@ pub(super) async fn create_turn(
     tag = "conversations",
     request_body = StatelessTurnRequest,
     responses(
-        (status = 200, description = "The assistant message, or an SSE stream when stream=true", body = Object),
+        (status = 200, description = "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`", content(
+            (Message = "application/json"),
+            (loom_provider::TurnEvent = "text/event-stream"),
+        )),
         (status = 400, description = "Malformed request", body = Object),
         (status = 422, description = "Capability unsupported or provider not configured", body = Object),
     ),

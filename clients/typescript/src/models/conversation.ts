@@ -23,8 +23,8 @@ export const conversationSchema = z.object({
   system_cache: cacheHintSchema.nullish(),
   messages: z.array(messageSchema),
   metadata: z.unknown().optional(),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 
 /** A tenant-scoped conversation, as returned by create/fetch. */

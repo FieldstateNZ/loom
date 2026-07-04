@@ -2,12 +2,13 @@
 
 use axum::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::auth::TenantContext;
 
 /// The `/v1/whoami` response: the authenticated identity.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(super) struct WhoAmI {
     tenant_id: Uuid,
     key_id: Uuid,
@@ -22,7 +23,7 @@ pub(super) struct WhoAmI {
     path = "/v1/whoami",
     tag = "conversations",
     responses(
-        (status = 200, description = "The authenticated tenant identity", body = Object),
+        (status = 200, description = "The authenticated tenant identity", body = WhoAmI),
         (status = 401, description = "Missing or invalid virtual key", body = Object),
     ),
     security(("virtual_key" = []))

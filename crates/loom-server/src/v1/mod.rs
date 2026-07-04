@@ -56,14 +56,16 @@ pub fn router() -> Router<AppState> {
         .route("/v1/usage", get(usage::usage_rollup))
 }
 
-/// Registers the `virtual_key` security scheme referenced by every guarded
-/// operation.
+/// Registers the `virtual_key` and `admin_token` security schemes referenced by
+/// every guarded operation.
 ///
-/// The operations declare `security(("virtual_key" = []))`, so the scheme must
-/// exist in `components.securitySchemes` for the published document to be a
-/// valid, self-consistent OpenAPI spec (no dangling references). It is an HTTP
-/// bearer scheme: the tenant presents its virtual key as
-/// `Authorization: Bearer loom_...`.
+/// The tenant-scoped operations declare `security(("virtual_key" = []))` and
+/// the `/admin` operations declare `security(("admin_token" = []))`, so both
+/// schemes must exist in `components.securitySchemes` for the published
+/// document to be a valid, self-consistent OpenAPI spec (no dangling
+/// references). Both are HTTP bearer schemes: the tenant presents its virtual
+/// key (`Authorization: Bearer loom_...`) and the operator presents the root
+/// admin token, respectively.
 struct SecurityAddon;
 
 impl Modify for SecurityAddon {
@@ -77,6 +79,15 @@ impl Modify for SecurityAddon {
                 HttpBuilder::new()
                     .scheme(HttpAuthScheme::Bearer)
                     .bearer_format("virtual key")
+                    .build(),
+            ),
+        );
+        components.add_security_scheme(
+            "admin_token",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("admin token")
                     .build(),
             ),
         );
@@ -103,6 +114,7 @@ impl Modify for SecurityAddon {
         crate::batch::get_batch,
         crate::batch::get_batch_results,
         crate::batch::cancel_batch,
+        crate::admin::usage_by_tenant,
     ),
     components(schemas(
         CreateConversationRequest,
@@ -112,11 +124,43 @@ impl Modify for SecurityAddon {
         crate::batch::BatchItemInput,
         crate::batch::BatchJobDto,
         crate::batch::BatchCountsDto,
+        // The domain model (#18): the conversation/turn/message shapes that
+        // flow through request *and* response bodies. Explicitly listed so
+        // every variant closure (content parts, media sources, citations,
+        // cache hints, server tools, …) is present in the document even where
+        // a given type is only reachable through a nested field.
+        loom_core::Conversation,
+        loom_core::ProviderBinding,
+        loom_core::Message,
+        loom_core::Role,
+        loom_core::ContentPart,
+        loom_core::MediaSource,
+        loom_core::Citation,
+        loom_core::Usage,
+        loom_core::ConversationOptions,
+        loom_core::ToolDefinition,
+        loom_core::ServerTool,
+        loom_core::McpServerRef,
+        loom_core::CacheHint,
+        loom_core::CacheTtl,
+        loom_core::CacheNegotiation,
+        // The streaming envelope (#18).
+        loom_provider::TurnEvent,
+        loom_provider::TurnEventKind,
+        loom_provider::ContentDelta,
+        loom_provider::StopReason,
+        // Response envelopes (#19).
+        whoami::WhoAmI,
+        usage::UsageRollupResponse,
+        usage::UsageRollupRowDto,
+        crate::admin::AdminUsageResponse,
+        crate::admin::AdminUsageRow,
     )),
     tags(
         (name = "conversations", description = "Tenant-scoped conversation and turn endpoints"),
         (name = "usage", description = "Spend and token usage rollups"),
         (name = "batches", description = "Asynchronous batch jobs (bulk turns at the discounted batch tier)"),
+        (name = "admin", description = "Root-token-guarded gateway administration"),
     )
 )]
 pub struct ApiDoc;

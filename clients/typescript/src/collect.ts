@@ -25,7 +25,7 @@ import type { CollectedTurn } from "./collect.types.js";
 import { decodeError } from "./loom-error.js";
 import type { LoomError } from "./loom-error.types.js";
 import type { ContentPart } from "./models/content-part.js";
-import type { TurnEvent, TurnEventKind } from "./models/turn-event.js";
+import type { StopReason, TurnEvent, TurnEventKind } from "./models/turn-event.js";
 import type { Usage } from "./models/usage.js";
 import { err, ok } from "./result.js";
 import type { Result } from "./result.types.js";
@@ -42,7 +42,7 @@ export async function collect(
 ): Promise<Result<CollectedTurn, LoomError>> {
   const parts = new Map<number, ContentPart>();
   let usage: Usage | undefined;
-  let stopReason: string | undefined;
+  let stopReason: StopReason | undefined;
 
   for await (const event of events) {
     if (!event.ok) return event;

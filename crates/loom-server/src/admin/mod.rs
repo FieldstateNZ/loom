@@ -28,6 +28,12 @@ use axum::Router;
 
 use crate::state::AppState;
 
+// Re-exported (as a glob, so the `#[utoipa::path]` macro's hidden
+// `__path_usage_by_tenant` companion item comes along too) so the gateway-wide
+// `ApiDoc` (`crate::v1::ApiDoc`) can register this path and its response
+// schemas alongside the tenant-scoped `/v1` API.
+pub(crate) use usage::*;
+
 /// Builds the `/admin` sub-router (without its guard layer, which the top-level
 /// router applies).
 pub fn router() -> Router<AppState> {

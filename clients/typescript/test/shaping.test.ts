@@ -60,6 +60,8 @@ const conversation = (id: string) => ({
   tenant_id: "t1",
   binding: { provider: "anthropic", model: "m" },
   messages: [],
+  created_at: "2024-01-01T00:00:00Z",
+  updated_at: "2024-01-01T00:00:00Z",
 });
 
 test("withMcp('lucidbrain') + cached() produce the right options JSON", async () => {

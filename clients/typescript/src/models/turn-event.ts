@@ -15,11 +15,21 @@ import { contentPartSchema } from "./content-part.js";
 import { usageSchema } from "./usage.js";
 
 /**
- * The reason a provider stopped generating a turn. Common values are
- * `end_turn`, `max_tokens`, `stop_sequence`, `tool_use`, `pause_turn` and
- * `refusal`, but providers may report others, so it is left as a free string.
+ * The reason a provider stopped generating a turn.
+ *
+ * `StopReason` is a plain (externally tagged) serde enum, not internally
+ * tagged like {@link ContentPart}: the known reasons (`end_turn`,
+ * `max_tokens`, `stop_sequence`, `tool_use`, `pause_turn`, `refusal`)
+ * serialize as bare strings, but a provider-specific reason Loom does not
+ * model is wrapped verbatim as `{ other: "..." }` (Rust's
+ * `StopReason::Other(String)` tuple variant) — never a bare string. Both
+ * shapes are accepted here so an unrecognised reason still parses instead of
+ * failing validation.
  */
-export const stopReasonSchema = z.string();
+export const stopReasonSchema = z.union([
+  z.enum(["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"]),
+  z.object({ other: z.string() }),
+]);
 
 /** The reason a provider stopped generating a turn. */
 export type StopReason = z.infer<typeof stopReasonSchema>;

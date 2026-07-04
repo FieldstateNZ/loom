@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /admin/usage?group_by=tenant` — gateway-wide usage rolled up by tenant,
+         *     over an optional `[from, to]` window. Root-token only.
+         */
+        get: operations["usage_by_tenant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/batches": {
         parameters: {
             query?: never;
@@ -208,6 +228,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The gateway-wide usage response envelope. */
+        AdminUsageResponse: {
+            /** Format: date-time */
+            from?: string | null;
+            group_by: string;
+            rows: components["schemas"]["AdminUsageRow"][];
+            /** Format: date-time */
+            to?: string | null;
+        };
+        /** @description One tenant's aggregate usage in the gateway-wide rollup. */
+        AdminUsageRow: {
+            /** Format: int64 */
+            cache_read_tokens: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            cost: string;
+            /** Format: int64 */
+            event_count: number;
+            /** @description The tenant id. */
+            group?: string | null;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int64 */
+            output_tokens: number;
+        };
         /** @description Per-status item counts in a batch response. */
         BatchCountsDto: {
             /**
@@ -247,17 +292,15 @@ export interface components {
              */
             custom_id?: string | null;
             /** @description The full, inline message history to run. */
-            messages: Record<string, never>[];
+            messages: components["schemas"]["Message"][];
             /** @description The model identifier, as the provider expects it. */
             model: string;
-            /** @description Request-time provider options. */
-            options?: Record<string, never> | null;
+            options?: null | components["schemas"]["ConversationOptions"];
             /** @description The provider to run against (e.g. `"anthropic"`). */
             provider: string;
             /** @description An optional system prompt. */
             system?: string | null;
-            /** @description An optional prompt-cache breakpoint on the system prompt. */
-            system_cache?: Record<string, never> | null;
+            system_cache?: null | components["schemas"]["CacheHint"];
         };
         /** @description A batch job as returned by the API. */
         BatchJobDto: {
@@ -300,6 +343,377 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * @description A request to cache the request prefix up to and including the annotated
+         *     element.
+         *
+         *     This is Loom's provider-agnostic spelling of a cache breakpoint (Anthropic's
+         *     `cache_control: { "type": "ephemeral" }`). A hint is always *ephemeral*;
+         *     [`ttl`](CacheHint::ttl) optionally selects a non-default lifetime.
+         *
+         *     # Serde representation
+         *
+         *     Serializes as an object carrying only a non-default `ttl`, so a default hint
+         *     round-trips as `{}` and a hint with an explicit lifetime as
+         *     `{ "ttl": "one_hour" }`. This keeps the on-the-wire domain form stable and
+         *     provider-agnostic; the mapping to a provider's native marker lives in that
+         *     provider's translator.
+         */
+        CacheHint: {
+            ttl?: null | components["schemas"]["CacheTtl"];
+        };
+        /**
+         * @description How a provider should treat a cache hint on a model that does not declare
+         *     prompt-caching support.
+         *
+         *     Cache hints are advisory, so the default is [`CacheNegotiation::SoftIgnore`]:
+         *     the hint is stripped (and a warning surfaced via a log and/or response
+         *     header) rather than failing the request. Callers that would rather learn
+         *     about the mismatch loudly can opt into [`CacheNegotiation::HardFail`].
+         *
+         *     Serialized in `snake_case` (`soft_ignore`, `hard_fail`).
+         * @enum {string}
+         */
+        CacheNegotiation: "soft_ignore" | "hard_fail";
+        /**
+         * @description How long a provider should keep a cache entry alive.
+         *
+         *     Anthropic exposes exactly these two ephemeral time-to-live tiers; the names
+         *     are provider-agnostic so other providers can map onto them. Serialized in
+         *     `snake_case` (`five_minutes`, `one_hour`).
+         * @enum {string}
+         */
+        CacheTtl: "five_minutes" | "one_hour";
+        /**
+         * @description A citation attributing a span of generated text to a source.
+         *
+         *     Provider citation shapes vary widely (character ranges, page ranges, web
+         *     search result locations, …). To remain lossless and provider-faithful,
+         *     `Citation` wraps the provider's native citation object verbatim rather than
+         *     flattening it into a single normalized form. It serializes transparently as
+         *     that inner value.
+         */
+        Citation: unknown;
+        /**
+         * @description An incremental change to a streaming content part.
+         *
+         *     The enum is `#[non_exhaustive]`; match with a wildcard arm.
+         */
+        ContentDelta: {
+            /** @description The appended text fragment. */
+            text: string;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            /** @description The appended partial-JSON fragment. */
+            partial_json: string;
+            /** @enum {string} */
+            type: "json";
+        } | {
+            /** @description The appended reasoning fragment. */
+            thinking: string;
+            /** @enum {string} */
+            type: "thinking";
+        } | {
+            /** @description The appended signature fragment. */
+            signature: string;
+            /** @enum {string} */
+            type: "signature_delta";
+        } | {
+            /**
+             * @description The provider's native citation object, preserved without
+             *     interpretation.
+             */
+            citation: components["schemas"]["Citation"];
+            /** @enum {string} */
+            type: "citation";
+        };
+        /**
+         * @description A single, typed piece of message content.
+         *
+         *     `ContentPart` is the heart of Loom's fluent conversation model. It is rich
+         *     enough to carry provider-native concepts — server-side tool use, citations,
+         *     reasoning ("thinking") blocks, and per-block prompt-cache markers — **without**
+         *     flattening them into a lossy OpenAI-shaped representation.
+         *
+         *     # Prompt caching
+         *
+         *     The cacheable variants ([`Text`](ContentPart::Text),
+         *     [`Image`](ContentPart::Image), [`Document`](ContentPart::Document),
+         *     [`ToolUse`](ContentPart::ToolUse), [`ToolResult`](ContentPart::ToolResult),
+         *     and [`Thinking`](ContentPart::Thinking)) each carry an optional
+         *     [`cache: Option<CacheHint>`](CacheHint) marking a cache breakpoint at that
+         *     block. The field is absent (rather than `null`) when unset, preserving
+         *     round-trip fidelity. Provider translators map it to the provider's native
+         *     marker (for Anthropic, `cache_control`).
+         *
+         *     # Serde representation
+         *
+         *     The enum is **internally tagged** with a `"type"` field and each variant is
+         *     rendered in `snake_case`. This makes the serialized form stable and
+         *     self-describing, e.g. a text part serializes as:
+         *
+         *     ```json
+         *     { "type": "text", "text": "hello" }
+         *     ```
+         *
+         *     The tag values are: `text`, `image`, `document`, `tool_use`, `tool_result`,
+         *     `server_tool_use`, `server_tool_result`, `thinking`, `redacted_thinking`,
+         *     and `provider_extension`.
+         *
+         *     # Extensibility
+         *
+         *     The enum is `#[non_exhaustive]`: new provider capabilities may add variants
+         *     in future releases. When a provider produces a shape Loom does not yet model
+         *     natively, translators should fall back to
+         *     [`ContentPart::ProviderExtension`] so that **no** provider feature is ever
+         *     silently dropped.
+         */
+        ContentPart: {
+            cache?: null | components["schemas"]["CacheHint"];
+            /**
+             * @description Citations attributing spans of `text` to source documents.
+             *
+             *     Absent (rather than an empty list) when the text carries no
+             *     citations, preserving round-trip fidelity with providers that omit
+             *     the field entirely.
+             */
+            citations?: components["schemas"]["Citation"][] | null;
+            /** @description The literal text. */
+            text: string;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            cache?: null | components["schemas"]["CacheHint"];
+            /** @description Where the image bytes come from. */
+            source: components["schemas"]["MediaSource"];
+            /** @enum {string} */
+            type: "image";
+        } | {
+            cache?: null | components["schemas"]["CacheHint"];
+            /** @description Where the document bytes come from. */
+            source: components["schemas"]["MediaSource"];
+            /** @enum {string} */
+            type: "document";
+        } | {
+            cache?: null | components["schemas"]["CacheHint"];
+            /** @description Provider-assigned identifier correlating this call with its result. */
+            id: string;
+            /** @description The tool's input arguments, as an opaque JSON value. */
+            input: unknown;
+            /** @description The tool's name. */
+            name: string;
+            /** @enum {string} */
+            type: "tool_use";
+        } | {
+            cache?: null | components["schemas"]["CacheHint"];
+            /**
+             * @description The tool's output, as an opaque JSON value (a string, an array of
+             *     content blocks, or any provider-specific shape).
+             */
+            content: unknown;
+            /** @description Whether the tool invocation failed. Absent when unspecified. */
+            is_error?: boolean | null;
+            /** @description The [`ContentPart::ToolUse::id`] this result corresponds to. */
+            tool_use_id: string;
+            /** @enum {string} */
+            type: "tool_result";
+        } | {
+            /** @description Provider-assigned identifier correlating this call with its result. */
+            id: string;
+            /** @description The server tool's input arguments, as an opaque JSON value. */
+            input: unknown;
+            /** @description The server tool's name (e.g. `"web_search"`). */
+            name: string;
+            /** @enum {string} */
+            type: "server_tool_use";
+        } | {
+            /**
+             * @description The provider's native result payload, preserved without
+             *     interpretation.
+             */
+            content: unknown;
+            /** @description The [`ContentPart::ServerToolUse::id`] this result corresponds to. */
+            tool_use_id: string;
+            /** @enum {string} */
+            type: "server_tool_result";
+        } | {
+            cache?: null | components["schemas"]["CacheHint"];
+            /**
+             * @description The opaque provider signature over the thinking block. Absent when
+             *     the provider does not sign reasoning.
+             */
+            signature?: string | null;
+            /**
+             * @description The reasoning text. May be empty when the provider omits the
+             *     content but still returns a signed block.
+             */
+            thinking: string;
+            /** @enum {string} */
+            type: "thinking";
+        } | {
+            /** @description The opaque, provider-encrypted reasoning payload. */
+            data: string;
+            /** @enum {string} */
+            type: "redacted_thinking";
+        } | {
+            /** @description The provider-native block kind (e.g. `"mcp_tool_use"`). */
+            kind: string;
+            /** @description The provider's native payload, preserved verbatim. */
+            payload: unknown;
+            /** @description The provider that owns this payload (e.g. `"anthropic"`). */
+            provider: string;
+            /** @enum {string} */
+            type: "provider_extension";
+        };
+        /**
+         * @description A persisted, multi-tenant conversation: its identity, provider binding,
+         *     message history, and metadata.
+         *
+         *     This is the top-level aggregate of the domain model. It owns the ordered
+         *     [`Message`] history but not the request-time [`ConversationOptions`], which
+         *     are supplied per request by higher layers.
+         *
+         *     [`ConversationOptions`]: crate::ConversationOptions
+         */
+        Conversation: {
+            /** @description The provider and model this conversation is bound to. */
+            binding: components["schemas"]["ProviderBinding"];
+            /**
+             * Format: date-time
+             * @description When the conversation was created.
+             */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description The conversation's unique identifier.
+             */
+            id: string;
+            /** @description The ordered message history. */
+            messages?: components["schemas"]["Message"][];
+            /**
+             * @description Free-form, caller-supplied metadata (tags, correlation IDs, …).
+             *
+             *     Defaults to JSON `null` when unset.
+             */
+            metadata?: unknown;
+            /** @description An optional system prompt applied to the conversation. */
+            system?: string | null;
+            system_cache?: null | components["schemas"]["CacheHint"];
+            /**
+             * Format: uuid
+             * @description The tenant that owns this conversation, for multi-tenant isolation and
+             *     attribution.
+             */
+            tenant_id: string;
+            /**
+             * Format: date-time
+             * @description When the conversation was last updated.
+             */
+            updated_at: string;
+        };
+        /**
+         * @description Options that shape how a provider should generate a response.
+         *
+         *     The common, cross-provider sampling controls are modelled as typed fields.
+         *     Anything provider-specific — Anthropic's `tool_choice` and `top_p`, cache
+         *     directives, and so on — lives in the [`provider_options`] bag, keyed by
+         *     provider name. This keeps the common path typed while never forcing a
+         *     provider feature to be expressed as a stringly-typed hack.
+         *
+         *     The type is `#[non_exhaustive]` and implements [`Default`], so callers can
+         *     build it up field by field:
+         *
+         *     ```
+         *     use loom_core::ConversationOptions;
+         *
+         *     let mut opts = ConversationOptions::new();
+         *     opts.temperature = Some(0.7);
+         *     opts.max_tokens = Some(1024);
+         *     assert_eq!(opts.temperature, Some(0.7));
+         *     ```
+         *
+         *     [`provider_options`]: ConversationOptions::provider_options
+         */
+        ConversationOptions: {
+            /**
+             * @description Opt-in automatic prompt caching for this request.
+             *
+             *     When `true`, a provider translator deterministically places cache
+             *     breakpoints for the (typically persisted) conversation — after the
+             *     stable system-plus-tools head, and on the trailing history boundary —
+             *     without the caller annotating individual blocks. This is the recommended
+             *     path for persisted conversations, where per-block hints on reconstructed
+             *     history would otherwise have to be re-applied every turn. Defaults to
+             *     `false`.
+             */
+            auto_cache?: boolean;
+            /**
+             * @description How a provider should treat cache hints on a model that does not support
+             *     prompt caching. Defaults to [`CacheNegotiation::SoftIgnore`] — cache
+             *     hints are advisory.
+             */
+            cache_negotiation?: components["schemas"]["CacheNegotiation"];
+            /**
+             * Format: int64
+             * @description The maximum number of tokens the model may generate in its response.
+             */
+            max_tokens?: number | null;
+            /**
+             * @description External MCP (Model Context Protocol) servers the provider should
+             *     connect to on the model's behalf, so the model can call their tools.
+             *
+             *     Each entry references a server either **by name** — resolved by the
+             *     gateway against a tenant's registered servers, which injects the URL and
+             *     (decrypted) authorization token **server-side** so the secret never
+             *     transits the client — or **inline** with an explicit
+             *     [`url`](McpServerRef::url) and optional
+             *     [`authorization`](McpServerRef::authorization) (the advanced path). Empty
+             *     when none are offered. See [`ServerTool`] for provider-*executed* tools;
+             *     MCP tools are executed by the connected server, brokered by the provider.
+             */
+            mcp_servers?: components["schemas"]["McpServerRef"][];
+            /**
+             * @description A per-provider bag of native options that Loom does not model as typed
+             *     fields, keyed by provider name (e.g. `"anthropic"`).
+             *
+             *     This is where provider-specific knobs live — `tool_choice`, `top_p`,
+             *     `top_k`, thinking configuration, cache directives, and so on — as a
+             *     JSON value the provider translator understands. A [`BTreeMap`] is used
+             *     so serialization is deterministic. Empty when unset.
+             */
+            provider_options?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description Definitions of the **provider-executed** (server-side) tools the model
+             *     may use — web search, code execution, and, via
+             *     [`ServerTool::Raw`], any native tool Loom does not model yet.
+             *
+             *     Unlike [`tools`](ConversationOptions::tools), the host does not execute
+             *     these: the provider runs them server-side and returns the results in the
+             *     same response (as
+             *     [`ServerToolUse`](crate::ContentPart::ServerToolUse) /
+             *     [`ServerToolResult`](crate::ContentPart::ServerToolResult) parts). Empty
+             *     when none are offered.
+             */
+            server_tools?: components["schemas"]["ServerTool"][];
+            /**
+             * @description Sequences that, when generated, cause the model to stop. Empty when
+             *     unset.
+             */
+            stop_sequences?: string[];
+            /**
+             * Format: double
+             * @description Sampling temperature. Provider-defined range; typically `0.0..=1.0`.
+             */
+            temperature?: number | null;
+            /**
+             * @description Definitions of the **client-side** tools the model may call. Empty when
+             *     no tools are offered.
+             */
+            tools?: components["schemas"]["ToolDefinition"][];
+        };
         /** @description Request body for creating a batch. */
         CreateBatchRequest: {
             /** @description The batch's items, in submission order. */
@@ -308,7 +722,7 @@ export interface components {
         /** @description Request body for creating a conversation. */
         CreateConversationRequest: {
             /** @description Free-form caller metadata (tags, correlation IDs, …). */
-            metadata?: Record<string, never> | null;
+            metadata?: unknown;
             /** @description The model identifier, as the provider expects it. */
             model: string;
             /** @description The provider to bind the conversation to (e.g. `"anthropic"`). */
@@ -317,33 +731,414 @@ export interface components {
             system?: string | null;
         };
         /**
+         * @description A reference to an external MCP server the model may use via a provider
+         *     connector.
+         *
+         *     Two forms are supported:
+         *
+         *     - **Named reference** — set only [`name`](Self::name) (and optionally
+         *       [`tool_configuration`](Self::tool_configuration)). The gateway resolves the
+         *       name against the calling tenant's registered MCP servers, loads the stored
+         *       URL, and injects the decrypted authorization token **server-side** at
+         *       request time. This is the recommended path: an MCP auth token never leaves
+         *       the gateway, never transits the client, and never appears in a response or
+         *       in persisted history.
+         *     - **Inline** — additionally set [`url`](Self::url) and (optionally)
+         *       [`authorization`](Self::authorization) to drive a server directly without
+         *       registering it. The advanced path, for callers that manage their own MCP
+         *       credentials.
+         *
+         *     # Secret handling
+         *
+         *     [`authorization`](Self::authorization) is a bearer token. It is deliberately
+         *     **redacted from the [`Debug`] representation** so it cannot leak into logs,
+         *     and it is never serialized back to a client (request options are inbound
+         *     only; they are not part of the persisted [`Conversation`](crate::Conversation)
+         *     or any response body).
+         */
+        McpServerRef: {
+            /**
+             * @description The server's logical name. For a named reference this selects the
+             *     tenant's registered server; it is also sent to the provider as the
+             *     server's identifier so response tool blocks can be correlated.
+             */
+            name: string;
+            /**
+             * @description Optional provider-native tool-configuration for this server (e.g. an
+             *     allow-list of tool names), forwarded verbatim. Absent when unset.
+             */
+            tool_configuration?: unknown;
+            /**
+             * @description The MCP server endpoint URL. Absent for a named reference (the gateway
+             *     fills it in from the registry); present for an inline server.
+             */
+            url?: string | null;
+        };
+        /**
+         * @description The origin of an image or document's bytes.
+         *
+         *     Serialized as an internally tagged enum with a `"type"` field
+         *     (`base64` or `url`), mirroring the shape used by providers such as
+         *     Anthropic.
+         */
+        MediaSource: {
+            /** @description The base64-encoded bytes. */
+            data: string;
+            /** @description The IANA media type of the data (e.g. `"image/png"`). */
+            media_type: string;
+            /** @enum {string} */
+            type: "base64";
+        } | {
+            /** @enum {string} */
+            type: "url";
+            /** @description The URL the provider should fetch the media from. */
+            url: string;
+        };
+        /**
+         * @description A single turn in a conversation.
+         *
+         *     A message carries an ordered list of [`ContentPart`]s (order is
+         *     significant — providers interleave text, tool calls, and reasoning) and,
+         *     for assistant/provider turns, an optional [`Usage`] snapshot describing what
+         *     the response cost.
+         */
+        Message: {
+            /** @description The message's content, in provider-significant order. */
+            content?: components["schemas"]["ContentPart"][];
+            /**
+             * @description The provider's verbatim native response payload, preserved for audit and
+             *     byte-equivalent replay.
+             *
+             *     Populated by provider translators on the assistant/provider turns they
+             *     synthesise from a native response, so the exact bytes the provider
+             *     returned are never lost even where Loom models the response as typed
+             *     [`ContentPart`]s. `None` for messages Loom (or a host application)
+             *     constructs itself.
+             */
+            raw?: unknown;
+            /** @description The author of the message. */
+            role: components["schemas"]["Role"];
+            usage?: null | components["schemas"]["Usage"];
+        };
+        /**
+         * @description The provider a conversation is bound to, and the model to use.
+         *
+         *     The binding is intentionally a pair of plain strings rather than an
+         *     enumeration: providers and their model catalogues evolve independently of
+         *     Loom's release cycle, and Loom must never reject a valid model just because
+         *     it predates a given build.
+         */
+        ProviderBinding: {
+            /**
+             * @description The model identifier as the provider expects it (e.g.
+             *     `"claude-opus-4-8"`).
+             */
+            model: string;
+            /** @description The provider's name (e.g. `"anthropic"`). */
+            provider: string;
+        };
+        /**
+         * @description Who authored a [`Message`](super::Message).
+         *
+         *     `#[non_exhaustive]` because providers may introduce further roles (e.g. an
+         *     operator or system channel distinct from the ones modelled here).
+         * @enum {string}
+         */
+        Role: "user" | "assistant" | "provider";
+        /**
+         * @description A **provider-executed** (server-side) tool Loom asks the provider to run on
+         *     the model's behalf.
+         *
+         *     This models the *configuration* of a server tool — what the caller offers —
+         *     as opposed to the [`ServerToolUse`](crate::ContentPart::ServerToolUse) /
+         *     [`ServerToolResult`](crate::ContentPart::ServerToolResult) content parts that
+         *     carry a server tool's *invocation* in a response. Provider translators map
+         *     each variant to the provider's native versioned tool entry.
+         *
+         *     # Extensibility
+         *
+         *     The enum is `#[non_exhaustive]`: new server tools will be added as providers
+         *     ship them. The [`Raw`](ServerTool::Raw) variant is the escape hatch — it
+         *     forwards a **native tool definition verbatim**, so a caller can drive a
+         *     server tool Loom does not model yet without waiting for a Loom release.
+         *
+         *     # Serde representation
+         *
+         *     Serialized as an internally tagged enum with a `"kind"` field (a Loom-owned
+         *     discriminator, distinct from any provider-native `"type"` field a
+         *     [`Raw`](ServerTool::Raw) payload carries), rendered in `snake_case`:
+         *
+         *     ```json
+         *     { "kind": "web_search", "max_uses": 5 }
+         *     { "kind": "code_execution" }
+         *     { "kind": "raw", "type": "web_search_20250305", "name": "web_search" }
+         *     ```
+         */
+        ServerTool: {
+            /**
+             * @description If set, restricts searches to these domains. Mutually exclusive with
+             *     [`blocked_domains`](ServerTool::WebSearch::blocked_domains).
+             */
+            allowed_domains?: string[] | null;
+            /** @description If set, excludes these domains from search results. */
+            blocked_domains?: string[] | null;
+            /** @enum {string} */
+            kind: "web_search";
+            /**
+             * Format: int32
+             * @description The maximum number of searches the model may run this turn. Absent
+             *     for the provider default.
+             */
+            max_uses?: number | null;
+        } | {
+            /** @enum {string} */
+            kind: "code_execution";
+        } | {
+            /** @enum {string} */
+            kind: "raw";
+        };
+        /**
          * @description Request body for a stateless turn: the whole conversation is supplied inline
          *     and nothing is persisted.
          */
         StatelessTurnRequest: {
             /** @description The full, inline message history to run. */
-            messages: Record<string, never>[];
+            messages: components["schemas"]["Message"][];
             /** @description The model identifier, as the provider expects it. */
             model: string;
-            /** @description Request-time provider options. */
-            options?: Record<string, never> | null;
+            options?: null | components["schemas"]["ConversationOptions"];
             /** @description The provider to run against (e.g. `"anthropic"`). */
             provider: string;
             /** @description Whether to stream the assistant turn as Server-Sent Events. */
             stream?: boolean;
             /** @description An optional system prompt. */
             system?: string | null;
-            /** @description An optional prompt-cache breakpoint on the system prompt. */
-            system_cache?: Record<string, never> | null;
+            system_cache?: null | components["schemas"]["CacheHint"];
+        };
+        /**
+         * @description The reason a provider stopped generating a turn.
+         *
+         *     Known reasons are modelled as typed variants; anything a provider reports
+         *     that Loom does not (yet) model is preserved verbatim in
+         *     [`StopReason::Other`]. The enum is `#[non_exhaustive]`.
+         */
+        StopReason: "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "pause_turn" | "refusal" | {
+            /**
+             * @description A provider-specific stop reason Loom does not model as a typed variant,
+             *     preserved verbatim.
+             */
+            other: string;
+        };
+        /**
+         * @description The definition of a **client-side** tool the model may choose to call.
+         *
+         *     Server-side (provider-executed) tools are configured through the
+         *     [`provider_options`] bag rather than here, because their configuration is
+         *     provider-native.
+         *
+         *     [`provider_options`]: super::ConversationOptions::provider_options
+         */
+        ToolDefinition: {
+            cache?: null | components["schemas"]["CacheHint"];
+            /**
+             * @description A natural-language description of what the tool does, used by the model
+             *     to decide when to call it. Absent when the provider allows it.
+             */
+            description?: string | null;
+            /** @description A JSON Schema describing the tool's input arguments. */
+            input_schema: unknown;
+            /** @description The tool's name, as the model will refer to it when calling. */
+            name: string;
+        };
+        /**
+         * @description A single streaming event: a normalised envelope plus the verbatim native
+         *     provider event it was derived from.
+         */
+        TurnEvent: {
+            /** @description The normalised, provider-agnostic view of this event. */
+            kind: components["schemas"]["TurnEventKind"];
+            /**
+             * @description The verbatim native provider event JSON this envelope was derived from.
+             *
+             *     This is never lossy: whatever the provider sent on the wire is preserved
+             *     here so clients that need byte-exact fidelity can bypass the normalised
+             *     view entirely.
+             */
+            raw: unknown;
+        };
+        /**
+         * @description The normalised, provider-agnostic classification of a [`TurnEvent`].
+         *
+         *     The enum is `#[non_exhaustive]`: more event kinds will be normalised over
+         *     time. Match with a wildcard arm and fall back to [`TurnEvent::raw`] for
+         *     anything not yet modelled.
+         *
+         *     [`TurnEvent`]: super::turn_event::TurnEvent
+         *     [`TurnEvent::raw`]: super::turn_event::TurnEvent::raw
+         */
+        TurnEventKind: {
+            /** @enum {string} */
+            type: "turn_started";
+        } | {
+            /** @description The zero-based index of the content part being started. */
+            index: number;
+            /** @description The content part in its initial, pre-delta state. */
+            part: components["schemas"]["ContentPart"];
+            /** @enum {string} */
+            type: "content_part_started";
+        } | {
+            /** @description The incremental change. */
+            delta: components["schemas"]["ContentDelta"];
+            /** @description The zero-based index of the content part being appended to. */
+            index: number;
+            /** @enum {string} */
+            type: "content_part_delta";
+        } | {
+            /** @description The zero-based index of the completed content part. */
+            index: number;
+            /** @description The finished content part. */
+            part: components["schemas"]["ContentPart"];
+            /** @enum {string} */
+            type: "content_part_complete";
+        } | (components["schemas"]["Usage"] & {
+            /** @enum {string} */
+            type: "usage";
+        }) | {
+            /** @description Why generation stopped. */
+            stop_reason: components["schemas"]["StopReason"];
+            /** @enum {string} */
+            type: "turn_ended";
+            usage?: null | components["schemas"]["Usage"];
+        } | {
+            /** @description The provider's native event `type`, when it has one (e.g. `"ping"`). */
+            native_type?: string | null;
+            /** @enum {string} */
+            type: "other";
         };
         /** @description Request body for appending a turn to a stored conversation. */
         TurnRequest: {
             /** @description The user turn's content parts, in provider-significant order. */
-            content: Record<string, never>[];
-            /** @description Request-time provider options (sampling, tools, …). */
-            options?: Record<string, never> | null;
+            content: components["schemas"]["ContentPart"][];
+            options?: null | components["schemas"]["ConversationOptions"];
             /** @description Whether to stream the assistant turn as Server-Sent Events. */
             stream?: boolean;
+        };
+        /**
+         * @description A snapshot of the resource usage a provider reported for a response.
+         *
+         *     Every token-count field is optional because not all providers report every
+         *     figure, and the distinction between "reported as zero" and "not reported"
+         *     is meaningful for billing and attribution. The provider's raw usage payload
+         *     is preserved verbatim in [`Usage::raw`] so that no provider-specific figure
+         *     is ever lost.
+         *
+         *     The type is `#[non_exhaustive]`: providers may expose additional usage
+         *     dimensions over time.
+         */
+        Usage: {
+            /**
+             * Format: int64
+             * @description Input tokens served from the provider's prompt cache (billed at a
+             *     reduced rate).
+             */
+            cache_read_tokens?: number | null;
+            /**
+             * Format: int64
+             * @description Input tokens written to the provider's prompt cache (billed at a
+             *     premium rate).
+             */
+            cache_write_tokens?: number | null;
+            /**
+             * Format: int64
+             * @description Input (prompt) tokens billed at the full rate.
+             */
+            input_tokens?: number | null;
+            /**
+             * Format: int64
+             * @description Output (completion) tokens generated by the model.
+             */
+            output_tokens?: number | null;
+            /**
+             * @description The provider's raw usage payload, preserved verbatim so that no
+             *     provider-specific figure is dropped.
+             */
+            raw?: unknown;
+            /**
+             * @description Per-tool invocation counts for provider-executed (server-side) tools,
+             *     keyed by the provider's usage field name (e.g.
+             *     `"web_search_requests"`).
+             *
+             *     A [`BTreeMap`] is used so serialization is deterministic. Empty when the
+             *     response used no server tools.
+             */
+            server_tool_use?: {
+                [key: string]: number;
+            };
+        };
+        /** @description A usage-rollup response envelope. */
+        UsageRollupResponse: {
+            /**
+             * Format: date-time
+             * @description The lower time bound applied, if any.
+             */
+            from?: string | null;
+            /** @description The grouping dimension the rows are keyed by. */
+            group_by: string;
+            /** @description The grouped rows. */
+            rows: components["schemas"]["UsageRollupRowDto"][];
+            /**
+             * Format: date-time
+             * @description The upper time bound applied, if any.
+             */
+            to?: string | null;
+        };
+        /** @description One grouped row in a usage-rollup response. */
+        UsageRollupRowDto: {
+            /** @description The portion of `cost` from batch-tier (asynchronous) usage. */
+            batch_cost: string;
+            /**
+             * Format: int64
+             * @description Total cache-read tokens.
+             */
+            cache_read_tokens: number;
+            /**
+             * Format: int64
+             * @description Total cache-write tokens.
+             */
+            cache_write_tokens: number;
+            /** @description Total computed cost across the group. */
+            cost: string;
+            /**
+             * Format: int64
+             * @description Number of events in the group.
+             */
+            event_count: number;
+            /**
+             * @description The group key (virtual key id, model, conversation id, or tenant id), or
+             *     `null` where the grouped column was itself null.
+             */
+            group?: string | null;
+            /**
+             * Format: int64
+             * @description Total input tokens.
+             */
+            input_tokens: number;
+            /** @description The portion of `cost` from interactive usage. */
+            interactive_cost: string;
+            /**
+             * Format: int64
+             * @description Total output tokens.
+             */
+            output_tokens: number;
+        };
+        /** @description The `/v1/whoami` response: the authenticated identity. */
+        WhoAmI: {
+            /** Format: uuid */
+            key_id: string;
+            key_prefix: string;
+            scopes: string[];
+            /** Format: uuid */
+            tenant_id: string;
         };
     };
     responses: never;
@@ -354,6 +1149,51 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    usage_by_tenant: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound (RFC 3339) */
+                from?: string;
+                /** @description Inclusive upper bound (RFC 3339) */
+                to?: string;
+                /** @description Only 'tenant' is supported gateway-wide */
+                group_by?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gateway-wide usage rolled up by tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUsageResponse"];
+                };
+            };
+            /** @description Unsupported group_by */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Missing or invalid admin token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     create_batch: {
         parameters: {
             query?: never;
@@ -538,7 +1378,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["Conversation"];
                 };
             };
             /** @description Malformed request */
@@ -584,7 +1424,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["Conversation"];
                 };
             };
             /** @description No such conversation for this tenant */
@@ -644,13 +1484,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The assistant message, or an SSE stream when stream=true */
+            /** @description The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["Message"];
+                    "text/event-stream": components["schemas"]["TurnEvent"];
                 };
             };
             /** @description No such conversation for this tenant */
@@ -686,13 +1527,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The assistant message, or an SSE stream when stream=true */
+            /** @description The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["Message"];
+                    "text/event-stream": components["schemas"]["TurnEvent"];
                 };
             };
             /** @description Malformed request */
@@ -737,7 +1579,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["UsageRollupResponse"];
                 };
             };
             /** @description Invalid group_by or time bound */
@@ -775,7 +1617,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["WhoAmI"];
                 };
             };
             /** @description Missing or invalid virtual key */

@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use loom_store::UsageStore;
 
@@ -15,7 +16,7 @@ use crate::state::AppState;
 
 /// Query parameters for the gateway-wide usage rollup.
 #[derive(Debug, Deserialize)]
-pub(super) struct AdminUsageQuery {
+pub(crate) struct AdminUsageQuery {
     /// Inclusive lower bound on event time (RFC 3339); open if omitted.
     from: Option<DateTime<Utc>>,
     /// Inclusive upper bound on event time (RFC 3339); open if omitted.
@@ -25,8 +26,8 @@ pub(super) struct AdminUsageQuery {
 }
 
 /// One tenant's aggregate usage in the gateway-wide rollup.
-#[derive(Debug, Serialize)]
-struct AdminUsageRow {
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct AdminUsageRow {
     /// The tenant id.
     group: Option<String>,
     event_count: i64,
@@ -38,8 +39,8 @@ struct AdminUsageRow {
 }
 
 /// The gateway-wide usage response envelope.
-#[derive(Debug, Serialize)]
-struct AdminUsageResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct AdminUsageResponse {
     group_by: &'static str,
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
@@ -48,7 +49,23 @@ struct AdminUsageResponse {
 
 /// `GET /admin/usage?group_by=tenant` — gateway-wide usage rolled up by tenant,
 /// over an optional `[from, to]` window. Root-token only.
-pub(super) async fn usage_by_tenant(
+#[utoipa::path(
+    get,
+    path = "/admin/usage",
+    tag = "admin",
+    params(
+        ("from" = Option<String>, Query, description = "Inclusive lower bound (RFC 3339)"),
+        ("to" = Option<String>, Query, description = "Inclusive upper bound (RFC 3339)"),
+        ("group_by" = Option<String>, Query, description = "Only 'tenant' is supported gateway-wide"),
+    ),
+    responses(
+        (status = 200, description = "Gateway-wide usage rolled up by tenant", body = AdminUsageResponse),
+        (status = 400, description = "Unsupported group_by", body = Object),
+        (status = 401, description = "Missing or invalid admin token", body = Object),
+    ),
+    security(("admin_token" = []))
+)]
+pub(crate) async fn usage_by_tenant(
     State(state): State<AppState>,
     Query(query): Query<AdminUsageQuery>,
 ) -> Result<impl IntoResponse, ApiError> {

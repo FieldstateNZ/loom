@@ -14,6 +14,81 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/admin/usage": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "`GET /admin/usage?group_by=tenant` — gateway-wide usage rolled up by tenant,\nover an optional `[from, to]` window. Root-token only.",
+        "operationId": "usage_by_tenant",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive lower bound (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive upper bound (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "description": "Only 'tenant' is supported gateway-wide",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gateway-wide usage rolled up by tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUsageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported group_by",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin_token": []
+          }
+        ]
+      }
+    },
     "/v1/batches": {
       "post": {
         "tags": [
@@ -268,7 +343,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Conversation"
                 }
               }
             }
@@ -346,7 +421,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Conversation"
                 }
               }
             }
@@ -439,11 +514,16 @@
         },
         "responses": {
           "200": {
-            "description": "The assistant message, or an SSE stream when stream=true",
+            "description": "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnEvent"
                 }
               }
             }
@@ -495,11 +575,16 @@
         },
         "responses": {
           "200": {
-            "description": "The assistant message, or an SSE stream when stream=true",
+            "description": "The assistant turn: a JSON `Message` when `stream=false`, or an SSE stream of `TurnEvent` envelopes when `stream=true`",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Message"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnEvent"
                 }
               }
             }
@@ -574,7 +659,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsageRollupResponse"
                 }
               }
             }
@@ -620,7 +705,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/WhoAmI"
                 }
               }
             }
@@ -646,6 +731,83 @@
   },
   "components": {
     "schemas": {
+      "AdminUsageResponse": {
+        "type": "object",
+        "description": "The gateway-wide usage response envelope.",
+        "required": [
+          "group_by",
+          "rows"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminUsageRow"
+            }
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminUsageRow": {
+        "type": "object",
+        "description": "One tenant's aggregate usage in the gateway-wide rollup.",
+        "required": [
+          "event_count",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+          "cost"
+        ],
+        "properties": {
+          "cache_read_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cache_write_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cost": {
+            "type": "string"
+          },
+          "event_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant id."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "BatchCountsDto": {
         "type": "object",
         "description": "Per-status item counts in a batch response.",
@@ -703,7 +865,7 @@
           "messages": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Message"
             },
             "description": "The full, inline message history to run."
           },
@@ -712,11 +874,15 @@
             "description": "The model identifier, as the provider expects it."
           },
           "options": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Request-time provider options."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversationOptions",
+                "description": "Request-time provider options."
+              }
+            ]
           },
           "provider": {
             "type": "string",
@@ -730,11 +896,15 @@
             "description": "An optional system prompt."
           },
           "system_cache": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "An optional prompt-cache breakpoint on the system prompt."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CacheHint",
+                "description": "An optional prompt-cache breakpoint on the system prompt."
+              }
+            ]
           }
         }
       },
@@ -807,6 +977,609 @@
           }
         }
       },
+      "CacheHint": {
+        "type": "object",
+        "description": "A request to cache the request prefix up to and including the annotated\nelement.\n\nThis is Loom's provider-agnostic spelling of a cache breakpoint (Anthropic's\n`cache_control: { \"type\": \"ephemeral\" }`). A hint is always *ephemeral*;\n[`ttl`](CacheHint::ttl) optionally selects a non-default lifetime.\n\n# Serde representation\n\nSerializes as an object carrying only a non-default `ttl`, so a default hint\nround-trips as `{}` and a hint with an explicit lifetime as\n`{ \"ttl\": \"one_hour\" }`. This keeps the on-the-wire domain form stable and\nprovider-agnostic; the mapping to a provider's native marker lives in that\nprovider's translator.",
+        "properties": {
+          "ttl": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CacheTtl",
+                "description": "The cache lifetime, or `None` for the provider's default (short) TTL."
+              }
+            ]
+          }
+        }
+      },
+      "CacheNegotiation": {
+        "type": "string",
+        "description": "How a provider should treat a cache hint on a model that does not declare\nprompt-caching support.\n\nCache hints are advisory, so the default is [`CacheNegotiation::SoftIgnore`]:\nthe hint is stripped (and a warning surfaced via a log and/or response\nheader) rather than failing the request. Callers that would rather learn\nabout the mismatch loudly can opt into [`CacheNegotiation::HardFail`].\n\nSerialized in `snake_case` (`soft_ignore`, `hard_fail`).",
+        "enum": [
+          "soft_ignore",
+          "hard_fail"
+        ]
+      },
+      "CacheTtl": {
+        "type": "string",
+        "description": "How long a provider should keep a cache entry alive.\n\nAnthropic exposes exactly these two ephemeral time-to-live tiers; the names\nare provider-agnostic so other providers can map onto them. Serialized in\n`snake_case` (`five_minutes`, `one_hour`).",
+        "enum": [
+          "five_minutes",
+          "one_hour"
+        ]
+      },
+      "Citation": {
+        "description": "A citation attributing a span of generated text to a source.\n\nProvider citation shapes vary widely (character ranges, page ranges, web\nsearch result locations, …). To remain lossless and provider-faithful,\n`Citation` wraps the provider's native citation object verbatim rather than\nflattening it into a single normalized form. It serializes transparently as\nthat inner value."
+      },
+      "ContentDelta": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A chunk of text appended to a text part.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "The appended text fragment."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A chunk of partial JSON appended to a tool-use input, streamed as it is\ngenerated (not yet parseable on its own).",
+            "required": [
+              "partial_json",
+              "type"
+            ],
+            "properties": {
+              "partial_json": {
+                "type": "string",
+                "description": "The appended partial-JSON fragment."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "json"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A chunk of reasoning text appended to a thinking part.",
+            "required": [
+              "thinking",
+              "type"
+            ],
+            "properties": {
+              "thinking": {
+                "type": "string",
+                "description": "The appended reasoning fragment."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thinking"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A chunk of the opaque signature over a thinking block (Anthropic's\n`signature_delta`). Accumulate these to reconstruct the final\n[`ContentPart::Thinking::signature`](loom_core::ContentPart::Thinking).",
+            "required": [
+              "signature",
+              "type"
+            ],
+            "properties": {
+              "signature": {
+                "type": "string",
+                "description": "The appended signature fragment."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "signature_delta"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A citation appended to a text part (Anthropic's `citations_delta`),\npreserved verbatim.\n\nAccumulate these onto the text part's citations so a streamed cited text\nblock reassembles identically to the non-streaming\n[`ContentPart::Text`](loom_core::ContentPart::Text) it corresponds to.",
+            "required": [
+              "citation",
+              "type"
+            ],
+            "properties": {
+              "citation": {
+                "$ref": "#/components/schemas/Citation",
+                "description": "The provider's native citation object, preserved without\ninterpretation."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "citation"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "An incremental change to a streaming content part.\n\nThe enum is `#[non_exhaustive]`; match with a wildcard arm."
+      },
+      "ContentPart": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A run of text, optionally annotated with source citations.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "citations": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/Citation"
+                },
+                "description": "Citations attributing spans of `text` to source documents.\n\nAbsent (rather than an empty list) when the text carries no\ncitations, preserving round-trip fidelity with providers that omit\nthe field entirely."
+              },
+              "text": {
+                "type": "string",
+                "description": "The literal text."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An image, supplied inline as base64 or by reference to a URL.",
+            "required": [
+              "source",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "source": {
+                "$ref": "#/components/schemas/MediaSource",
+                "description": "Where the image bytes come from."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "image"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A document (e.g. a PDF), supplied inline as base64 or by reference.",
+            "required": [
+              "source",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "source": {
+                "$ref": "#/components/schemas/MediaSource",
+                "description": "Where the document bytes come from."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A request from the assistant to invoke a **client-side** tool.\n\nThe host application is expected to execute the named tool with `input`\nand return the result as a [`ContentPart::ToolResult`].",
+            "required": [
+              "id",
+              "name",
+              "input",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "id": {
+                "type": "string",
+                "description": "Provider-assigned identifier correlating this call with its result."
+              },
+              "input": {
+                "description": "The tool's input arguments, as an opaque JSON value."
+              },
+              "name": {
+                "type": "string",
+                "description": "The tool's name."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_use"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The result of executing a **client-side** tool, sent back to the model.",
+            "required": [
+              "tool_use_id",
+              "content",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "content": {
+                "description": "The tool's output, as an opaque JSON value (a string, an array of\ncontent blocks, or any provider-specific shape)."
+              },
+              "is_error": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "Whether the tool invocation failed. Absent when unspecified."
+              },
+              "tool_use_id": {
+                "type": "string",
+                "description": "The [`ContentPart::ToolUse::id`] this result corresponds to."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_result"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A **provider-executed** tool invocation (e.g. Anthropic web search or\ncode execution).\n\nUnlike [`ContentPart::ToolUse`], the host does not execute these — the\nprovider runs them server-side and returns a\n[`ContentPart::ServerToolResult`] in the same response.",
+            "required": [
+              "id",
+              "name",
+              "input",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Provider-assigned identifier correlating this call with its result."
+              },
+              "input": {
+                "description": "The server tool's input arguments, as an opaque JSON value."
+              },
+              "name": {
+                "type": "string",
+                "description": "The server tool's name (e.g. `\"web_search\"`)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "server_tool_use"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The result of a **provider-executed** tool.\n\nThe native payload is preserved **verbatim** as a [`serde_json::Value`]\nso that replaying it back to the provider is byte-equivalent.",
+            "required": [
+              "tool_use_id",
+              "content",
+              "type"
+            ],
+            "properties": {
+              "content": {
+                "description": "The provider's native result payload, preserved without\ninterpretation."
+              },
+              "tool_use_id": {
+                "type": "string",
+                "description": "The [`ContentPart::ServerToolUse::id`] this result corresponds to."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "server_tool_result"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A reasoning (\"thinking\") block emitted by the model.\n\nThe `signature` must be preserved for cache and continuity correctness:\nproviders reject conversations where thinking blocks have been modified\nor stripped of their signatures.",
+            "required": [
+              "thinking",
+              "type"
+            ],
+            "properties": {
+              "cache": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CacheHint",
+                    "description": "An optional prompt-cache breakpoint at this block."
+                  }
+                ]
+              },
+              "signature": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The opaque provider signature over the thinking block. Absent when\nthe provider does not sign reasoning."
+              },
+              "thinking": {
+                "type": "string",
+                "description": "The reasoning text. May be empty when the provider omits the\ncontent but still returns a signed block."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thinking"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A redacted reasoning block whose content the provider has withheld.\n\nThe opaque `data` blob must be preserved and replayed verbatim to keep\nmulti-turn reasoning continuity intact.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "string",
+                "description": "The opaque, provider-encrypted reasoning payload."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "redacted_thinking"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An escape hatch for any provider feature Loom does not model natively.\n\nThis guarantees losslessness: a translator that encounters an unknown\ncontent block can wrap it here rather than dropping it, and replay it\nback to the same provider unchanged.",
+            "required": [
+              "provider",
+              "kind",
+              "payload",
+              "type"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "The provider-native block kind (e.g. `\"mcp_tool_use\"`)."
+              },
+              "payload": {
+                "description": "The provider's native payload, preserved verbatim."
+              },
+              "provider": {
+                "type": "string",
+                "description": "The provider that owns this payload (e.g. `\"anthropic\"`)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "provider_extension"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A single, typed piece of message content.\n\n`ContentPart` is the heart of Loom's fluent conversation model. It is rich\nenough to carry provider-native concepts — server-side tool use, citations,\nreasoning (\"thinking\") blocks, and per-block prompt-cache markers — **without**\nflattening them into a lossy OpenAI-shaped representation.\n\n# Prompt caching\n\nThe cacheable variants ([`Text`](ContentPart::Text),\n[`Image`](ContentPart::Image), [`Document`](ContentPart::Document),\n[`ToolUse`](ContentPart::ToolUse), [`ToolResult`](ContentPart::ToolResult),\nand [`Thinking`](ContentPart::Thinking)) each carry an optional\n[`cache: Option<CacheHint>`](CacheHint) marking a cache breakpoint at that\nblock. The field is absent (rather than `null`) when unset, preserving\nround-trip fidelity. Provider translators map it to the provider's native\nmarker (for Anthropic, `cache_control`).\n\n# Serde representation\n\nThe enum is **internally tagged** with a `\"type\"` field and each variant is\nrendered in `snake_case`. This makes the serialized form stable and\nself-describing, e.g. a text part serializes as:\n\n```json\n{ \"type\": \"text\", \"text\": \"hello\" }\n```\n\nThe tag values are: `text`, `image`, `document`, `tool_use`, `tool_result`,\n`server_tool_use`, `server_tool_result`, `thinking`, `redacted_thinking`,\nand `provider_extension`.\n\n# Extensibility\n\nThe enum is `#[non_exhaustive]`: new provider capabilities may add variants\nin future releases. When a provider produces a shape Loom does not yet model\nnatively, translators should fall back to\n[`ContentPart::ProviderExtension`] so that **no** provider feature is ever\nsilently dropped."
+      },
+      "Conversation": {
+        "type": "object",
+        "description": "A persisted, multi-tenant conversation: its identity, provider binding,\nmessage history, and metadata.\n\nThis is the top-level aggregate of the domain model. It owns the ordered\n[`Message`] history but not the request-time [`ConversationOptions`], which\nare supplied per request by higher layers.\n\n[`ConversationOptions`]: crate::ConversationOptions",
+        "required": [
+          "id",
+          "tenant_id",
+          "binding",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/ProviderBinding",
+            "description": "The provider and model this conversation is bound to."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the conversation was created."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The conversation's unique identifier."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "description": "The ordered message history."
+          },
+          "metadata": {
+            "description": "Free-form, caller-supplied metadata (tags, correlation IDs, …).\n\nDefaults to JSON `null` when unset."
+          },
+          "system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An optional system prompt applied to the conversation."
+          },
+          "system_cache": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CacheHint",
+                "description": "An optional prompt-cache breakpoint on the system prompt.\n\nWhen set (and [`system`](Conversation::system) is present), provider\ntranslators mark the system prefix — which, together with any tools,\nforms the stable head of the request — as a cache breakpoint. This is a\nrequest-render concern rather than durable state: it is **not**\npersisted, so it takes effect only on the in-memory conversation a turn\nis run against (the stateless turn path, or the auto-cache strategy for\npersisted history). It is absent (rather than `null`) when unset."
+              }
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The tenant that owns this conversation, for multi-tenant isolation and\nattribution."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the conversation was last updated."
+          }
+        }
+      },
+      "ConversationOptions": {
+        "type": "object",
+        "description": "Options that shape how a provider should generate a response.\n\nThe common, cross-provider sampling controls are modelled as typed fields.\nAnything provider-specific — Anthropic's `tool_choice` and `top_p`, cache\ndirectives, and so on — lives in the [`provider_options`] bag, keyed by\nprovider name. This keeps the common path typed while never forcing a\nprovider feature to be expressed as a stringly-typed hack.\n\nThe type is `#[non_exhaustive]` and implements [`Default`], so callers can\nbuild it up field by field:\n\n```\nuse loom_core::ConversationOptions;\n\nlet mut opts = ConversationOptions::new();\nopts.temperature = Some(0.7);\nopts.max_tokens = Some(1024);\nassert_eq!(opts.temperature, Some(0.7));\n```\n\n[`provider_options`]: ConversationOptions::provider_options",
+        "properties": {
+          "auto_cache": {
+            "type": "boolean",
+            "description": "Opt-in automatic prompt caching for this request.\n\nWhen `true`, a provider translator deterministically places cache\nbreakpoints for the (typically persisted) conversation — after the\nstable system-plus-tools head, and on the trailing history boundary —\nwithout the caller annotating individual blocks. This is the recommended\npath for persisted conversations, where per-block hints on reconstructed\nhistory would otherwise have to be re-applied every turn. Defaults to\n`false`."
+          },
+          "cache_negotiation": {
+            "$ref": "#/components/schemas/CacheNegotiation",
+            "description": "How a provider should treat cache hints on a model that does not support\nprompt caching. Defaults to [`CacheNegotiation::SoftIgnore`] — cache\nhints are advisory."
+          },
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The maximum number of tokens the model may generate in its response.",
+            "minimum": 0
+          },
+          "mcp_servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpServerRef"
+            },
+            "description": "External MCP (Model Context Protocol) servers the provider should\nconnect to on the model's behalf, so the model can call their tools.\n\nEach entry references a server either **by name** — resolved by the\ngateway against a tenant's registered servers, which injects the URL and\n(decrypted) authorization token **server-side** so the secret never\ntransits the client — or **inline** with an explicit\n[`url`](McpServerRef::url) and optional\n[`authorization`](McpServerRef::authorization) (the advanced path). Empty\nwhen none are offered. See [`ServerTool`] for provider-*executed* tools;\nMCP tools are executed by the connected server, brokered by the provider."
+          },
+          "provider_options": {
+            "type": "object",
+            "description": "A per-provider bag of native options that Loom does not model as typed\nfields, keyed by provider name (e.g. `\"anthropic\"`).\n\nThis is where provider-specific knobs live — `tool_choice`, `top_p`,\n`top_k`, thinking configuration, cache directives, and so on — as a\nJSON value the provider translator understands. A [`BTreeMap`] is used\nso serialization is deterministic. Empty when unset.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "server_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerTool"
+            },
+            "description": "Definitions of the **provider-executed** (server-side) tools the model\nmay use — web search, code execution, and, via\n[`ServerTool::Raw`], any native tool Loom does not model yet.\n\nUnlike [`tools`](ConversationOptions::tools), the host does not execute\nthese: the provider runs them server-side and returns the results in the\nsame response (as\n[`ServerToolUse`](crate::ContentPart::ServerToolUse) /\n[`ServerToolResult`](crate::ContentPart::ServerToolResult) parts). Empty\nwhen none are offered."
+          },
+          "stop_sequences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sequences that, when generated, cause the model to stop. Empty when\nunset."
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Sampling temperature. Provider-defined range; typically `0.0..=1.0`."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDefinition"
+            },
+            "description": "Definitions of the **client-side** tools the model may call. Empty when\nno tools are offered."
+          }
+        }
+      },
       "CreateBatchRequest": {
         "type": "object",
         "description": "Request body for creating a batch.",
@@ -832,10 +1605,6 @@
         ],
         "properties": {
           "metadata": {
-            "type": [
-              "object",
-              "null"
-            ],
             "description": "Free-form caller metadata (tags, correlation IDs, …)."
           },
           "model": {
@@ -855,6 +1624,219 @@
           }
         }
       },
+      "McpServerRef": {
+        "type": "object",
+        "description": "A reference to an external MCP server the model may use via a provider\nconnector.\n\nTwo forms are supported:\n\n- **Named reference** — set only [`name`](Self::name) (and optionally\n  [`tool_configuration`](Self::tool_configuration)). The gateway resolves the\n  name against the calling tenant's registered MCP servers, loads the stored\n  URL, and injects the decrypted authorization token **server-side** at\n  request time. This is the recommended path: an MCP auth token never leaves\n  the gateway, never transits the client, and never appears in a response or\n  in persisted history.\n- **Inline** — additionally set [`url`](Self::url) and (optionally)\n  [`authorization`](Self::authorization) to drive a server directly without\n  registering it. The advanced path, for callers that manage their own MCP\n  credentials.\n\n# Secret handling\n\n[`authorization`](Self::authorization) is a bearer token. It is deliberately\n**redacted from the [`Debug`] representation** so it cannot leak into logs,\nand it is never serialized back to a client (request options are inbound\nonly; they are not part of the persisted [`Conversation`](crate::Conversation)\nor any response body).",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The server's logical name. For a named reference this selects the\ntenant's registered server; it is also sent to the provider as the\nserver's identifier so response tool blocks can be correlated."
+          },
+          "tool_configuration": {
+            "description": "Optional provider-native tool-configuration for this server (e.g. an\nallow-list of tool names), forwarded verbatim. Absent when unset."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The MCP server endpoint URL. Absent for a named reference (the gateway\nfills it in from the registry); present for an inline server."
+          }
+        }
+      },
+      "MediaSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Bytes supplied inline, base64-encoded.",
+            "required": [
+              "media_type",
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "string",
+                "description": "The base64-encoded bytes."
+              },
+              "media_type": {
+                "type": "string",
+                "description": "The IANA media type of the data (e.g. `\"image/png\"`)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "base64"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Bytes referenced by URL rather than inlined.",
+            "required": [
+              "url",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "url"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "description": "The URL the provider should fetch the media from."
+              }
+            }
+          }
+        ],
+        "description": "The origin of an image or document's bytes.\n\nSerialized as an internally tagged enum with a `\"type\"` field\n(`base64` or `url`), mirroring the shape used by providers such as\nAnthropic."
+      },
+      "Message": {
+        "type": "object",
+        "description": "A single turn in a conversation.\n\nA message carries an ordered list of [`ContentPart`]s (order is\nsignificant — providers interleave text, tool calls, and reasoning) and,\nfor assistant/provider turns, an optional [`Usage`] snapshot describing what\nthe response cost.",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentPart"
+            },
+            "description": "The message's content, in provider-significant order."
+          },
+          "raw": {
+            "description": "The provider's verbatim native response payload, preserved for audit and\nbyte-equivalent replay.\n\nPopulated by provider translators on the assistant/provider turns they\nsynthesise from a native response, so the exact bytes the provider\nreturned are never lost even where Loom models the response as typed\n[`ContentPart`]s. `None` for messages Loom (or a host application)\nconstructs itself."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The author of the message."
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Usage",
+                "description": "Resource usage reported for this message, when the provider supplied it\n(typically only on assistant/provider responses)."
+              }
+            ]
+          }
+        }
+      },
+      "ProviderBinding": {
+        "type": "object",
+        "description": "The provider a conversation is bound to, and the model to use.\n\nThe binding is intentionally a pair of plain strings rather than an\nenumeration: providers and their model catalogues evolve independently of\nLoom's release cycle, and Loom must never reject a valid model just because\nit predates a given build.",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "The model identifier as the provider expects it (e.g.\n`\"claude-opus-4-8\"`)."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider's name (e.g. `\"anthropic\"`)."
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "description": "Who authored a [`Message`](super::Message).\n\n`#[non_exhaustive]` because providers may introduce further roles (e.g. an\noperator or system channel distinct from the ones modelled here).",
+        "enum": [
+          "user",
+          "assistant",
+          "provider"
+        ]
+      },
+      "ServerTool": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Provider-hosted web search.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "allowed_domains": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "If set, restricts searches to these domains. Mutually exclusive with\n[`blocked_domains`](ServerTool::WebSearch::blocked_domains)."
+              },
+              "blocked_domains": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "If set, excludes these domains from search results."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "web_search"
+                ]
+              },
+              "max_uses": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "The maximum number of searches the model may run this turn. Absent\nfor the provider default.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Provider-hosted code execution in a sandboxed container.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "code_execution"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A native server-tool definition forwarded **verbatim**.\n\nThe wrapped value is emitted into the provider request's native tool\narray unchanged, so callers can drive a server tool Loom does not yet\nmodel. The value must serialize as a JSON object (a native tool\ndefinition), and must not carry a `\"kind\"` field of its own.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "raw"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A **provider-executed** (server-side) tool Loom asks the provider to run on\nthe model's behalf.\n\nThis models the *configuration* of a server tool — what the caller offers —\nas opposed to the [`ServerToolUse`](crate::ContentPart::ServerToolUse) /\n[`ServerToolResult`](crate::ContentPart::ServerToolResult) content parts that\ncarry a server tool's *invocation* in a response. Provider translators map\neach variant to the provider's native versioned tool entry.\n\n# Extensibility\n\nThe enum is `#[non_exhaustive]`: new server tools will be added as providers\nship them. The [`Raw`](ServerTool::Raw) variant is the escape hatch — it\nforwards a **native tool definition verbatim**, so a caller can drive a\nserver tool Loom does not model yet without waiting for a Loom release.\n\n# Serde representation\n\nSerialized as an internally tagged enum with a `\"kind\"` field (a Loom-owned\ndiscriminator, distinct from any provider-native `\"type\"` field a\n[`Raw`](ServerTool::Raw) payload carries), rendered in `snake_case`:\n\n```json\n{ \"kind\": \"web_search\", \"max_uses\": 5 }\n{ \"kind\": \"code_execution\" }\n{ \"kind\": \"raw\", \"type\": \"web_search_20250305\", \"name\": \"web_search\" }\n```"
+      },
       "StatelessTurnRequest": {
         "type": "object",
         "description": "Request body for a stateless turn: the whole conversation is supplied inline\nand nothing is persisted.",
@@ -867,7 +1849,7 @@
           "messages": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Message"
             },
             "description": "The full, inline message history to run."
           },
@@ -876,11 +1858,15 @@
             "description": "The model identifier, as the provider expects it."
           },
           "options": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Request-time provider options."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversationOptions",
+                "description": "Request-time provider options."
+              }
+            ]
           },
           "provider": {
             "type": "string",
@@ -898,13 +1884,303 @@
             "description": "An optional system prompt."
           },
           "system_cache": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "An optional prompt-cache breakpoint on the system prompt."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CacheHint",
+                "description": "An optional prompt-cache breakpoint on the system prompt."
+              }
+            ]
           }
         }
+      },
+      "StopReason": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "The model reached a natural end of its turn.",
+            "enum": [
+              "end_turn"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "The maximum token budget was reached.",
+            "enum": [
+              "max_tokens"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "A configured stop sequence was generated.",
+            "enum": [
+              "stop_sequence"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "The model paused to invoke a tool.",
+            "enum": [
+              "tool_use"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "The model paused a long-running turn (e.g. a server-side tool) and can\nbe resumed.",
+            "enum": [
+              "pause_turn"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "The model declined to continue.",
+            "enum": [
+              "refusal"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "A provider-specific stop reason Loom does not model as a typed variant,\npreserved verbatim.",
+            "required": [
+              "other"
+            ],
+            "properties": {
+              "other": {
+                "type": "string",
+                "description": "A provider-specific stop reason Loom does not model as a typed variant,\npreserved verbatim."
+              }
+            }
+          }
+        ],
+        "description": "The reason a provider stopped generating a turn.\n\nKnown reasons are modelled as typed variants; anything a provider reports\nthat Loom does not (yet) model is preserved verbatim in\n[`StopReason::Other`]. The enum is `#[non_exhaustive]`."
+      },
+      "ToolDefinition": {
+        "type": "object",
+        "description": "The definition of a **client-side** tool the model may choose to call.\n\nServer-side (provider-executed) tools are configured through the\n[`provider_options`] bag rather than here, because their configuration is\nprovider-native.\n\n[`provider_options`]: super::ConversationOptions::provider_options",
+        "required": [
+          "name",
+          "input_schema"
+        ],
+        "properties": {
+          "cache": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CacheHint",
+                "description": "An optional prompt-cache breakpoint on this tool definition.\n\nTools render at the head of the request (before the system prompt and\nmessages), so a breakpoint here caches the tool prefix. Absent (rather\nthan `null`) when unset."
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A natural-language description of what the tool does, used by the model\nto decide when to call it. Absent when the provider allows it."
+          },
+          "input_schema": {
+            "description": "A JSON Schema describing the tool's input arguments."
+          },
+          "name": {
+            "type": "string",
+            "description": "The tool's name, as the model will refer to it when calling."
+          }
+        }
+      },
+      "TurnEvent": {
+        "type": "object",
+        "description": "A single streaming event: a normalised envelope plus the verbatim native\nprovider event it was derived from.",
+        "required": [
+          "kind",
+          "raw"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/TurnEventKind",
+            "description": "The normalised, provider-agnostic view of this event."
+          },
+          "raw": {
+            "description": "The verbatim native provider event JSON this envelope was derived from.\n\nThis is never lossy: whatever the provider sent on the wire is preserved\nhere so clients that need byte-exact fidelity can bypass the normalised\nview entirely."
+          }
+        }
+      },
+      "TurnEventKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The turn has begun. Emitted once, first.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "turn_started"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A new content part has started at `index`, carrying its initial shape.\n\nSome providers announce a content block before streaming its deltas\n(e.g. Anthropic's `content_block_start`), and metadata such as a\ntool-use call's `id`/`name` arrives here rather than in the deltas. The\n`part` is the block in its initial state (e.g. a [`ToolUse`] whose\n`input` is still empty); subsequent [`ContentPartDelta`] events fill it\nin, and a [`ContentPartComplete`] carries the finished part.\n\n[`ToolUse`]: loom_core::ContentPart::ToolUse\n[`ContentPartDelta`]: TurnEventKind::ContentPartDelta\n[`ContentPartComplete`]: TurnEventKind::ContentPartComplete",
+            "required": [
+              "index",
+              "part",
+              "type"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "The zero-based index of the content part being started.",
+                "minimum": 0
+              },
+              "part": {
+                "$ref": "#/components/schemas/ContentPart",
+                "description": "The content part in its initial, pre-delta state."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "content_part_started"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An incremental delta to the content part at `index`.",
+            "required": [
+              "index",
+              "delta",
+              "type"
+            ],
+            "properties": {
+              "delta": {
+                "$ref": "#/components/schemas/ContentDelta",
+                "description": "The incremental change."
+              },
+              "index": {
+                "type": "integer",
+                "description": "The zero-based index of the content part being appended to.",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "content_part_delta"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The content part at `index` is now complete. Carries the fully\nassembled [`ContentPart`].",
+            "required": [
+              "index",
+              "part",
+              "type"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "The zero-based index of the completed content part.",
+                "minimum": 0
+              },
+              "part": {
+                "$ref": "#/components/schemas/ContentPart",
+                "description": "The finished content part."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "content_part_complete"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Usage",
+                "description": "A usage update. Providers may emit this incrementally and/or once at the\nend of the turn."
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "usage"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "A usage update. Providers may emit this incrementally and/or once at the\nend of the turn."
+          },
+          {
+            "type": "object",
+            "description": "The turn has ended, with the provider's stop reason and — when the\nprovider couples the two in one native event, as Anthropic does in\n`message_delta` — a final usage snapshot.",
+            "required": [
+              "stop_reason",
+              "type"
+            ],
+            "properties": {
+              "stop_reason": {
+                "$ref": "#/components/schemas/StopReason",
+                "description": "Why generation stopped."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "turn_ended"
+                ]
+              },
+              "usage": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Usage",
+                    "description": "A final usage snapshot delivered alongside the stop reason when the\nprovider reports both together. `None` when usage instead arrives via\nseparate [`Usage`](TurnEventKind::Usage) events."
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A native provider event with no normalised classification — a keep-alive\n(e.g. Anthropic's `ping`) or an event kind Loom does not yet model.\n\nThe verbatim event is always available on [`TurnEvent::raw`]; this\nvariant simply signals \"there is no normalised view — read `raw`\", so a\ntranslator never has to drop or misclassify an event it cannot normalise.\n\n[`TurnEvent::raw`]: super::turn_event::TurnEvent::raw",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "native_type": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The provider's native event `type`, when it has one (e.g. `\"ping\"`)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "other"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The normalised, provider-agnostic classification of a [`TurnEvent`].\n\nThe enum is `#[non_exhaustive]`: more event kinds will be normalised over\ntime. Match with a wildcard arm and fall back to [`TurnEvent::raw`] for\nanything not yet modelled.\n\n[`TurnEvent`]: super::turn_event::TurnEvent\n[`TurnEvent::raw`]: super::turn_event::TurnEvent::raw"
       },
       "TurnRequest": {
         "type": "object",
@@ -916,25 +2192,217 @@
           "content": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/ContentPart"
             },
             "description": "The user turn's content parts, in provider-significant order."
           },
           "options": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Request-time provider options (sampling, tools, …)."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversationOptions",
+                "description": "Request-time provider options (sampling, tools, …)."
+              }
+            ]
           },
           "stream": {
             "type": "boolean",
             "description": "Whether to stream the assistant turn as Server-Sent Events."
           }
         }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "A snapshot of the resource usage a provider reported for a response.\n\nEvery token-count field is optional because not all providers report every\nfigure, and the distinction between \"reported as zero\" and \"not reported\"\nis meaningful for billing and attribution. The provider's raw usage payload\nis preserved verbatim in [`Usage::raw`] so that no provider-specific figure\nis ever lost.\n\nThe type is `#[non_exhaustive]`: providers may expose additional usage\ndimensions over time.",
+        "properties": {
+          "cache_read_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Input tokens served from the provider's prompt cache (billed at a\nreduced rate).",
+            "minimum": 0
+          },
+          "cache_write_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Input tokens written to the provider's prompt cache (billed at a\npremium rate).",
+            "minimum": 0
+          },
+          "input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Input (prompt) tokens billed at the full rate.",
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Output (completion) tokens generated by the model.",
+            "minimum": 0
+          },
+          "raw": {
+            "description": "The provider's raw usage payload, preserved verbatim so that no\nprovider-specific figure is dropped."
+          },
+          "server_tool_use": {
+            "type": "object",
+            "description": "Per-tool invocation counts for provider-executed (server-side) tools,\nkeyed by the provider's usage field name (e.g.\n`\"web_search_requests\"`).\n\nA [`BTreeMap`] is used so serialization is deterministic. Empty when the\nresponse used no server tools.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UsageRollupResponse": {
+        "type": "object",
+        "description": "A usage-rollup response envelope.",
+        "required": [
+          "group_by",
+          "rows"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The lower time bound applied, if any."
+          },
+          "group_by": {
+            "type": "string",
+            "description": "The grouping dimension the rows are keyed by."
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageRollupRowDto"
+            },
+            "description": "The grouped rows."
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The upper time bound applied, if any."
+          }
+        }
+      },
+      "UsageRollupRowDto": {
+        "type": "object",
+        "description": "One grouped row in a usage-rollup response.",
+        "required": [
+          "event_count",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+          "cost",
+          "batch_cost",
+          "interactive_cost"
+        ],
+        "properties": {
+          "batch_cost": {
+            "type": "string",
+            "description": "The portion of `cost` from batch-tier (asynchronous) usage."
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total cache-read tokens."
+          },
+          "cache_write_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total cache-write tokens."
+          },
+          "cost": {
+            "type": "string",
+            "description": "Total computed cost across the group."
+          },
+          "event_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of events in the group."
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group key (virtual key id, model, conversation id, or tenant id), or\n`null` where the grouped column was itself null."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total input tokens."
+          },
+          "interactive_cost": {
+            "type": "string",
+            "description": "The portion of `cost` from interactive usage."
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total output tokens."
+          }
+        }
+      },
+      "WhoAmI": {
+        "type": "object",
+        "description": "The `/v1/whoami` response: the authenticated identity.",
+        "required": [
+          "tenant_id",
+          "key_id",
+          "key_prefix",
+          "scopes"
+        ],
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       }
     },
     "securitySchemes": {
+      "admin_token": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "admin token"
+      },
       "virtual_key": {
         "type": "http",
         "scheme": "bearer",
@@ -954,6 +2422,10 @@
     {
       "name": "batches",
       "description": "Asynchronous batch jobs (bulk turns at the discounted batch tier)"
+    },
+    {
+      "name": "admin",
+      "description": "Root-token-guarded gateway administration"
     }
   ]
 }
