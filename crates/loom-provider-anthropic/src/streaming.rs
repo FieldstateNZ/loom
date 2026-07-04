@@ -323,15 +323,14 @@ impl BlockBuilder {
                     map.insert("signature".into(), json!(self.signature));
                 }
             }
-            kind if kind == "tool_use"
+            kind if (kind == "tool_use"
                 || kind == "server_tool_use"
-                || kind.ends_with("_tool_use") =>
+                || kind.ends_with("_tool_use"))
+                && !self.partial_json.is_empty() =>
             {
-                if !self.partial_json.is_empty() {
-                    let input = serde_json::from_str::<Value>(&self.partial_json)
-                        .unwrap_or_else(|_| json!(self.partial_json));
-                    map.insert("input".into(), input);
-                }
+                let input = serde_json::from_str::<Value>(&self.partial_json)
+                    .unwrap_or_else(|_| json!(self.partial_json));
+                map.insert("input".into(), input);
             }
             _ => {}
         }

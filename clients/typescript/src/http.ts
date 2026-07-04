@@ -29,7 +29,11 @@ export class Transport {
   private readonly fetchImpl: typeof fetch;
 
   constructor(config: TransportConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/+$/, "");
+    // Strip trailing slashes without a regex — a backtracking `/\/+$/` on a
+    // long run of slashes is flagged as polynomial-ReDoS by static analysis.
+    let base = config.baseUrl;
+    while (base.endsWith("/")) base = base.slice(0, -1);
+    this.baseUrl = base;
     this.apiKey = config.apiKey;
     this.fetchImpl = config.fetch ?? globalThis.fetch;
     if (!this.fetchImpl) {
