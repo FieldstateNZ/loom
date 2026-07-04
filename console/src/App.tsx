@@ -10,8 +10,7 @@ import {
   SideNav, TopBar, SegmentedControl, Badge, StatusDot, Icon, Spinner,
   type NavSection, type Crumb,
 } from "./components/index.ts";
-import { LoomProvider } from "./api/context.tsx";
-import { createMockClient } from "./api/mock.ts";
+import { LoomProvider, resolveLoomClient } from "./api/context.tsx";
 import type { LoomClient } from "./api/client.ts";
 import type { LoomSnapshot } from "./api/types.ts";
 
@@ -169,7 +168,9 @@ function Console({ client }: { client: LoomClient }) {
 }
 
 export function App() {
-  const client = useMemo(() => createMockClient(), []);
+  // Live HTTP client when a base URL is configured (env / ?api= / localStorage),
+  // otherwise the frozen mock — the design/dev default. See api/context.tsx.
+  const client = useMemo(() => resolveLoomClient(), []);
   return (
     <LoomProvider client={client}>
       <Console client={client} />
