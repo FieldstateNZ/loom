@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createLoomClient, toContent } from "../src/index.ts";
-import type { ContentPart, Message } from "../src/index.ts";
+import type { ContentPart, Message, TurnCost } from "../src/index.ts";
 
 /** A recorded outbound request. */
 interface Recorded {
@@ -54,18 +54,26 @@ const assistant: Message = {
   content: [{ type: "text", text: "ok" }],
 };
 
+/** A schema-valid priced cost for the fake transport. */
+const cost: TurnCost = { amount: "0.0042", currency: "USD" };
+
+/** A schema-valid `TurnResponse` (`{ message, cost }`) for the fake transport. */
+const turnResponse = { message: assistant, cost };
+
 /** A schema-valid create-conversation response for the fake transport. */
 const conversation = (id: string) => ({
   id,
   tenant_id: "t1",
   binding: { provider: "anthropic", model: "m" },
   messages: [],
+  created_at: "2024-01-01T00:00:00Z",
+  updated_at: "2024-01-01T00:00:00Z",
 });
 
 test("withMcp('lucidbrain') + cached() produce the right options JSON", async () => {
   const { loom, calls } = fakeClient({
     "POST /v1/conversations": conversation("conv-1"),
-    "POST /v1/conversations/conv-1/turns": assistant,
+    "POST /v1/conversations/conv-1/turns": turnResponse,
   });
 
   const convo = loom.conversation({ model: "claude-haiku-4-5-20251001" });
@@ -79,6 +87,9 @@ test("withMcp('lucidbrain') + cached() produce the right options JSON", async ()
 
   const sent = await convo.send("recall Titan");
   assert.ok(sent.ok, "the turn succeeded");
+  // send() returns the { message, cost } envelope — cost round-trips intact.
+  assert.deepEqual(sent.value.message, assistant);
+  assert.deepEqual(sent.value.cost, cost);
 
   const turn = calls.find((c) => c.url.endsWith("/turns"));
   assert.ok(turn, "a turn request was sent");
@@ -94,7 +105,7 @@ test("withMcp('lucidbrain') + cached() produce the right options JSON", async ()
 test("conversation is created lazily and reused across turns", async () => {
   const { loom, calls } = fakeClient({
     "POST /v1/conversations": conversation("conv-9"),
-    "POST /v1/conversations/conv-9/turns": assistant,
+    "POST /v1/conversations/conv-9/turns": turnResponse,
   });
   const convo = loom.conversation({ model: "m", system: "you are Loom" });
   assert.ok((await convo.send("first")).ok);
@@ -134,7 +145,7 @@ test("withMcp de-duplicates by name (last wins) and server tools accumulate", ()
 });
 
 test("stateless turn helper shapes the /v1/turns body", async () => {
-  const { loom, calls } = fakeClient({ "POST /v1/turns": assistant });
+  const { loom, calls } = fakeClient({ "POST /v1/turns": turnResponse });
   const messages: Message[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },
   ];
@@ -145,6 +156,9 @@ test("stateless turn helper shapes the /v1/turns body", async () => {
     options: { auto_cache: true },
   });
   assert.ok(result.ok, "the stateless turn succeeded");
+  // turn() returns the { message, cost } envelope — cost round-trips intact.
+  assert.deepEqual(result.value.message, assistant);
+  assert.deepEqual(result.value.cost, cost);
 
   const call = calls.find((c) => c.url.endsWith("/v1/turns"));
   assert.ok(call);
@@ -156,6 +170,18 @@ test("stateless turn helper shapes the /v1/turns body", async () => {
     options: { auto_cache: true },
     stream: false,
   });
+});
+
+test("stateless turn helper accepts a null cost (unpriced provider/model)", async () => {
+  const { loom } = fakeClient({
+    "POST /v1/turns": { message: assistant, cost: null },
+  });
+  const result = await loom.turn({
+    model: "m",
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  });
+  assert.ok(result.ok, "the stateless turn succeeded");
+  assert.equal(result.value.cost, null);
 });
 
 test("toContent normalises strings, parts and messages", () => {

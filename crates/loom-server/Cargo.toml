@@ -18,8 +18,8 @@ name = "loom-server"
 path = "src/main.rs"
 
 [dependencies]
-loom-core = { workspace = true }
-loom-provider = { workspace = true }
+loom-core = { workspace = true, features = ["openapi"] }
+loom-provider = { workspace = true, features = ["openapi"] }
 loom-provider-anthropic = { workspace = true }
 loom-store = { workspace = true }
 
@@ -53,7 +53,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
-utoipa = { workspace = true }
+utoipa = { workspace = true, features = ["decimal"] }
 
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// The enum is `#[non_exhaustive]`; match with a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ContentDelta {

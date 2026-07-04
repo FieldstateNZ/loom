@@ -216,6 +216,7 @@ fn text_stream_events(text: &str) -> Vec<TurnEvent> {
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::EndTurn,
                 usage: None,
+                cost: None,
             },
             json!({ "type": "message_stop" }),
         ),
@@ -245,8 +246,11 @@ async fn create_turn_and_history_with_mock() {
     .await;
     assert_eq!(turn.status(), StatusCode::OK);
     let body = json_body(turn).await;
-    assert_eq!(body["role"], "assistant");
-    assert_eq!(body["content"][0]["text"], "hi from mock");
+    // Non-streaming turns return the `{ message, cost }` envelope; `mock`/
+    // `mock-model` has no seeded price, so `cost` is `None`.
+    assert_eq!(body["message"]["role"], "assistant");
+    assert_eq!(body["message"]["content"][0]["text"], "hi from mock");
+    assert_eq!(body["cost"], Value::Null);
 
     // History shows the user turn then the assistant turn, in order.
     let history = send(
@@ -618,10 +622,37 @@ async fn stateless_turn_parity_with_stateful() {
     .await;
     let stateful_body = json_body(stateful).await;
 
-    // Same assistant message from both paths.
-    assert_eq!(stateless_body["role"], "assistant");
-    assert_eq!(stateless_body["content"], stateful_body["content"]);
-    assert_eq!(stateless_body["content"][0]["text"], "parity answer");
+    // Same assistant message — and the same (unpriced) `cost` — from both
+    // paths: both endpoints share the `{ message, cost }` envelope.
+    assert_eq!(stateless_body["message"]["role"], "assistant");
+    assert_eq!(
+        stateless_body["message"]["content"],
+        stateful_body["message"]["content"]
+    );
+    assert_eq!(
+        stateless_body["message"]["content"][0]["text"],
+        "parity answer"
+    );
+    assert_eq!(stateless_body["cost"], stateful_body["cost"]);
+}
+
+/// Collects every local `$ref` string found anywhere in a JSON document.
+fn collect_schema_refs(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            for (k, val) in map {
+                if k == "$ref" {
+                    if let Some(s) = val.as_str() {
+                        out.push(s.to_owned());
+                    }
+                } else {
+                    collect_schema_refs(val, out);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => arr.iter().for_each(|e| collect_schema_refs(e, out)),
+        _ => {}
+    }
 }
 
 #[tokio::test]
@@ -633,9 +664,28 @@ async fn openapi_document_is_valid() {
 
     // Deserialises as a typed OpenAPI document, and is a 3.x spec exposing our
     // conversation routes.
-    let _parsed: utoipa::openapi::OpenApi =
-        serde_json::from_value(doc.clone()).expect("valid OpenAPI document");
+    // A 3.x document that is self-consistent: every local `$ref` resolves to a
+    // defined component (no dangling references). We deliberately do NOT
+    // round-trip through utoipa's own `OpenApi` deserialiser: utoipa 5 emits
+    // valid OpenAPI 3.1 "any" schemas for arbitrary-JSON fields (e.g.
+    // `Usage::raw`) that its *own* Deserialize cannot read back — a utoipa
+    // limitation, not a defect in the served document, which `openapi-typescript`
+    // consumes without issue.
     assert!(doc["openapi"].as_str().unwrap().starts_with("3."));
+    let schemas = doc["components"]["schemas"]
+        .as_object()
+        .expect("component schemas present");
+    let mut refs = Vec::new();
+    collect_schema_refs(&doc, &mut refs);
+    assert!(
+        !refs.is_empty(),
+        "document should reference component schemas"
+    );
+    for r in &refs {
+        if let Some(name) = r.strip_prefix("#/components/schemas/") {
+            assert!(schemas.contains_key(name), "dangling $ref: {r}");
+        }
+    }
     let paths = doc["paths"].as_object().unwrap();
     assert!(paths.contains_key("/v1/conversations"));
     assert!(paths.contains_key("/v1/conversations/{id}/turns"));

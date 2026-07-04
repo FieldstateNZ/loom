@@ -45,6 +45,7 @@ use crate::CacheHint;
 /// [`ContentPart::ProviderExtension`] so that **no** provider feature is ever
 /// silently dropped.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ContentPart {

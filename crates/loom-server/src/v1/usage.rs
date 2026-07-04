@@ -6,6 +6,7 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use loom_store::{RollupGroup, UsageRollupRow, UsageStore};
 
@@ -25,8 +26,8 @@ pub(super) struct UsageQuery {
 }
 
 /// One grouped row in a usage-rollup response.
-#[derive(Debug, Serialize)]
-struct UsageRollupRowDto {
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct UsageRollupRowDto {
     /// The group key (virtual key id, model, conversation id, or tenant id), or
     /// `null` where the grouped column was itself null.
     group: Option<String>,
@@ -65,8 +66,8 @@ impl From<UsageRollupRow> for UsageRollupRowDto {
 }
 
 /// A usage-rollup response envelope.
-#[derive(Debug, Serialize)]
-struct UsageRollupResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct UsageRollupResponse {
     /// The grouping dimension the rows are keyed by.
     group_by: &'static str,
     /// The lower time bound applied, if any.
@@ -111,7 +112,7 @@ fn group_label(group: RollupGroup) -> &'static str {
         ("group_by" = Option<String>, Query, description = "key | model | conversation (default model)"),
     ),
     responses(
-        (status = 200, description = "Grouped token and cost rollups", body = Object),
+        (status = 200, description = "Grouped token and cost rollups", body = UsageRollupResponse),
         (status = 400, description = "Invalid group_by or time bound", body = Object),
         (status = 401, description = "Missing or invalid virtual key", body = Object),
     ),

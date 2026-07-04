@@ -6,6 +6,15 @@
 //! [`settle_stream_turn`] records usage and persists the reassembled message
 //! when the stream ends — whether cleanly, on a provider error, or (via
 //! [`SseState`]'s [`Drop`]) on a mid-stream client disconnect.
+//!
+//! Pricing is a special case of "when the stream ends": the terminal
+//! `turn_ended` frame must carry its own `cost` (see [`TurnEventKind::TurnEnded`]),
+//! so [`SseState::price_and_record`] runs the pricing-and-recording step
+//! *inline*, the moment a `TurnEnded` event is about to be forwarded to the
+//! client, rather than waiting for the underlying stream to actually end. The
+//! result is cached on [`SseState::recorded_cost`] so the later
+//! [`settle_stream_turn`] — triggered by the true end of stream, a provider
+//! error, or [`Drop`] — never prices or records the same turn's usage twice.
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -15,18 +24,19 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use futures::{stream, StreamExt};
 use http::header::HeaderValue;
+use rust_decimal::Decimal;
 use tracing::Instrument;
 use uuid::Uuid;
 
 use loom_core::{Message, Role, Usage};
-use loom_provider::{TurnEvent, TurnEventKind, TurnEventStream};
+use loom_provider::{TurnCost, TurnEvent, TurnEventKind, TurnEventStream};
 use loom_store::ConversationStore;
 
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::telemetry;
 
-use super::attribution::{record_turn_usage, UsageAttribution};
+use super::attribution::{record_turn_usage, turn_cost, UsageAttribution};
 use super::{message_digest, stop_reason_label};
 
 /// An RAII guard that keeps the `loom.streams.active` gauge balanced.
@@ -74,6 +84,14 @@ struct SseState {
     started: Instant,
     /// Whether the first-token event has already been recorded.
     first_token_seen: bool,
+    /// The turn's priced cost, cached the moment it is first computed —
+    /// `None` until then, `Some(cost)` once [`SseState::price_and_record`] has
+    /// run (with `cost` itself possibly `None`, when unpriced). Guards
+    /// [`settle_stream_turn`] against pricing and recording the same turn's
+    /// usage twice: once inline, when the terminal `turn_ended` event is
+    /// forwarded (the common case), and again — only if that never
+    /// happened — when the stream settles.
+    recorded_cost: Option<Option<Decimal>>,
     finalized: bool,
     done: bool,
     /// Balances the active-streams gauge for the lifetime of the stream. Held
@@ -112,6 +130,7 @@ pub(super) fn sse_response(
         span,
         started,
         first_token_seen: false,
+        recorded_cost: None,
         finalized: false,
         done: false,
         _gauge: gauge,
@@ -122,13 +141,20 @@ pub(super) fn sse_response(
             return None;
         }
         match state.events.next().await {
-            Some(Ok(event)) => {
+            Some(Ok(mut event)) => {
                 state.accumulator.ingest(&event);
                 // Record first-token latency (request start → first content
                 // event) as a span event, once.
                 if !state.first_token_seen && is_first_content(&event) {
                     telemetry::record_first_token(&state.span, state.started.elapsed());
                     state.first_token_seen = true;
+                }
+                // The terminal event: price and record the turn's usage now —
+                // inline, exactly once (see `price_and_record`) — so its
+                // authoritative cost can ride on this very frame instead of
+                // making the client wait for `/v1/usage`'s asynchronous rollup.
+                if let TurnEventKind::TurnEnded { cost, .. } = &mut event.kind {
+                    *cost = state.price_and_record().await;
                 }
                 let frame = Event::default()
                     .json_data(&event)
@@ -192,7 +218,12 @@ impl SseState {
         self.finalized = true;
 
         // Usage is finalised from the accumulator's message_delta/turn-end
-        // snapshot and recorded for every streamed turn.
+        // snapshot and recorded for every streamed turn. `recorded_cost` is
+        // `Some` already when the terminal `turn_ended` event was seen (the
+        // common case — see `price_and_record`), so this is a no-op re-price;
+        // it is `None` only when the stream ended without ever reporting
+        // `TurnEnded` (a provider error or a disconnect before turn end), in
+        // which case `settle_stream_turn` prices it here for the first time.
         settle_stream_turn(
             self.state.clone(),
             self.attribution.clone(),
@@ -201,8 +232,29 @@ impl SseState {
             self.started.elapsed(),
             self.accumulator.message(),
             self.accumulator.stop_reason_label(),
+            self.recorded_cost,
         )
         .await;
+    }
+
+    /// Prices and records this turn's usage exactly once, from the
+    /// accumulator's usage snapshot so far, caching the priced [`Decimal`] in
+    /// [`recorded_cost`](SseState::recorded_cost) so a later
+    /// [`finalize`](Self::finalize) or [`Drop`] settlement — triggered when the
+    /// underlying stream actually ends — reuses the cached value instead of
+    /// pricing and recording the turn's usage a second time.
+    ///
+    /// Called when the terminal `TurnEnded` event is observed, so its
+    /// authoritative cost can be embedded in that same outgoing frame; returns
+    /// the wire-level [`TurnCost`] to embed there.
+    async fn price_and_record(&mut self) -> Option<TurnCost> {
+        if let Some(cost) = self.recorded_cost {
+            return turn_cost(cost);
+        }
+        let usage = self.accumulator.usage();
+        let cost = record_turn_usage(&self.state, &self.attribution, usage).await;
+        self.recorded_cost = Some(cost);
+        turn_cost(cost)
     }
 }
 
@@ -240,6 +292,7 @@ impl Drop for SseState {
             self.started.elapsed(),
             self.accumulator.message(),
             self.accumulator.stop_reason_label(),
+            self.recorded_cost,
         ));
     }
 }
@@ -252,6 +305,15 @@ impl Drop for SseState {
 /// identically. Best effort throughout: a usage-write or persistence failure is
 /// logged, never surfaced. Does **not** touch the active-streams gauge — that is
 /// owned solely by [`ActiveStreamGuard`].
+///
+/// `recorded_cost` is [`SseState::recorded_cost`] at settlement time: `Some`
+/// when [`SseState::price_and_record`] already priced and recorded this turn's
+/// usage (the terminal `turn_ended` event was seen and forwarded), in which
+/// case that cached value is reused as-is; `None` when it never ran — a
+/// provider error or a client disconnect before `turn_ended` — in which case
+/// this call prices and records the usage for the first (and only) time.
+/// Either way the turn's usage is priced and recorded exactly once.
+#[allow(clippy::too_many_arguments)]
 async fn settle_stream_turn(
     state: AppState,
     attribution: UsageAttribution,
@@ -260,9 +322,13 @@ async fn settle_stream_turn(
     elapsed: Duration,
     message: Message,
     stop_reason: Option<String>,
+    recorded_cost: Option<Option<Decimal>>,
 ) {
     let usage = message.usage.clone().unwrap_or_default();
-    let cost = record_turn_usage(&state, &attribution, usage.clone()).await;
+    let cost = match recorded_cost {
+        Some(cost) => cost,
+        None => record_turn_usage(&state, &attribution, usage.clone()).await,
+    };
 
     // Settle the span kept open across the stream: final usage, cost, stop
     // reason and (only when opted in) the output content.
@@ -331,7 +397,12 @@ impl TurnAccumulator {
             TurnEventKind::Usage(usage) => {
                 self.usage = Some(usage.clone());
             }
-            TurnEventKind::TurnEnded { stop_reason, usage } => {
+            // `cost` is never populated by a provider (only loom-server injects
+            // it, into the outgoing frame, after this fold already ran — see
+            // `SseState::price_and_record`), so it is never folded here.
+            TurnEventKind::TurnEnded {
+                stop_reason, usage, ..
+            } => {
                 self.stop_reason = Some(stop_reason.clone());
                 if let Some(usage) = usage {
                     self.usage = Some(usage.clone());
@@ -348,6 +419,13 @@ impl TurnAccumulator {
         let mut message = Message::new(Role::Assistant, content);
         message.usage = self.usage.clone();
         message
+    }
+
+    /// The [`Usage`] accumulated so far — an empty snapshot if none has been
+    /// reported yet. Used to price the turn as soon as its usage is known,
+    /// without waiting to reassemble the full [`Message`].
+    fn usage(&self) -> Usage {
+        self.usage.clone().unwrap_or_default()
     }
 
     /// The turn's stop reason as a telemetry label, if one was reported.

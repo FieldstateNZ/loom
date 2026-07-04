@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "TypeScript client for Loom — Fieldstate's multi-tenant LLM gateway. Workspace artefact; not published to npm.",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

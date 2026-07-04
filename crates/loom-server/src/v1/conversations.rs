@@ -29,7 +29,7 @@ const MAX_MESSAGE_LIMIT: i64 = 1000;
     tag = "conversations",
     request_body = CreateConversationRequest,
     responses(
-        (status = 201, description = "Conversation created", body = Object),
+        (status = 201, description = "Conversation created", body = loom_core::Conversation),
         (status = 400, description = "Malformed request", body = Object),
         (status = 401, description = "Missing or invalid virtual key", body = Object),
     ),
@@ -83,7 +83,7 @@ pub(super) struct Pagination {
         ("offset" = Option<i64>, Query, description = "Messages to skip from the start"),
     ),
     responses(
-        (status = 200, description = "The conversation and a page of its messages", body = Object),
+        (status = 200, description = "The conversation and a page of its messages", body = loom_core::Conversation),
         (status = 404, description = "No such conversation for this tenant", body = Object),
     ),
     security(("virtual_key" = []))

@@ -129,3 +129,36 @@ jobs:
       - run: npm test
       # Enforce the typescript-codebase house rules.
       - run: npm run lint
+
+  openapi-drift:
+    name: openapi drift guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+      # `ApiDoc::openapi()` is a pure function (no DB/server needed — see
+      # crates/loom-server/examples/dump_openapi.rs), so the committed
+      # openapi.json must always match a fresh dump of the server code.
+      - name: regenerate openapi.json and check for drift
+        run: |
+          cargo run -q -p loom-server --example dump_openapi > clients/typescript/openapi.json
+          git diff --exit-code clients/typescript/openapi.json || {
+            echo "::error::clients/typescript/openapi.json is stale. Run: cargo run -p loom-server --example dump_openapi > clients/typescript/openapi.json, then commit";
+            exit 1;
+          }
+      # The generated TS client must in turn match the (now-verified) spec.
+      - name: regenerate TS client and check for drift
+        run: |
+          cd clients/typescript
+          npm ci
+          npm run gen
+          git diff --exit-code src/generated.ts || {
+            echo "::error::clients/typescript/src/generated.ts is stale. Run: cargo run -p loom-server --example dump_openapi > clients/typescript/openapi.json && (cd clients/typescript && npm run gen), then commit";
+            exit 1;
+          }

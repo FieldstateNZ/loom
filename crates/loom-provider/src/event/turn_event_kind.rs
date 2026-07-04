@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::content_delta::ContentDelta;
 use super::stop_reason::StopReason;
+use super::turn_cost::TurnCost;
 
 /// The normalised, provider-agnostic classification of a [`TurnEvent`].
 ///
@@ -15,6 +16,7 @@ use super::stop_reason::StopReason;
 /// [`TurnEvent`]: super::turn_event::TurnEvent
 /// [`TurnEvent::raw`]: super::turn_event::TurnEvent::raw
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum TurnEventKind {
@@ -67,6 +69,21 @@ pub enum TurnEventKind {
         /// separate [`Usage`](TurnEventKind::Usage) events.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Usage>,
+        /// Loom's authoritative priced cost for this turn — computed inline,
+        /// server-side, from the effective price for the turn's
+        /// `(provider, model)` at turn time, the same figure recorded to the
+        /// usage outbox. Always `None` as emitted by a [`Provider`]
+        /// (`Provider`s never know Loom's pricing table); the gateway injects
+        /// the priced value into this same field on the terminal frame before
+        /// it reaches the client, so a streamed turn gets its authoritative
+        /// cost without waiting for the eventually-consistent `/v1/usage`
+        /// rollup. `None` on the outgoing frame too when no price is
+        /// configured for the (provider, model) — a pricing miss never fails
+        /// the turn.
+        ///
+        /// [`Provider`]: crate::Provider
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost: Option<TurnCost>,
     },
     /// A native provider event with no normalised classification — a keep-alive
     /// (e.g. Anthropic's `ping`) or an event kind Loom does not yet model.

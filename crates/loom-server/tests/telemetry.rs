@@ -218,6 +218,7 @@ fn stream_events() -> Vec<TurnEvent> {
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::EndTurn,
                 usage: Some(usage),
+                cost: None,
             },
             json!({ "type": "message_stop" }),
         ),

@@ -96,7 +96,15 @@ impl SseAccumulator {
                 }
                 let stop_reason = translate::stop_reason(&delta).unwrap_or(StopReason::EndTurn);
                 let usage = self.envelope.get("usage").map(translate::translate_usage);
-                TurnEventKind::TurnEnded { stop_reason, usage }
+                // `cost` is always `None` here: a provider never knows Loom's
+                // pricing table. The gateway injects the priced value into this
+                // same field on the outgoing frame (see
+                // `loom-server`'s streaming settle path).
+                TurnEventKind::TurnEnded {
+                    stop_reason,
+                    usage,
+                    cost: None,
+                }
             }
             "ping" => TurnEventKind::Other {
                 native_type: Some("ping".to_owned()),

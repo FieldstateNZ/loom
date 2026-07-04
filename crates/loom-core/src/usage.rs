@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 /// The type is `#[non_exhaustive]`: providers may expose additional usage
 /// dimensions over time.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[non_exhaustive]
 pub struct Usage {
     /// Input (prompt) tokens billed at the full rate.

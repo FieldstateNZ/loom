@@ -12,6 +12,7 @@ use crate::{ContentPart, Usage};
 /// for assistant/provider turns, an optional [`Usage`] snapshot describing what
 /// the response cost.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Message {
     /// The author of the message.
     pub role: Role,

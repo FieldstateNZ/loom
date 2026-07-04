@@ -31,6 +31,7 @@ export { createLoomClient } from "./create-loom-client.js";
 export { LoomClient } from "./loom-client.js";
 export { ConversationBuilder } from "./conversation-builder.js";
 export { toContent } from "./to-content.js";
+export { collect } from "./collect.js";
 
 // --- Result pattern -------------------------------------------------------
 export { ok, err } from "./result.js";
@@ -54,6 +55,7 @@ export type { ConversationInit } from "./conversation-init.types.js";
 export type { StatelessTurnInit } from "./stateless-turn.types.js";
 export type { TurnInput } from "./to-content.types.js";
 export type { PageParams } from "./page-query.types.js";
+export type { CollectedTurn } from "./collect.types.js";
 
 // --- Domain models --------------------------------------------------------
 export type * from "./models/index.js";

@@ -117,3 +117,9 @@ curl -s http://127.0.0.1:8080/openapi.json \
   | python3 -m json.tool > openapi.json
 npm run gen
 ```
+
+CI enforces that this snapshot (and the generated client) never drifts from
+the server code — see the `openapi-drift` job in `.github/workflows/ci.yml`.
+
+For the status of publishing this package to a registry, see
+[`docs/publishing-loom-client.md`](../../docs/publishing-loom-client.md).

@@ -12,6 +12,7 @@ use crate::CacheHint;
 ///
 /// [`provider_options`]: super::ConversationOptions::provider_options
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ToolDefinition {
     /// The tool's name, as the model will refer to it when calling.
     pub name: String,

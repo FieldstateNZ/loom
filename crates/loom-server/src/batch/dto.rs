@@ -25,14 +25,11 @@ pub struct BatchItemInput {
     pub system: Option<String>,
     /// An optional prompt-cache breakpoint on the system prompt.
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub system_cache: Option<CacheHint>,
     /// The full, inline message history to run.
-    #[schema(value_type = Vec<Object>)]
     pub messages: Vec<Message>,
     /// Request-time provider options.
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub options: Option<ConversationOptions>,
 }
 

@@ -107,15 +107,17 @@ async function main() {
 
   const turn1 = await convo.send("What did we decide about the Titan project?");
   assert(turn1.ok, "turn 1 succeeded");
-  assert(turn1.value.role === "assistant", "turn 1 returns an assistant message");
-  const turn1Text = turn1.value.content.find((p) => p.type === "text");
+  assert(turn1.value.message.role === "assistant", "turn 1 returns an assistant message");
+  const turn1Text = turn1.value.message.content.find((p) => p.type === "text");
   report.turn1_text = turn1Text && "text" in turn1Text ? turn1Text.text : null;
-  report.turn1_usage = turn1.value.usage ?? null;
+  report.turn1_usage = turn1.value.message.usage ?? null;
+  report.turn1_cost = turn1.value.cost;
 
   const turn2 = await convo.send("And who owned the follow-up?");
   assert(turn2.ok, "turn 2 succeeded");
-  assert(turn2.value.role === "assistant", "turn 2 returns an assistant message");
-  report.turn2_usage = turn2.value.usage ?? null;
+  assert(turn2.value.message.role === "assistant", "turn 2 returns an assistant message");
+  report.turn2_usage = turn2.value.message.usage ?? null;
+  report.turn2_cost = turn2.value.cost;
 
   // Streaming turn: consume the async iterator of TurnEvents.
   const events: TurnEvent[] = [];

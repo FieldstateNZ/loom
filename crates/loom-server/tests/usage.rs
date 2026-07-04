@@ -162,7 +162,7 @@ async fn create_conversation(app: &Router, key: &str, model: &str) -> Uuid {
     Uuid::parse_str(json_body(resp).await["id"].as_str().unwrap()).unwrap()
 }
 
-async fn run_turn(app: &Router, key: &str, convo: Uuid, stream: bool) -> StatusCode {
+async fn run_turn(app: &Router, key: &str, convo: Uuid, stream: bool) -> (StatusCode, String) {
     let resp = send(
         app,
         request(
@@ -175,9 +175,14 @@ async fn run_turn(app: &Router, key: &str, convo: Uuid, stream: bool) -> StatusC
     .await;
     let status = resp.status();
     // Drain the body so a streamed turn's finalizer (usage capture + message
-    // persistence) runs to completion — the SSE stream is produced lazily.
-    let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await;
-    status
+    // persistence) runs to completion — the SSE stream is produced lazily. The
+    // body itself is also returned: for a non-streaming turn it is the JSON
+    // `TurnResponse` (`{ message, cost }`); for a streamed turn it is the raw
+    // SSE text, whose terminal `turn_ended` frame carries the same `cost`.
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap_or_default();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// An assistant message reporting the given token usage, with a cache split.
@@ -218,7 +223,21 @@ async fn non_streaming_turn_records_priced_usage_with_cache_split() {
     let tenant = create_tenant(&app, "acme").await;
     let key = create_key(&app, tenant).await;
     let convo = create_conversation(&app, &key, "claude-opus-4-8").await;
-    assert_eq!(run_turn(&app, &key, convo, false).await, StatusCode::OK);
+    let (status, turn_body) = run_turn(&app, &key, convo, false).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The turn response itself already carries the authoritative priced cost —
+    // computed inline at turn time, not the asynchronous rollup below.
+    let turn_json: Value = serde_json::from_str(&turn_body).expect("turn body is JSON");
+    let turn_cost_amount = turn_json["cost"]["amount"]
+        .as_str()
+        .expect("TurnCost.amount serialises as a string");
+    assert_eq!(
+        turn_cost_amount.parse::<Decimal>().unwrap().normalize(),
+        "36.75".parse::<Decimal>().unwrap().normalize(),
+        "turn cost was {turn_cost_amount}"
+    );
+    assert_eq!(turn_json["cost"]["currency"], "USD");
 
     // Tenant rollup grouped by model.
     let usage = send(
@@ -287,6 +306,7 @@ async fn streaming_turn_records_priced_usage() {
             TurnEventKind::TurnEnded {
                 stop_reason: StopReason::EndTurn,
                 usage: Some(usage),
+                cost: None,
             },
             json!({ "type": "message_stop" }),
         ),
@@ -299,7 +319,16 @@ async fn streaming_turn_records_priced_usage() {
     let tenant = create_tenant(&app, "acme").await;
     let key = create_key(&app, tenant).await;
     let convo = create_conversation(&app, &key, "claude-opus-4-8").await;
-    assert_eq!(run_turn(&app, &key, convo, true).await, StatusCode::OK);
+    let (status, sse_body) = run_turn(&app, &key, convo, true).await;
+    assert_eq!(status, StatusCode::OK);
+    // The terminal `turn_ended` SSE frame already carries the authoritative
+    // priced cost (2M input * 5/mtok + 1M cache_read * 0.50/mtok = 10.50),
+    // injected inline by the gateway — the mock provider's own `TurnEnded`
+    // event, above, always has `cost: None`.
+    assert!(
+        sse_body.contains(r#""cost":{"amount":"10.50","currency":"USD"}"#),
+        "expected the turn_ended frame to carry the priced cost, got: {sse_body}"
+    );
 
     let usage = send(
         &app,
@@ -328,7 +357,7 @@ async fn price_versioning_affects_new_events_only() {
 
     // Turn 1 on convo_a, priced under the seeded price (cost 30).
     let convo_a = create_conversation(&app, &key, "claude-opus-4-8").await;
-    assert_eq!(run_turn(&app, &key, convo_a, false).await, StatusCode::OK);
+    assert_eq!(run_turn(&app, &key, convo_a, false).await.0, StatusCode::OK);
 
     // A new, more expensive price version becomes effective now (10 + 50 = 60).
     store
@@ -349,7 +378,7 @@ async fn price_versioning_affects_new_events_only() {
 
     // Turn 2 on convo_b, priced under the new version (cost 60).
     let convo_b = create_conversation(&app, &key, "claude-opus-4-8").await;
-    assert_eq!(run_turn(&app, &key, convo_b, false).await, StatusCode::OK);
+    assert_eq!(run_turn(&app, &key, convo_b, false).await.0, StatusCode::OK);
 
     // Per-conversation rollup: the old event kept 30, the new one got 60.
     let usage = send(
@@ -394,8 +423,21 @@ async fn usage_write_failure_lands_in_outbox_and_drains() {
     let key = create_key(&app, tenant).await;
     let convo = create_conversation(&app, &key, "claude-opus-4-8").await;
 
-    // The turn succeeds even though the usage write was deferred.
-    assert_eq!(run_turn(&app, &key, convo, false).await, StatusCode::OK);
+    // The turn succeeds even though the usage write was deferred — and still
+    // returns its authoritative priced cost inline: pricing and computing
+    // `TurnResponse.cost` never depends on where the usage event lands.
+    let (status, turn_body) = run_turn(&app, &key, convo, false).await;
+    assert_eq!(status, StatusCode::OK);
+    let turn_json: Value = serde_json::from_str(&turn_body).expect("turn body is JSON");
+    let turn_cost_amount = turn_json["cost"]["amount"]
+        .as_str()
+        .expect("TurnCost.amount serialises as a string");
+    assert_eq!(
+        turn_cost_amount.parse::<Decimal>().unwrap().normalize(),
+        "30".parse::<Decimal>().unwrap().normalize(),
+        "turn cost was {turn_cost_amount}"
+    );
+    assert_eq!(turn_json["cost"]["currency"], "USD");
 
     // Nothing has landed in usage_events yet; it is parked in the outbox.
     let before = send(

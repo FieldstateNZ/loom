@@ -19,6 +19,7 @@ use super::CacheTtl;
 /// provider-agnostic; the mapping to a provider's native marker lives in that
 /// provider's translator.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[non_exhaustive]
 pub struct CacheHint {
     /// The cache lifetime, or `None` for the provider's default (short) TTL.

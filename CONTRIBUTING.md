@@ -50,4 +50,5 @@ cargo test --workspace
 ## Licence of contributions
 
 By contributing you agree your work is licensed under the project's
-[AGPL-3.0-only](./LICENSE).
+[Apache-2.0](./LICENSE) licence, and that you have the right to submit it under
+that licence (inbound = outbound, per Apache-2.0 section 5).

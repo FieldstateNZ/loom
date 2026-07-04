@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// (`base64` or `url`), mirroring the shape used by providers such as
 /// Anthropic.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MediaSource {

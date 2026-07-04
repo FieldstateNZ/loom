@@ -17,7 +17,6 @@ pub struct CreateConversationRequest {
     pub system: Option<String>,
     /// Free-form caller metadata (tags, correlation IDs, …).
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -25,14 +24,12 @@ pub struct CreateConversationRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TurnRequest {
     /// The user turn's content parts, in provider-significant order.
-    #[schema(value_type = Vec<Object>)]
     pub content: Vec<loom_core::ContentPart>,
     /// Whether to stream the assistant turn as Server-Sent Events.
     #[serde(default)]
     pub stream: bool,
     /// Request-time provider options (sampling, tools, …).
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub options: Option<ConversationOptions>,
 }
 
@@ -49,14 +46,11 @@ pub struct StatelessTurnRequest {
     pub system: Option<String>,
     /// An optional prompt-cache breakpoint on the system prompt.
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub system_cache: Option<CacheHint>,
     /// The full, inline message history to run.
-    #[schema(value_type = Vec<Object>)]
     pub messages: Vec<Message>,
     /// Request-time provider options.
     #[serde(default)]
-    #[schema(value_type = Object, nullable)]
     pub options: Option<ConversationOptions>,
     /// Whether to stream the assistant turn as Server-Sent Events.
     #[serde(default)]

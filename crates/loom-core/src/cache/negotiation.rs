@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Serialized in `snake_case` (`soft_ignore`, `hard_fail`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CacheNegotiation {

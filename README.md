@@ -382,8 +382,9 @@ Two design decisions worth calling out:
 
 ## Licence
 
-[AGPL-3.0-only](./LICENSE). If you run a modified Loom as a network service, the
-AGPL requires you to offer your users the corresponding source.
+[Apache-2.0](./LICENSE) — a permissive licence: use, modify, and redistribute Loom,
+including as a hosted network service, provided you retain the copyright and licence
+notices (see [`NOTICE`](./NOTICE)).
 
 Internal crate names are `loom-*`; a future crates.io publish would be prefixed
 `fieldstate-loom-*` (the `loom` name is taken). Not published yet.

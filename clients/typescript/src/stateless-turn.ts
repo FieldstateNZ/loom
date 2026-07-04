@@ -9,8 +9,8 @@
 
 import { DEFAULT_PROVIDER } from "./defaults.js";
 import type { LoomError } from "./loom-error.types.js";
-import { messageSchema } from "./models/message.js";
-import type { Message } from "./models/message.js";
+import { turnResponseSchema } from "./models/turn-response.js";
+import type { TurnResponse } from "./models/turn-response.js";
 import type { TurnEvent } from "./models/turn-event.js";
 import type { Result } from "./result.types.js";
 import type { StatelessTurnInit } from "./stateless-turn.types.js";
@@ -30,7 +30,9 @@ function statelessBody(init: StatelessTurnInit, stream: boolean): unknown {
 }
 
 /**
- * Runs a stateless (non-persisted) turn, returning the assistant {@link Message}.
+ * Runs a stateless (non-persisted) turn, returning the assistant
+ * {@link TurnResponse} — `{ message, cost }`, `cost` being Loom's
+ * authoritative priced cost for the turn.
  *
  * @param transport - The HTTP transport to issue the request through.
  * @param init - The model binding, message history, and options.
@@ -38,8 +40,13 @@ function statelessBody(init: StatelessTurnInit, stream: boolean): unknown {
 export function runStatelessTurn(
   transport: Transport,
   init: StatelessTurnInit,
-): Promise<Result<Message, LoomError>> {
-  return transport.requestJson(messageSchema, "POST", "/v1/turns", statelessBody(init, false));
+): Promise<Result<TurnResponse, LoomError>> {
+  return transport.requestJson(
+    turnResponseSchema,
+    "POST",
+    "/v1/turns",
+    statelessBody(init, false),
+  );
 }
 
 /**
