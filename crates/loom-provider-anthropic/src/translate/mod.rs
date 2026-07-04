@@ -3,32 +3,39 @@
 //!
 //! The translation is **lossless and provider-faithful** in both directions:
 //!
-//! - [`translate_request`] maps a [`Conversation`] plus its request-time
-//!   [`ConversationOptions`] to the native `POST /v1/messages` request body,
-//!   mapping each [`ContentPart`] to its native content block (the inverse of
-//!   [`translate_response`]), carrying `thinking` / `redacted_thinking` blocks
-//!   through unchanged for multi-turn correctness, and merging the
-//!   `provider_options["anthropic"]` bag over the request so callers can pass
-//!   any native field (`tool_choice`, `top_p`, thinking config, beta flags, …)
-//!   without a Loom release.
+//! - [`translate_request`] maps a [`Conversation`](loom_core::Conversation)
+//!   plus its request-time
+//!   [`ConversationOptions`](loom_core::ConversationOptions) to the native
+//!   `POST /v1/messages` request body, mapping each
+//!   [`ContentPart`](loom_core::ContentPart) to its native content block (the
+//!   inverse of [`translate_response`]), carrying `thinking` /
+//!   `redacted_thinking` blocks through unchanged for multi-turn correctness,
+//!   and merging the `provider_options["anthropic"]` bag over the request so
+//!   callers can pass any native field (`tool_choice`, `top_p`, thinking
+//!   config, beta flags, …) without a Loom release.
 //! - [`translate_response`] maps a native Messages response back to an
-//!   assistant [`Message`], mapping content blocks to [`ContentPart`]s — with
-//!   **unknown block types preserved verbatim** via
-//!   [`ContentPart::ProviderExtension`], never an error — and populating
-//!   [`Message::raw`] with the verbatim native response for audit and replay.
+//!   assistant [`Message`](loom_core::Message), mapping content blocks to
+//!   [`ContentPart`](loom_core::ContentPart)s — with **unknown block types
+//!   preserved verbatim** via
+//!   [`ContentPart::ProviderExtension`](loom_core::ContentPart::ProviderExtension),
+//!   never an error — and populating
+//!   [`Message::raw`](loom_core::Message::raw) with the verbatim native
+//!   response for audit and replay.
 //!
 //! # Prompt caching
 //!
-//! A provider-agnostic [`CacheHint`] on a cacheable [`ContentPart`], a
-//! [`ToolDefinition`], or the conversation's system prompt maps to Anthropic's
-//! native `cache_control: { "type": "ephemeral"[, "ttl": "1h"] }` marker on the
-//! corresponding native block, and is read back off the block on response
-//! translation. When [`ConversationOptions::auto_cache`] is set, Loom
-//! additionally places up to two deterministic breakpoints — after the stable
-//! system-plus-tools head and on the trailing history boundary — respecting
-//! Anthropic's maximum of four cache breakpoints per request. See
-//! `apply_auto_cache` (private, in the `cache_control` submodule) and
-//! [`strip_cache_control`].
+//! A provider-agnostic [`CacheHint`](loom_core::CacheHint) on a cacheable
+//! [`ContentPart`](loom_core::ContentPart), a
+//! [`ToolDefinition`](loom_core::ToolDefinition), or the conversation's system
+//! prompt maps to Anthropic's native `cache_control: { "type": "ephemeral"[,
+//! "ttl": "1h"] }` marker on the corresponding native block, and is read back
+//! off the block on response translation. When
+//! [`ConversationOptions::auto_cache`](loom_core::ConversationOptions::auto_cache)
+//! is set, Loom additionally places up to two deterministic breakpoints —
+//! after the stable system-plus-tools head and on the trailing history
+//! boundary — respecting Anthropic's maximum of four cache breakpoints per
+//! request. See `apply_auto_cache` (private, in the `cache_control`
+//! submodule) and [`strip_cache_control`].
 //!
 //! These functions are pure and free of I/O, so they can be exercised directly
 //! against recorded fixtures.
@@ -37,9 +44,10 @@
 //!
 //! The translation surface is split into cohesive submodules: [`request`] (the
 //! `Conversation` → native request body direction), [`response`] (the native
-//! response → [`Message`] direction), [`server_tools`] (native server-tool and
-//! MCP connector entries), [`betas`] (the `anthropic-beta` token set), and
-//! [`cache_control`] (prompt-cache markers and auto-cache breakpoints).
+//! response → [`Message`](loom_core::Message) direction), [`server_tools`]
+//! (native server-tool and MCP connector entries), [`betas`] (the
+//! `anthropic-beta` token set), and [`cache_control`] (prompt-cache markers
+//! and auto-cache breakpoints).
 
 mod betas;
 mod cache_control;

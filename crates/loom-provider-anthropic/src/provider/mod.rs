@@ -6,8 +6,9 @@
 //! `/v1/messages` POST helpers), [`batch_http`] (the shared JSON/text HTTP
 //! plumbing reused by the Message Batches surface), [`cache_negotiation`] (the
 //! prompt-cache capability check applied before dispatch), [`complete`] (the
-//! non-streaming [`Provider::complete`] path) and [`stream`] (the streaming
-//! [`Provider::stream`] path).
+//! non-streaming [`Provider::complete`](loom_provider::Provider::complete)
+//! path) and [`stream`] (the streaming
+//! [`Provider::stream`](loom_provider::Provider::stream) path).
 //!
 //! [`Provider`]: loom_provider::Provider
 
