@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::{CacheHint, CacheNegotiation};
+
 /// Options that shape how a provider should generate a response.
 ///
 /// The common, cross-provider sampling controls are modelled as typed fields.
@@ -47,6 +49,24 @@ pub struct ConversationOptions {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
 
+    /// Opt-in automatic prompt caching for this request.
+    ///
+    /// When `true`, a provider translator deterministically places cache
+    /// breakpoints for the (typically persisted) conversation — after the
+    /// stable system-plus-tools head, and on the trailing history boundary —
+    /// without the caller annotating individual blocks. This is the recommended
+    /// path for persisted conversations, where per-block hints on reconstructed
+    /// history would otherwise have to be re-applied every turn. Defaults to
+    /// `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_cache: bool,
+
+    /// How a provider should treat cache hints on a model that does not support
+    /// prompt caching. Defaults to [`CacheNegotiation::SoftIgnore`] — cache
+    /// hints are advisory.
+    #[serde(default, skip_serializing_if = "is_default_negotiation")]
+    pub cache_negotiation: CacheNegotiation,
+
     /// A per-provider bag of native options that Loom does not model as typed
     /// fields, keyed by provider name (e.g. `"anthropic"`).
     ///
@@ -56,6 +76,12 @@ pub struct ConversationOptions {
     /// so serialization is deterministic. Empty when unset.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub provider_options: BTreeMap<String, serde_json::Value>,
+}
+
+/// Whether a cache-negotiation policy is the default, so it can be omitted from
+/// the serialized form.
+fn is_default_negotiation(value: &CacheNegotiation) -> bool {
+    *value == CacheNegotiation::default()
 }
 
 impl ConversationOptions {
@@ -85,4 +111,12 @@ pub struct ToolDefinition {
 
     /// A JSON Schema describing the tool's input arguments.
     pub input_schema: serde_json::Value,
+
+    /// An optional prompt-cache breakpoint on this tool definition.
+    ///
+    /// Tools render at the head of the request (before the system prompt and
+    /// messages), so a breakpoint here caches the tool prefix. Absent (rather
+    /// than `null`) when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<CacheHint>,
 }

@@ -43,12 +43,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod cache;
 mod content;
 mod conversation;
 mod message;
 mod options;
 mod usage;
 
+pub use cache::{CacheHint, CacheNegotiation, CacheTtl};
 pub use content::{Citation, ContentPart, MediaSource};
 pub use conversation::{Conversation, ProviderBinding};
 pub use message::{Message, Role};

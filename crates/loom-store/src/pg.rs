@@ -545,6 +545,9 @@ impl ConversationStore for PgStore {
             tenant_id: head.tenant_id,
             binding: ProviderBinding::new(head.provider, head.model),
             system: head.system,
+            // The system-prompt cache hint is a request-render concern, not
+            // durable state; it is not persisted and reconstructs as unset.
+            system_cache: None,
             messages,
             metadata: head.metadata,
             created_at: head.created_at,

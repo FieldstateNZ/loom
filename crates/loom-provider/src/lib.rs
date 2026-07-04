@@ -85,6 +85,7 @@ mod tests {
                     source: MediaSource::Url {
                         url: "https://example.com/a.png".to_owned(),
                     },
+                    cache: None,
                 },
             ],
         ));
@@ -93,6 +94,7 @@ mod tests {
             name: "get_weather".to_owned(),
             description: None,
             input_schema: serde_json::json!({}),
+            cache: None,
         });
 
         let required = required_capabilities(&conv, &opts);
@@ -168,6 +170,7 @@ mod tests {
                 source: MediaSource::Url {
                     url: "https://example.com/a.png".to_owned(),
                 },
+                cache: None,
             }],
         ));
         let err = provider

@@ -142,6 +142,7 @@ fn tool_use_input_json_deltas_assemble_into_a_parsed_tool_call() {
                 id: "toolu_01".to_owned(),
                 name: "get_weather".to_owned(),
                 input: json!({}),
+                cache: None,
             },
         }
     );
@@ -164,6 +165,7 @@ fn tool_use_input_json_deltas_assemble_into_a_parsed_tool_call() {
                 id: "toolu_01".to_owned(),
                 name: "get_weather".to_owned(),
                 input: json!({ "location": "Wellington, NZ" }),
+                cache: None,
             },
         }
     );
@@ -200,6 +202,7 @@ fn thinking_deltas_and_signature_assemble_and_ping_is_never_dropped() {
         part: ContentPart::Thinking {
             thinking: "The user asked a simple question.".to_owned(),
             signature: Some("EqoBsig==".to_owned()),
+            cache: None,
         },
     }));
 }
@@ -268,6 +271,7 @@ fn citations_deltas_surface_as_citation_deltas_and_accumulate_onto_the_text_bloc
                     "end_char_index": 51
                 })),
             ]),
+            cache: None,
         },
     }));
 }

@@ -4,8 +4,8 @@
 
 use chrono::{TimeZone, Utc};
 use loom_core::{
-    Citation, ContentPart, Conversation, ConversationOptions, MediaSource, Message,
-    ProviderBinding, Role, ToolDefinition, Usage,
+    CacheHint, CacheNegotiation, CacheTtl, Citation, ContentPart, Conversation,
+    ConversationOptions, MediaSource, Message, ProviderBinding, Role, ToolDefinition, Usage,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -27,6 +27,13 @@ fn content_part_variants_roundtrip() {
         ContentPart::Text {
             text: "plain".into(),
             citations: None,
+            cache: None,
+        },
+        // A cache hint on a text block round-trips.
+        ContentPart::Text {
+            text: "cacheable prefix".into(),
+            citations: None,
+            cache: Some(CacheHint::ephemeral()),
         },
         ContentPart::Text {
             text: "cited".into(),
@@ -36,38 +43,45 @@ fn content_part_variants_roundtrip() {
                 "start_char_index": 0,
                 "end_char_index": 1
             }))]),
+            cache: None,
         },
         ContentPart::Image {
             source: MediaSource::Base64 {
                 media_type: "image/png".into(),
                 data: "aGVsbG8=".into(),
             },
+            cache: None,
         },
         ContentPart::Image {
             source: MediaSource::Url {
                 url: "https://example.com/a.png".into(),
             },
+            cache: Some(CacheHint::with_ttl(CacheTtl::OneHour)),
         },
         ContentPart::Document {
             source: MediaSource::Base64 {
                 media_type: "application/pdf".into(),
                 data: "JVBERi0=".into(),
             },
+            cache: Some(CacheHint::with_ttl(CacheTtl::FiveMinutes)),
         },
         ContentPart::ToolUse {
             id: "toolu_1".into(),
             name: "get_weather".into(),
             input: json!({ "location": "Wellington" }),
+            cache: None,
         },
         ContentPart::ToolResult {
             tool_use_id: "toolu_1".into(),
             content: json!("18C and windy"),
             is_error: None,
+            cache: None,
         },
         ContentPart::ToolResult {
             tool_use_id: "toolu_1".into(),
             content: json!({ "error": "not found" }),
             is_error: Some(true),
+            cache: Some(CacheHint::ephemeral()),
         },
         ContentPart::ServerToolUse {
             id: "srvtoolu_1".into(),
@@ -81,10 +95,12 @@ fn content_part_variants_roundtrip() {
         ContentPart::Thinking {
             thinking: "let me reason".into(),
             signature: Some("sig-blob".into()),
+            cache: None,
         },
         ContentPart::Thinking {
             thinking: String::new(),
             signature: None,
+            cache: None,
         },
         ContentPart::RedactedThinking {
             data: "opaque==".into(),
@@ -133,6 +149,7 @@ fn message_roundtrips() {
             ContentPart::Thinking {
                 thinking: "hmm".into(),
                 signature: Some("sig".into()),
+                cache: None,
             },
             ContentPart::text("done"),
         ],
@@ -161,7 +178,10 @@ fn conversation_options_roundtrips() {
         name: "get_weather".into(),
         description: Some("Look up the weather".into()),
         input_schema: json!({ "type": "object", "properties": {} }),
+        cache: Some(CacheHint::with_ttl(CacheTtl::OneHour)),
     }];
+    options.auto_cache = true;
+    options.cache_negotiation = CacheNegotiation::HardFail;
     options.provider_options.insert(
         "anthropic".to_owned(),
         json!({ "tool_choice": { "type": "auto" }, "top_p": 0.9 }),
@@ -171,12 +191,38 @@ fn conversation_options_roundtrips() {
 }
 
 #[test]
+fn cache_hints_roundtrip_and_default_omits_fields() {
+    assert_json_roundtrip(&CacheHint::ephemeral());
+    assert_json_roundtrip(&CacheHint::with_ttl(CacheTtl::FiveMinutes));
+    assert_json_roundtrip(&CacheHint::with_ttl(CacheTtl::OneHour));
+    assert_json_roundtrip(&CacheNegotiation::SoftIgnore);
+    assert_json_roundtrip(&CacheNegotiation::HardFail);
+
+    // A default (no-TTL) hint serializes as an empty object; TTLs use
+    // provider-agnostic names.
+    assert_eq!(
+        serde_json::to_value(CacheHint::ephemeral()).unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        serde_json::to_value(CacheHint::with_ttl(CacheTtl::OneHour)).unwrap(),
+        json!({ "ttl": "one_hour" })
+    );
+
+    // Default options omit the caching knobs entirely (stable prefix bytes).
+    let value = serde_json::to_value(ConversationOptions::new()).unwrap();
+    assert!(value.get("auto_cache").is_none());
+    assert!(value.get("cache_negotiation").is_none());
+}
+
+#[test]
 fn conversation_roundtrips() {
     let conversation = Conversation {
         id: Uuid::from_u128(1),
         tenant_id: Uuid::from_u128(2),
         binding: ProviderBinding::new("anthropic", "claude-opus-4-8"),
         system: Some("You are helpful.".into()),
+        system_cache: Some(CacheHint::ephemeral()),
         messages: vec![
             Message::user("hi"),
             Message::new(

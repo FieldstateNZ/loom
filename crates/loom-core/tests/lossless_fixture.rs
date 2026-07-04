@@ -30,6 +30,7 @@ fn block_to_part(block: &Value) -> ContentPart {
                     .map(|v| Citation(v.clone()))
                     .collect()
             }),
+            cache: None,
         },
         "thinking" => ContentPart::Thinking {
             thinking: block["thinking"].as_str().unwrap().to_owned(),
@@ -37,6 +38,7 @@ fn block_to_part(block: &Value) -> ContentPart {
                 .get("signature")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            cache: None,
         },
         "redacted_thinking" => ContentPart::RedactedThinking {
             data: block["data"].as_str().unwrap().to_owned(),
@@ -45,6 +47,7 @@ fn block_to_part(block: &Value) -> ContentPart {
             id: block["id"].as_str().unwrap().to_owned(),
             name: block["name"].as_str().unwrap().to_owned(),
             input: block["input"].clone(),
+            cache: None,
         },
         // A CLIENT tool result (sent by the host on the following user turn).
         // Matched explicitly and *before* the server `<tool>_tool_result` arm so
@@ -53,6 +56,7 @@ fn block_to_part(block: &Value) -> ContentPart {
             tool_use_id: block["tool_use_id"].as_str().unwrap().to_owned(),
             content: block["content"].clone(),
             is_error: block.get("is_error").and_then(Value::as_bool),
+            cache: None,
         },
         "server_tool_use" => ContentPart::ServerToolUse {
             id: block["id"].as_str().unwrap().to_owned(),
@@ -83,7 +87,9 @@ fn block_to_part(block: &Value) -> ContentPart {
 /// translator does by correlating the result with its originating call.
 fn part_to_block(part: &ContentPart, server_tool_names: &BTreeMap<String, String>) -> Value {
     match part {
-        ContentPart::Text { text, citations } => {
+        ContentPart::Text {
+            text, citations, ..
+        } => {
             let mut obj = Map::new();
             obj.insert("type".into(), json!("text"));
             obj.insert("text".into(), json!(text));
@@ -98,6 +104,7 @@ fn part_to_block(part: &ContentPart, server_tool_names: &BTreeMap<String, String
         ContentPart::Thinking {
             thinking,
             signature,
+            ..
         } => {
             let mut obj = Map::new();
             obj.insert("type".into(), json!("thinking"));
@@ -110,13 +117,16 @@ fn part_to_block(part: &ContentPart, server_tool_names: &BTreeMap<String, String
         ContentPart::RedactedThinking { data } => {
             json!({ "type": "redacted_thinking", "data": data })
         }
-        ContentPart::ToolUse { id, name, input } => {
+        ContentPart::ToolUse {
+            id, name, input, ..
+        } => {
             json!({ "type": "tool_use", "id": id, "name": name, "input": input })
         }
         ContentPart::ToolResult {
             tool_use_id,
             content,
             is_error,
+            ..
         } => {
             let mut obj = Map::new();
             obj.insert("type".into(), json!("tool_result"));

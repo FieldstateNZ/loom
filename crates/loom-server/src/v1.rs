@@ -26,7 +26,9 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
 use uuid::Uuid;
 
-use loom_core::{Conversation, ConversationOptions, Message, ProviderBinding, Role, Usage};
+use loom_core::{
+    CacheHint, Conversation, ConversationOptions, Message, ProviderBinding, Role, Usage,
+};
 use loom_provider::{
     ensure_supported, required_capabilities, Capability, Provider, ProviderError, TurnEvent,
     TurnEventKind, TurnEventStream,
@@ -329,6 +331,10 @@ pub struct StatelessTurnRequest {
     /// An optional system prompt.
     #[serde(default)]
     pub system: Option<String>,
+    /// An optional prompt-cache breakpoint on the system prompt.
+    #[serde(default)]
+    #[schema(value_type = Object, nullable)]
+    pub system_cache: Option<CacheHint>,
     /// The full, inline message history to run.
     #[schema(value_type = Vec<Object>)]
     pub messages: Vec<Message>,
@@ -373,6 +379,7 @@ async fn stateless_turn(
     let mut conversation =
         Conversation::new(ctx.tenant_id, ProviderBinding::new(req.provider, req.model));
     conversation.system = req.system;
+    conversation.system_cache = req.system_cache;
     conversation.messages = req.messages;
 
     let provider = state

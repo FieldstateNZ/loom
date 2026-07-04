@@ -9,7 +9,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use loom_core::{
-    Citation, ContentPart, Conversation, MediaSource, Message, ProviderBinding, Role, Usage,
+    CacheHint, Citation, ContentPart, Conversation, MediaSource, Message, ProviderBinding, Role,
+    Usage,
 };
 use loom_store::{
     drain_usage_outbox, run_migrations, BudgetAction, BudgetStore, BudgetWindow, ConversationStore,
@@ -210,11 +211,15 @@ fn rich_conversation(tenant_id: Uuid) -> Conversation {
                     media_type: "image/png".to_owned(),
                     data: "AAAA".to_owned(),
                 },
+                // A per-block cache hint persists through the messages JSONB
+                // column and must survive the round-trip.
+                cache: Some(CacheHint::ephemeral()),
             },
             ContentPart::Document {
                 source: MediaSource::Url {
                     url: "https://example.com/doc.pdf".to_owned(),
                 },
+                cache: None,
             },
         ],
     ));
@@ -234,15 +239,18 @@ fn rich_conversation(tenant_id: Uuid) -> Conversation {
             ContentPart::Thinking {
                 thinking: "Let me reason.".to_owned(),
                 signature: Some("sig-xyz".to_owned()),
+                cache: None,
             },
             ContentPart::Text {
                 text: "It is a red square.".to_owned(),
                 citations: Some(vec![Citation(json!({ "page": 1 }))]),
+                cache: None,
             },
             ContentPart::ToolUse {
                 id: "tool-1".to_owned(),
                 name: "get_weather".to_owned(),
                 input: json!({ "city": "Wellington" }),
+                cache: None,
             },
             ContentPart::ServerToolUse {
                 id: "srv-1".to_owned(),
@@ -280,6 +288,7 @@ fn rich_conversation(tenant_id: Uuid) -> Conversation {
             tool_use_id: "tool-1".to_owned(),
             content: json!({ "temp_c": 12 }),
             is_error: Some(false),
+            cache: None,
         }],
     ));
 

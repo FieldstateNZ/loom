@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["time"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
 eventsource-stream = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

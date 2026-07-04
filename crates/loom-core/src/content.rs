@@ -4,14 +4,25 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::CacheHint;
+
 /// A single, typed piece of message content.
 ///
 /// `ContentPart` is the heart of Loom's fluent conversation model. It is rich
 /// enough to carry provider-native concepts — server-side tool use, citations,
-/// and reasoning ("thinking") blocks — **without** flattening them into a lossy
-/// OpenAI-shaped representation. (Per-block cache-control markers gain typed
-/// support with prompt caching; until then they ride verbatim through
-/// [`ContentPart::ProviderExtension`], so they are never dropped.)
+/// reasoning ("thinking") blocks, and per-block prompt-cache markers — **without**
+/// flattening them into a lossy OpenAI-shaped representation.
+///
+/// # Prompt caching
+///
+/// The cacheable variants ([`Text`](ContentPart::Text),
+/// [`Image`](ContentPart::Image), [`Document`](ContentPart::Document),
+/// [`ToolUse`](ContentPart::ToolUse), [`ToolResult`](ContentPart::ToolResult),
+/// and [`Thinking`](ContentPart::Thinking)) each carry an optional
+/// [`cache: Option<CacheHint>`](CacheHint) marking a cache breakpoint at that
+/// block. The field is absent (rather than `null`) when unset, preserving
+/// round-trip fidelity. Provider translators map it to the provider's native
+/// marker (for Anthropic, `cache_control`).
 ///
 /// # Serde representation
 ///
@@ -49,18 +60,27 @@ pub enum ContentPart {
         /// the field entirely.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         citations: Option<Vec<Citation>>,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// An image, supplied inline as base64 or by reference to a URL.
     Image {
         /// Where the image bytes come from.
         source: MediaSource,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// A document (e.g. a PDF), supplied inline as base64 or by reference.
     Document {
         /// Where the document bytes come from.
         source: MediaSource,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// A request from the assistant to invoke a **client-side** tool.
@@ -74,6 +94,9 @@ pub enum ContentPart {
         name: String,
         /// The tool's input arguments, as an opaque JSON value.
         input: serde_json::Value,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// The result of executing a **client-side** tool, sent back to the model.
@@ -86,6 +109,9 @@ pub enum ContentPart {
         /// Whether the tool invocation failed. Absent when unspecified.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// A **provider-executed** tool invocation (e.g. Anthropic web search or
@@ -128,6 +154,9 @@ pub enum ContentPart {
         /// the provider does not sign reasoning.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
+        /// An optional prompt-cache breakpoint at this block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<CacheHint>,
     },
 
     /// A redacted reasoning block whose content the provider has withheld.
@@ -161,6 +190,7 @@ impl ContentPart {
         Self::Text {
             text: text.into(),
             citations: None,
+            cache: None,
         }
     }
 }

@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::Message;
+use crate::{CacheHint, Message};
 
 /// The provider a conversation is bound to, and the model to use.
 ///
@@ -56,6 +56,18 @@ pub struct Conversation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
 
+    /// An optional prompt-cache breakpoint on the system prompt.
+    ///
+    /// When set (and [`system`](Conversation::system) is present), provider
+    /// translators mark the system prefix — which, together with any tools,
+    /// forms the stable head of the request — as a cache breakpoint. This is a
+    /// request-render concern rather than durable state: it is **not**
+    /// persisted, so it takes effect only on the in-memory conversation a turn
+    /// is run against (the stateless turn path, or the auto-cache strategy for
+    /// persisted history). It is absent (rather than `null`) when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_cache: Option<CacheHint>,
+
     /// The ordered message history.
     #[serde(default)]
     pub messages: Vec<Message>,
@@ -87,6 +99,7 @@ impl Conversation {
             tenant_id,
             binding,
             system: None,
+            system_cache: None,
             messages: Vec::new(),
             metadata: serde_json::Value::Null,
             created_at: now,
