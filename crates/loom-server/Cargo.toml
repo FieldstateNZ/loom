@@ -37,6 +37,9 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+utoipa = { workspace = true }
 
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 
@@ -52,6 +55,8 @@ subtle = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
+futures = { workspace = true }
 loom-provider = { workspace = true, features = ["mock"] }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+wiremock = { workspace = true }

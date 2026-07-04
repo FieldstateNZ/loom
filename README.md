@@ -93,8 +93,13 @@ Generate an encryption key with `openssl rand -hex 32`.
 | --- | --- | --- |
 | `GET /healthz` | none | Liveness (always `200 ok`). |
 | `GET /readyz` | none | Readiness — pings the database; `503` if unreachable. |
+| `GET /openapi.json` | none | The generated OpenAPI 3.x document for the API. |
 | `GET /v1/whoami` | virtual key | Echoes the authenticated tenant context. |
-| `GET /v1/conversations/{id}` | virtual key | A tenant-scoped resource (returns `404` across tenants). |
+| `POST /v1/conversations` | virtual key | Create a conversation `{ provider, model, system?, metadata? }`. |
+| `GET /v1/conversations/{id}` | virtual key | Fetch a conversation with a page of its history (`?limit&offset`); `404` across tenants. |
+| `POST /v1/conversations/{id}/turns` | virtual key | Append a user turn, run the provider, return/stream the assistant turn `{ content, stream?, options? }`. |
+| `DELETE /v1/conversations/{id}` | virtual key | Delete a conversation (tenant-scoped). |
+| `POST /v1/turns` | virtual key | Stateless turn over a fully-inline conversation `{ provider, model, system?, messages, options?, stream? }` — no persistence. |
 | `POST /admin/tenants` | root token | Create a tenant `{ slug, name }`. |
 | `GET /admin/tenants/{id}` | root token | Fetch a tenant. |
 | `POST /admin/tenants/{id}/keys` | root token | Mint a virtual key `{ name, env? }`. |
@@ -142,6 +147,49 @@ curl -s -X PUT $BASE/admin/tenants/$TENANT/credentials/anthropic \
 # 4. Call the gateway with the virtual key.
 curl -s $BASE/v1/whoami -H "Authorization: Bearer loom_live_..."
 ```
+
+### Conversations (`/v1`)
+
+With a virtual key and the tenant's Anthropic credential in place (steps above),
+drive a conversation. Each turn persists the user message, runs the bound
+provider, and persists the assistant reply.
+
+```bash
+KEY=loom_live_...            # the virtual key from step 2
+BASE=http://localhost:8080
+
+# 1. Create a conversation bound to a provider + model.
+CONVO=$(curl -s -X POST $BASE/v1/conversations \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"provider":"anthropic","model":"claude-opus-4-8","system":"You are concise."}' \
+  | jq -r .id)
+
+# 2. Send a turn; the assistant message comes back as JSON.
+curl -s -X POST $BASE/v1/conversations/$CONVO/turns \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"content":[{"type":"text","text":"Hello, Loom!"}]}'
+
+# 3. Stream a turn as Server-Sent Events (each `data:` frame is a TurnEvent,
+#    carrying both the normalised envelope and the verbatim native event).
+curl -sN -X POST $BASE/v1/conversations/$CONVO/turns \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"content":[{"type":"text","text":"Stream this."}],"stream":true}'
+
+# 4. Read the history back (paginated).
+curl -s "$BASE/v1/conversations/$CONVO?limit=50" \
+  -H "Authorization: Bearer $KEY"
+
+# 5. A stateless turn — the whole conversation inline, nothing persisted.
+curl -s -X POST $BASE/v1/turns \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"provider":"anthropic","model":"claude-opus-4-8",
+       "messages":[{"role":"user","content":[{"type":"text","text":"One-shot."}]}]}'
+```
+
+Capability negotiation runs before any request is dispatched: asking a model for
+a feature it does not support returns `422` with a `capability_unsupported`
+detail rather than silently degrading. A provider's own HTTP errors are mapped
+through with the native payload preserved under `error.provider_error`.
 
 ## Licence
 

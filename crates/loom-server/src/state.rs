@@ -4,12 +4,16 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+use uuid::Uuid;
 
+use loom_provider::Provider;
 use loom_store::PgStore;
 
 use crate::config::Config;
 use crate::crypto::Crypto;
+use crate::error::ApiError;
 use crate::keys::KeyHasher;
+use crate::provider::{DefaultProviderFactory, ProviderFactory};
 
 /// The state shared across all handlers.
 ///
@@ -25,6 +29,7 @@ struct Inner {
     crypto: Crypto,
     hasher: KeyHasher,
     root_admin_token: String,
+    factory: Arc<dyn ProviderFactory>,
 }
 
 impl AppState {
@@ -42,6 +47,26 @@ impl AppState {
                 crypto,
                 hasher,
                 root_admin_token,
+                factory: Arc::new(DefaultProviderFactory),
+            }),
+        }
+    }
+
+    /// Returns a clone of this state with its [`ProviderFactory`] replaced.
+    ///
+    /// The default state resolves the compiled-in providers via
+    /// [`DefaultProviderFactory`]; tests use this to substitute a factory that
+    /// returns a mock provider, exercising the conversation API without a live
+    /// backend.
+    #[must_use]
+    pub fn with_provider_factory(self, factory: Arc<dyn ProviderFactory>) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                crypto: self.inner.crypto.clone(),
+                hasher: self.inner.hasher.clone(),
+                root_admin_token: self.inner.root_admin_token.clone(),
+                factory,
             }),
         }
     }
@@ -74,6 +99,21 @@ impl AppState {
     #[must_use]
     pub fn hasher(&self) -> &KeyHasher {
         &self.inner.hasher
+    }
+
+    /// Resolves the [`Provider`] bound to `provider` for `tenant_id` via the
+    /// configured [`ProviderFactory`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates the factory's structured [`ApiError`] when the provider is
+    /// unknown, unconfigured, or its credential cannot be decrypted.
+    pub async fn resolve_provider(
+        &self,
+        tenant_id: Uuid,
+        provider: &str,
+    ) -> Result<Arc<dyn Provider>, ApiError> {
+        self.inner.factory.provider(self, tenant_id, provider).await
     }
 
     /// Constant-time comparison of a presented admin token against the

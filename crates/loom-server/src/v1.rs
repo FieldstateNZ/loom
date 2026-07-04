@@ -1,0 +1,578 @@
+//! The `/v1` conversation API: tenant-scoped conversations and turns.
+//!
+//! Every route here is guarded by [`tenant_auth`](crate::auth::tenant_auth), so
+//! handlers receive a resolved [`TenantContext`] and scope every store call to
+//! it. The turn endpoints resolve the bound [`Provider`] through the
+//! [`AppState`]'s provider factory, run capability negotiation, and either
+//! return the assistant [`Message`] (non-streaming) or an SSE stream of
+//! [`TurnEvent`] envelopes (streaming). The stateful and stateless turn paths
+//! share one core runner ([`execute_turn`]) so their behaviour cannot drift.
+
+use std::collections::BTreeMap;
+use std::convert::Infallible;
+
+use axum::extract::{Path, Query, State};
+use axum::response::sse::{Event, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use futures::{stream, StreamExt};
+use http::header::HeaderValue;
+use http::StatusCode;
+use serde::{Deserialize, Serialize};
+use utoipa::{OpenApi, ToSchema};
+use uuid::Uuid;
+
+use loom_core::{Conversation, ConversationOptions, Message, ProviderBinding, Role, Usage};
+use loom_provider::{
+    ensure_supported, required_capabilities, Capability, Provider, ProviderError, TurnEvent,
+    TurnEventKind, TurnEventStream,
+};
+use loom_store::ConversationStore;
+
+use crate::auth::TenantContext;
+use crate::error::ApiError;
+use crate::state::AppState;
+
+/// The default number of messages returned by a conversation fetch.
+const DEFAULT_MESSAGE_LIMIT: i64 = 100;
+/// The maximum number of messages returned by a single conversation fetch.
+const MAX_MESSAGE_LIMIT: i64 = 1000;
+
+/// Builds the `/v1` sub-router (without its auth layer, which the top-level
+/// router applies).
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/v1/whoami", get(whoami))
+        .route("/v1/conversations", post(create_conversation))
+        .route(
+            "/v1/conversations/{id}",
+            get(get_conversation).delete(delete_conversation),
+        )
+        .route("/v1/conversations/{id}/turns", post(create_turn))
+        .route("/v1/turns", post(stateless_turn))
+}
+
+/// The `/v1/whoami` response: the authenticated identity.
+#[derive(Serialize)]
+struct WhoAmI {
+    tenant_id: Uuid,
+    key_id: Uuid,
+    key_prefix: String,
+    scopes: Vec<String>,
+}
+
+/// `GET /v1/whoami` — echoes the resolved [`TenantContext`]. Useful for smoke
+/// tests of the auth layer.
+async fn whoami(ctx: TenantContext) -> Json<WhoAmI> {
+    Json(WhoAmI {
+        tenant_id: ctx.tenant_id,
+        key_id: ctx.key_id,
+        key_prefix: ctx.key_prefix,
+        scopes: ctx.scopes,
+    })
+}
+
+/// Request body for creating a conversation.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateConversationRequest {
+    /// The provider to bind the conversation to (e.g. `"anthropic"`).
+    pub provider: String,
+    /// The model identifier, as the provider expects it.
+    pub model: String,
+    /// An optional system prompt applied to the whole conversation.
+    #[serde(default)]
+    pub system: Option<String>,
+    /// Free-form caller metadata (tags, correlation IDs, …).
+    #[serde(default)]
+    #[schema(value_type = Object, nullable)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// `POST /v1/conversations` — create a tenant-scoped conversation.
+#[utoipa::path(
+    post,
+    path = "/v1/conversations",
+    tag = "conversations",
+    request_body = CreateConversationRequest,
+    responses(
+        (status = 201, description = "Conversation created", body = Object),
+        (status = 400, description = "Malformed request", body = Object),
+        (status = 401, description = "Missing or invalid virtual key", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn create_conversation(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Json(req): Json<CreateConversationRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if req.provider.trim().is_empty() || req.model.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "provider and model must not be empty",
+        ));
+    }
+
+    let mut conversation =
+        Conversation::new(ctx.tenant_id, ProviderBinding::new(req.provider, req.model));
+    conversation.system = req.system;
+    if let Some(metadata) = req.metadata {
+        conversation.metadata = metadata;
+    }
+
+    state
+        .store()
+        .create_conversation(&conversation)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    Ok((StatusCode::CREATED, Json(conversation)))
+}
+
+/// Query parameters selecting a page of a conversation's message history.
+#[derive(Debug, Deserialize)]
+struct Pagination {
+    /// Maximum number of messages to return.
+    limit: Option<i64>,
+    /// Number of messages to skip from the start of the history.
+    offset: Option<i64>,
+}
+
+/// `GET /v1/conversations/{id}` — fetch a conversation with a page of its
+/// history, scoped to the caller's tenant.
+#[utoipa::path(
+    get,
+    path = "/v1/conversations/{id}",
+    tag = "conversations",
+    params(
+        ("id" = Uuid, Path, description = "Conversation id"),
+        ("limit" = Option<i64>, Query, description = "Max messages to return (default 100)"),
+        ("offset" = Option<i64>, Query, description = "Messages to skip from the start"),
+    ),
+    responses(
+        (status = 200, description = "The conversation and a page of its messages", body = Object),
+        (status = 404, description = "No such conversation for this tenant", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn get_conversation(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Path(id): Path<Uuid>,
+    Query(page): Query<Pagination>,
+) -> Result<impl IntoResponse, ApiError> {
+    let mut conversation = state
+        .store()
+        .get_conversation(ctx.tenant_id, id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::not_found("conversation not found"))?;
+
+    let limit = page
+        .limit
+        .unwrap_or(DEFAULT_MESSAGE_LIMIT)
+        .clamp(1, MAX_MESSAGE_LIMIT);
+    let offset = page.offset.unwrap_or(0).max(0);
+
+    conversation.messages = state
+        .store()
+        .list_messages(ctx.tenant_id, id, limit, offset)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    Ok(Json(conversation))
+}
+
+/// `DELETE /v1/conversations/{id}` — delete a conversation scoped to the
+/// caller's tenant.
+#[utoipa::path(
+    delete,
+    path = "/v1/conversations/{id}",
+    tag = "conversations",
+    params(("id" = Uuid, Path, description = "Conversation id")),
+    responses(
+        (status = 204, description = "Deleted"),
+        (status = 404, description = "No such conversation for this tenant", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn delete_conversation(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    if state
+        .store()
+        .delete_conversation(ctx.tenant_id, id)
+        .await
+        .map_err(ApiError::from_store)?
+    {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("conversation not found"))
+    }
+}
+
+/// Request body for appending a turn to a stored conversation.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TurnRequest {
+    /// The user turn's content parts, in provider-significant order.
+    #[schema(value_type = Vec<Object>)]
+    pub content: Vec<loom_core::ContentPart>,
+    /// Whether to stream the assistant turn as Server-Sent Events.
+    #[serde(default)]
+    pub stream: bool,
+    /// Request-time provider options (sampling, tools, …).
+    #[serde(default)]
+    #[schema(value_type = Object, nullable)]
+    pub options: Option<ConversationOptions>,
+}
+
+/// `POST /v1/conversations/{id}/turns` — append a user turn, run the bound
+/// provider, and return (or stream) the assistant turn, persisting both.
+#[utoipa::path(
+    post,
+    path = "/v1/conversations/{id}/turns",
+    tag = "conversations",
+    params(("id" = Uuid, Path, description = "Conversation id")),
+    request_body = TurnRequest,
+    responses(
+        (status = 200, description = "The assistant message, or an SSE stream when stream=true", body = Object),
+        (status = 404, description = "No such conversation for this tenant", body = Object),
+        (status = 422, description = "Capability unsupported or provider not configured", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn create_turn(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Path(id): Path<Uuid>,
+    Json(req): Json<TurnRequest>,
+) -> Result<Response, ApiError> {
+    if req.content.is_empty() {
+        return Err(ApiError::bad_request("content must not be empty"));
+    }
+
+    let mut conversation = state
+        .store()
+        .get_conversation(ctx.tenant_id, id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::not_found("conversation not found"))?;
+
+    let options = req.options.unwrap_or_default();
+    let user_turn = Message::new(Role::User, req.content);
+
+    // Resolve the provider and negotiate capabilities *before* persisting the
+    // user turn, so a doomed request (no credential, unsupported capability)
+    // fails fast without mutating history.
+    let provider = state
+        .resolve_provider(ctx.tenant_id, &conversation.binding.provider)
+        .await?;
+    conversation.messages.push(user_turn.clone());
+    negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
+
+    // Persist the user turn now that the request is known to be runnable.
+    state
+        .store()
+        .append_message(ctx.tenant_id, id, &user_turn)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::not_found("conversation not found"))?;
+
+    execute_turn(provider, &state, conversation, options, req.stream, true).await
+}
+
+/// Request body for a stateless turn: the whole conversation is supplied inline
+/// and nothing is persisted.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct StatelessTurnRequest {
+    /// The provider to run against (e.g. `"anthropic"`).
+    pub provider: String,
+    /// The model identifier, as the provider expects it.
+    pub model: String,
+    /// An optional system prompt.
+    #[serde(default)]
+    pub system: Option<String>,
+    /// The full, inline message history to run.
+    #[schema(value_type = Vec<Object>)]
+    pub messages: Vec<Message>,
+    /// Request-time provider options.
+    #[serde(default)]
+    #[schema(value_type = Object, nullable)]
+    pub options: Option<ConversationOptions>,
+    /// Whether to stream the assistant turn as Server-Sent Events.
+    #[serde(default)]
+    pub stream: bool,
+}
+
+/// `POST /v1/turns` — run the provider on a fully-inline conversation with **no**
+/// persistence. Shares [`execute_turn`] with the stateful path for parity.
+#[utoipa::path(
+    post,
+    path = "/v1/turns",
+    tag = "conversations",
+    request_body = StatelessTurnRequest,
+    responses(
+        (status = 200, description = "The assistant message, or an SSE stream when stream=true", body = Object),
+        (status = 400, description = "Malformed request", body = Object),
+        (status = 422, description = "Capability unsupported or provider not configured", body = Object),
+    ),
+    security(("virtual_key" = []))
+)]
+async fn stateless_turn(
+    State(state): State<AppState>,
+    ctx: TenantContext,
+    Json(req): Json<StatelessTurnRequest>,
+) -> Result<Response, ApiError> {
+    if req.provider.trim().is_empty() || req.model.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "provider and model must not be empty",
+        ));
+    }
+
+    let options = req.options.unwrap_or_default();
+    let mut conversation =
+        Conversation::new(ctx.tenant_id, ProviderBinding::new(req.provider, req.model));
+    conversation.system = req.system;
+    conversation.messages = req.messages;
+
+    let provider = state
+        .resolve_provider(ctx.tenant_id, &conversation.binding.provider)
+        .await?;
+    negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
+
+    execute_turn(provider, &state, conversation, options, req.stream, false).await
+}
+
+/// Runs capability negotiation for a turn, failing fast with a structured error.
+///
+/// Mirrors what a provider does internally, but runs *before* any state is
+/// mutated so an unsupported request never persists a partial turn.
+fn negotiate(
+    provider: &dyn Provider,
+    conversation: &Conversation,
+    options: &ConversationOptions,
+    stream: bool,
+) -> Result<(), ApiError> {
+    let descriptor = provider.descriptor();
+    let model = descriptor
+        .model(&conversation.binding.model)
+        .ok_or_else(|| {
+            ApiError::from_provider(ProviderError::ModelNotFound {
+                provider: descriptor.name.clone(),
+                model: conversation.binding.model.clone(),
+            })
+        })?;
+
+    let mut required = required_capabilities(conversation, options);
+    if stream {
+        required.insert(Capability::Streaming);
+    }
+    ensure_supported(&descriptor.name, model, &required).map_err(ApiError::from_provider)
+}
+
+/// The shared core of both turn paths: runs the provider and, when `persist` is
+/// set, records the assistant turn against `conversation`.
+///
+/// Non-streaming returns the assistant [`Message`] as JSON; streaming returns an
+/// SSE response of [`TurnEvent`] envelopes, persisting the reassembled assistant
+/// message when the stream ends.
+async fn execute_turn(
+    provider: std::sync::Arc<dyn Provider>,
+    state: &AppState,
+    conversation: Conversation,
+    options: ConversationOptions,
+    stream: bool,
+    persist: bool,
+) -> Result<Response, ApiError> {
+    if stream {
+        let events = provider
+            .stream(&conversation, &options)
+            .await
+            .map_err(ApiError::from_provider)?;
+        let sink = persist.then(|| PersistTarget {
+            state: state.clone(),
+            tenant_id: conversation.tenant_id,
+            conversation_id: conversation.id,
+        });
+        Ok(sse_response(events, sink))
+    } else {
+        let message = provider
+            .complete(&conversation, &options)
+            .await
+            .map_err(ApiError::from_provider)?;
+        if persist {
+            state
+                .store()
+                .append_message(conversation.tenant_id, conversation.id, &message)
+                .await
+                .map_err(ApiError::from_store)?;
+        }
+        Ok(Json(message).into_response())
+    }
+}
+
+/// Where a streamed assistant turn should be persisted when the stream ends.
+struct PersistTarget {
+    state: AppState,
+    tenant_id: Uuid,
+    conversation_id: Uuid,
+}
+
+/// The mutable state driving the SSE `unfold`.
+struct SseState {
+    events: TurnEventStream,
+    accumulator: TurnAccumulator,
+    persist: Option<PersistTarget>,
+    done: bool,
+}
+
+/// Builds the SSE [`Response`] for a streamed turn.
+///
+/// Each provider [`TurnEvent`] is serialised verbatim (normalised envelope plus
+/// raw native event) as one `data:` frame. When the underlying stream ends —
+/// cleanly or via a provider error — the reassembled assistant [`Message`] is
+/// persisted (best effort) if a [`PersistTarget`] was supplied.
+fn sse_response(events: TurnEventStream, persist: Option<PersistTarget>) -> Response {
+    let initial = SseState {
+        events,
+        accumulator: TurnAccumulator::new(),
+        persist,
+        done: false,
+    };
+
+    let body = stream::unfold(initial, |mut state| async move {
+        if state.done {
+            return None;
+        }
+        match state.events.next().await {
+            Some(Ok(event)) => {
+                state.accumulator.ingest(&event);
+                let frame = Event::default()
+                    .json_data(&event)
+                    .unwrap_or_else(|_| Event::default().data("{}"));
+                Some((Ok::<Event, Infallible>(frame), state))
+            }
+            Some(Err(err)) => {
+                // Persist whatever was assembled before the failure, then emit a
+                // terminal error frame and end the stream.
+                state.persist_assembled().await;
+                let envelope = ApiError::from_provider(err).envelope();
+                let frame = Event::default()
+                    .event("error")
+                    .json_data(&envelope)
+                    .unwrap_or_else(|_| Event::default().event("error").data("{}"));
+                state.done = true;
+                Some((Ok(frame), state))
+            }
+            None => {
+                state.persist_assembled().await;
+                None
+            }
+        }
+    });
+
+    let mut response = Sse::new(body).into_response();
+    // Discourage proxy buffering so events flush to the client promptly.
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    response
+}
+
+impl SseState {
+    /// Persists the assistant message assembled so far, if a target was set.
+    /// Best effort: a persistence failure is logged, never surfaced mid-stream.
+    async fn persist_assembled(&mut self) {
+        let Some(target) = self.persist.take() else {
+            return;
+        };
+        let message = self.accumulator.message();
+        if let Err(err) = target
+            .state
+            .store()
+            .append_message(target.tenant_id, target.conversation_id, &message)
+            .await
+        {
+            tracing::error!(
+                error = %err,
+                conversation_id = %target.conversation_id,
+                "failed to persist streamed assistant turn"
+            );
+        }
+    }
+}
+
+/// Reassembles the assistant [`Message`] from a provider's normalised
+/// [`TurnEvent`] stream.
+///
+/// This works over the provider-agnostic [`TurnEventKind`] envelope — completed
+/// content parts and the final usage snapshot — so it reassembles any provider's
+/// turn identically, without reaching into a provider's native wire format.
+#[derive(Default)]
+struct TurnAccumulator {
+    parts: BTreeMap<usize, loom_core::ContentPart>,
+    usage: Option<Usage>,
+}
+
+impl TurnAccumulator {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Folds one event into the assembled turn.
+    fn ingest(&mut self, event: &TurnEvent) {
+        match &event.kind {
+            TurnEventKind::ContentPartComplete { index, part } => {
+                self.parts.insert(*index, part.clone());
+            }
+            TurnEventKind::Usage(usage) => {
+                self.usage = Some(usage.clone());
+            }
+            TurnEventKind::TurnEnded {
+                usage: Some(usage), ..
+            } => {
+                self.usage = Some(usage.clone());
+            }
+            _ => {}
+        }
+    }
+
+    /// The assistant [`Message`] assembled from the events seen so far, with
+    /// content parts in ascending index order.
+    fn message(&self) -> Message {
+        let content = self.parts.values().cloned().collect();
+        let mut message = Message::new(Role::Assistant, content);
+        message.usage = self.usage.clone();
+        message
+    }
+}
+
+/// The OpenAPI document for the gateway's HTTP surface.
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Loom gateway API",
+        description = "Multi-tenant LLM gateway: tenant-scoped conversations and turns over pluggable providers."
+    ),
+    paths(
+        create_conversation,
+        get_conversation,
+        delete_conversation,
+        create_turn,
+        stateless_turn,
+    ),
+    components(schemas(
+        CreateConversationRequest,
+        TurnRequest,
+        StatelessTurnRequest,
+    )),
+    tags((name = "conversations", description = "Tenant-scoped conversation and turn endpoints"))
+)]
+pub struct ApiDoc;
+
+/// `GET /openapi.json` — the generated OpenAPI 3.x document.
+pub async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    Json(ApiDoc::openapi())
+}
