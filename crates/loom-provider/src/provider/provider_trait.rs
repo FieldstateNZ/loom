@@ -1,18 +1,11 @@
 //! The [`Provider`] plugin trait.
 
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use loom_core::{Conversation, ConversationOptions, Message, Usage};
 
+use super::turn_event_stream::TurnEventStream;
 use crate::capability::ProviderDescriptor;
 use crate::error::{Cost, ProviderError};
-use crate::event::TurnEvent;
-
-/// A stream of streaming turn events, boxed so the trait stays object-safe.
-///
-/// Each item is a `Result` so a mid-stream provider failure can be surfaced
-/// without tearing down the whole stream.
-pub type TurnEventStream = BoxStream<'static, Result<TurnEvent, ProviderError>>;
 
 /// A pluggable LLM provider.
 ///
@@ -125,6 +118,8 @@ pub trait Provider: Send + Sync {
     ///
     /// Every event carries both the normalised envelope and the verbatim native
     /// provider event, so consumers may work at either level.
+    ///
+    /// [`TurnEvent`]: crate::TurnEvent
     async fn stream(
         &self,
         conversation: &Conversation,
