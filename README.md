@@ -1,15 +1,22 @@
 # Loom
 
-**A multi-tenant LLM gateway that speaks _fluent conversation_ — and never flattens a provider's native features to do it.**
+**The reference server implementation of [OASP](https://github.com/oasp-dev/oasp-standard), the Open Agent Session Protocol.**
 
-Most gateways normalise every provider down to an OpenAI-shaped lowest common
-denominator. That's lossy: Anthropic's server-side web search, code execution,
-MCP connector, prompt caching and extended thinking simply disappear. Loom takes
-the opposite bet — it owns **one rich conversation abstraction** and lets
-pluggable **provider libraries** translate it to each provider's **native wire
-format**, preserving every managed capability verbatim (and carrying anything it
-doesn't yet model through a `ProviderExtension` escape hatch, so no feature is
-ever dropped).
+OASP is built on one structural insight: **a Conversation is not a Session.**
+The durable thread a user cares about should outlive the disposable provider
+execution context it currently rides on. Loom is the server that proves it: a
+multi-tenant agent-session gateway that holds conversations under tension while
+provider sessions come and go. Hence the name. The conversation is the warp;
+sessions are the weft.
+
+Loom also refuses the industry default of normalising every provider down to an
+OpenAI-shaped lowest common denominator. That approach is lossy: Anthropic's
+server-side web search, code execution, MCP connector, prompt caching and
+extended thinking simply disappear. Loom owns **one rich conversation
+abstraction** and lets pluggable **provider libraries** translate it to each
+provider's **native wire format**, preserving every managed capability verbatim
+(and carrying anything it doesn't yet model through a `ProviderExtension`
+escape hatch, so no feature is ever dropped).
 
 Anthropic is the first provider, including its managed capabilities.
 
@@ -36,6 +43,26 @@ Anthropic is the first provider, including its managed capabilities.
                     │  caching · server tools      │
                     └──────────────────────────────┘
 ```
+
+## Loom and OASP
+
+[OASP](https://oasp.dev) is a vendor-neutral standard for agent conversations
+that outlive their execution context, with first-class identity and audit. The
+standard is the product; Loom is its reference server. In practice:
+
+- **Resource model** — OASP defines AgentDefinition, Deployment, Conversation,
+  Session, Event, Principal, AuditEvent and Credential (plus
+  AgentDefinitionVersion, the definition's versioning companion). Loom's
+  conversation domain is converging on that model, resource by resource.
+- **Conformance** — the standard ships an executable conformance kit. Loom
+  tracks the v1alpha1 draft, and conformance is the acceptance bar for the work
+  landing here.
+- **Adapters** — OASP's adapter contract plays the role Loom's provider trait
+  plays today. Anthropic is the reference adapter in both.
+
+Spec prose, Zod-first schemas, generated JSON Schema/OpenAPI, and the v0
+concept draft live in
+[oasp-dev/oasp-standard](https://github.com/oasp-dev/oasp-standard) (Apache-2.0).
 
 ## Workspace crates
 
@@ -91,7 +118,10 @@ cd clients/typescript && npm install && npm run build && npm test
 ## Status
 
 > ⚠️ **Early development.** The scaffold, domain model, provider abstraction and
-> Anthropic provider are landing issue-by-issue. Not production-ready yet.
+> Anthropic provider are landing issue-by-issue. The current focus is OASP
+> conformance: aligning Loom's domain and API with the
+> [OASP v1alpha1 draft](https://github.com/oasp-dev/oasp-standard) as the
+> standard stabilises. Not production-ready yet.
 
 ![CI](https://github.com/fieldstatenz/loom/actions/workflows/ci.yml/badge.svg)
 
