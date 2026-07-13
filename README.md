@@ -1,11 +1,11 @@
 # Loom
 
-**The reference server implementation of [OASP](https://github.com/oasp-dev/oasp-standard), the Open Agent Session Protocol.**
+**Loom will be the reference server implementation of [OASP](https://github.com/oasp-dev/oasp-standard), the Open Agent Session Protocol.**
 
 OASP is built on one structural insight: **a Conversation is not a Session.**
 The durable thread a user cares about should outlive the disposable provider
-execution context it currently rides on. Loom is the server that proves it: a
-multi-tenant agent-session gateway that holds conversations under tension while
+execution context it currently rides on. Loom is the server being built to prove
+it: a multi-tenant agent-session gateway that holds conversations under tension while
 provider sessions come and go. Hence the name. The conversation is the warp;
 sessions are the weft.
 
@@ -48,7 +48,7 @@ Anthropic is the first provider, including its managed capabilities.
 
 [OASP](https://oasp.dev) is a vendor-neutral standard for agent conversations
 that outlive their execution context, with first-class identity and audit. The
-standard is the product; Loom is its reference server. In practice:
+standard is the product; Loom is becoming its reference server. In practice:
 
 - **Resource model** — OASP defines AgentDefinition, Deployment, Conversation,
   Session, Event, Principal, AuditEvent and Credential (plus
