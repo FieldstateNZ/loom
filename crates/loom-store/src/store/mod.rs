@@ -14,6 +14,7 @@ mod mcp;
 mod outbox;
 mod pricing;
 mod session;
+mod session_event;
 mod tenant;
 mod usage;
 
@@ -27,5 +28,6 @@ pub use mcp::McpServerStore;
 pub use outbox::OutboxStore;
 pub use pricing::PricingStore;
 pub use session::SessionStore;
+pub use session_event::SessionEventStore;
 pub use tenant::TenantStore;
 pub use usage::UsageStore;

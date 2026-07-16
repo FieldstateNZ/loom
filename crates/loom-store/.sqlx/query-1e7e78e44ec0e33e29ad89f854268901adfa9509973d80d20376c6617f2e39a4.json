@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.seq, e.kind, e.at\n            FROM session_events e\n            JOIN sessions s ON s.id = e.session_id\n            WHERE e.session_id = $1 AND s.tenant_id = $2 AND e.seq > $3\n            ORDER BY e.seq\n            LIMIT $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1e7e78e44ec0e33e29ad89f854268901adfa9509973d80d20376c6617f2e39a4"
+}

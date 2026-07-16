@@ -10,6 +10,7 @@ mod mcp;
 mod outbox;
 mod pricing;
 mod session;
+mod session_event;
 mod tenant;
 mod usage;
 
