@@ -1,5 +1,6 @@
 //! PostgreSQL implementation of the store traits.
 
+mod agent;
 mod batch;
 mod budget;
 mod conversation;

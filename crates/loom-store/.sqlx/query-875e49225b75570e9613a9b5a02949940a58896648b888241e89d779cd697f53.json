@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE agent_definitions\n            SET published_version = draft_version, updated_at = now()\n            WHERE id = $1 AND tenant_id = $2\n            RETURNING published_version\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "published_version",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "875e49225b75570e9613a9b5a02949940a58896648b888241e89d779cd697f53"
+}

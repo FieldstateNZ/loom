@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT v.agent_definition_id, v.version, v.content, v.created_at\n            FROM agent_definition_versions v\n            JOIN agent_definitions d ON d.id = v.agent_definition_id\n            WHERE v.agent_definition_id = $1 AND v.version = $2 AND d.tenant_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_definition_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e76e66a90cb8e1aced204d06f10d7a23d6c56ff1aa2e83ab7de7607d5df6cdd5"
+}
