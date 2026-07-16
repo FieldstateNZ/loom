@@ -26,6 +26,8 @@ fn conversation_roundtrips() {
                 }],
             ),
         ],
+        current_session_id: Some(Uuid::from_u128(3)),
+        previous_session_ids: vec![Uuid::from_u128(4)],
         metadata: json!({ "trace_id": "abc" }),
         created_at: Utc.with_ymd_and_hms(2026, 7, 3, 12, 0, 0).unwrap(),
         updated_at: Utc.with_ymd_and_hms(2026, 7, 3, 12, 5, 0).unwrap(),

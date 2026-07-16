@@ -46,7 +46,7 @@ pub use pg::PgStore;
 pub use pricing::Pricer;
 pub use store::{
     BatchStore, BudgetStore, ConversationStore, CredentialStore, KeyStore, McpServerStore,
-    OutboxStore, PricingStore, TenantStore, UsageStore,
+    OutboxStore, PricingStore, SessionStore, TenantStore, UsageStore,
 };
 
 /// Re-export of the domain model persisted by this layer.

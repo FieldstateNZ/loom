@@ -48,6 +48,29 @@ pub struct Conversation {
     #[serde(default)]
     pub messages: Vec<Message>,
 
+    /// The conversation's current (active) [`Session`]: the execution context
+    /// new turns run against.
+    ///
+    /// OASP models a Conversation as a durable thread riding a lineage of
+    /// disposable Sessions; this is the live one. It is always populated for a
+    /// live conversation — a conversation with no current session is only a
+    /// transient mid-migration state — and is absent (rather than `null`) when
+    /// unset.
+    ///
+    /// [`Session`]: crate::Session
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_session_id: Option<Uuid>,
+
+    /// The ids of this conversation's superseded [`Session`]s, oldest-first —
+    /// its lineage.
+    ///
+    /// Append-only: a migration appends the outgoing session id here as it swaps
+    /// in a fresh one. Empty until the conversation has migrated at least once.
+    ///
+    /// [`Session`]: crate::Session
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_session_ids: Vec<Uuid>,
+
     /// Free-form, caller-supplied metadata (tags, correlation IDs, …).
     ///
     /// Defaults to JSON `null` when unset.
@@ -63,10 +86,12 @@ pub struct Conversation {
 
 impl Conversation {
     /// Constructs a new, empty conversation with a freshly generated
-    /// [`Conversation::id`] and `created_at` / `updated_at` set to `now`.
+    /// [`Conversation::id`], a freshly minted active
+    /// [`current_session_id`](Conversation::current_session_id), and `created_at`
+    /// / `updated_at` set to `now`.
     ///
-    /// The message history is empty, there is no system prompt, and
-    /// [`Conversation::metadata`] is JSON `null`.
+    /// The message history is empty, the lineage is empty, there is no system
+    /// prompt, and [`Conversation::metadata`] is JSON `null`.
     #[must_use]
     pub fn new(tenant_id: Uuid, binding: ProviderBinding) -> Self {
         let now = Utc::now();
@@ -77,6 +102,8 @@ impl Conversation {
             system: None,
             system_cache: None,
             messages: Vec::new(),
+            current_session_id: Some(Uuid::new_v4()),
+            previous_session_ids: Vec::new(),
             metadata: serde_json::Value::Null,
             created_at: now,
             updated_at: now,

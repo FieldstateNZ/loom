@@ -607,6 +607,20 @@ export interface components {
             created_at: string;
             /**
              * Format: uuid
+             * @description The conversation's current (active) [`Session`]: the execution context
+             *     new turns run against.
+             *
+             *     OASP models a Conversation as a durable thread riding a lineage of
+             *     disposable Sessions; this is the live one. It is always populated for a
+             *     live conversation — a conversation with no current session is only a
+             *     transient mid-migration state — and is absent (rather than `null`) when
+             *     unset.
+             *
+             *     [`Session`]: crate::Session
+             */
+            current_session_id?: string | null;
+            /**
+             * Format: uuid
              * @description The conversation's unique identifier.
              */
             id: string;
@@ -618,6 +632,16 @@ export interface components {
              *     Defaults to JSON `null` when unset.
              */
             metadata?: unknown;
+            /**
+             * @description The ids of this conversation's superseded [`Session`]s, oldest-first —
+             *     its lineage.
+             *
+             *     Append-only: a migration appends the outgoing session id here as it swaps
+             *     in a fresh one. Empty until the conversation has migrated at least once.
+             *
+             *     [`Session`]: crate::Session
+             */
+            previous_session_ids?: string[];
             /** @description An optional system prompt applied to the conversation. */
             system?: string | null;
             system_cache?: null | components["schemas"]["CacheHint"];

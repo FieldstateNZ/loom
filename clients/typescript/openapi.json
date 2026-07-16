@@ -1504,6 +1504,14 @@
             "format": "date-time",
             "description": "When the conversation was created."
           },
+          "current_session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The conversation's current (active) [`Session`]: the execution context\nnew turns run against.\n\nOASP models a Conversation as a durable thread riding a lineage of\ndisposable Sessions; this is the live one. It is always populated for a\nlive conversation — a conversation with no current session is only a\ntransient mid-migration state — and is absent (rather than `null`) when\nunset.\n\n[`Session`]: crate::Session"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -1518,6 +1526,14 @@
           },
           "metadata": {
             "description": "Free-form, caller-supplied metadata (tags, correlation IDs, …).\n\nDefaults to JSON `null` when unset."
+          },
+          "previous_session_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The ids of this conversation's superseded [`Session`]s, oldest-first —\nits lineage.\n\nAppend-only: a migration appends the outgoing session id here as it swaps\nin a fresh one. Empty until the conversation has migrated at least once.\n\n[`Session`]: crate::Session"
           },
           "system": {
             "type": [

@@ -12,6 +12,7 @@ mod key;
 mod mcp;
 mod outbox;
 mod pricing;
+mod session;
 mod tenant;
 mod usage;
 
@@ -23,5 +24,6 @@ pub use key::KeyStore;
 pub use mcp::McpServerStore;
 pub use outbox::OutboxStore;
 pub use pricing::PricingStore;
+pub use session::SessionStore;
 pub use tenant::TenantStore;
 pub use usage::UsageStore;

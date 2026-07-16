@@ -41,7 +41,14 @@ fn build_message(
 #[async_trait]
 impl ConversationStore for PgStore {
     async fn create_conversation(&self, conversation: &Conversation) -> Result<()> {
+        // The conversation's active session id. `Conversation::new` mints one;
+        // fall back to a fresh id for a hand-built conversation without one.
+        let session_id = conversation.current_session_id.unwrap_or_else(Uuid::new_v4);
+
         let mut tx = self.pool.begin().await?;
+        // The conversation and its session reference each other, so insert the
+        // conversation first (current_session_id left NULL), then its session,
+        // then link them.
         sqlx::query!(
             r#"
             INSERT INTO conversations (
@@ -62,6 +69,27 @@ impl ConversationStore for PgStore {
         .execute(&mut *tx)
         .await?;
 
+        sqlx::query!(
+            r#"
+            INSERT INTO sessions (id, conversation_id, tenant_id, status, created_at)
+            VALUES ($1, $2, $3, 'active', $4)
+            "#,
+            session_id,
+            conversation.id,
+            conversation.tenant_id,
+            conversation.created_at,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            r#"UPDATE conversations SET current_session_id = $1 WHERE id = $2"#,
+            session_id,
+            conversation.id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
         for (index, message) in conversation.messages.iter().enumerate() {
             let seq = i32::try_from(index).unwrap_or(i32::MAX);
             let role = role_to_text(message.role);
@@ -75,12 +103,14 @@ impl ConversationStore for PgStore {
             sqlx::query!(
                 r#"
                 INSERT INTO messages (
-                    id, conversation_id, seq, role, content, raw_provider_payload, usage
+                    id, conversation_id, session_id, seq, role,
+                    content, raw_provider_payload, usage
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 "#,
                 Uuid::new_v4(),
                 conversation.id,
+                session_id,
                 seq,
                 role,
                 content,
@@ -100,7 +130,7 @@ impl ConversationStore for PgStore {
             r#"
             SELECT
                 id, tenant_id, provider, model, system, metadata,
-                created_at, updated_at
+                current_session_id, created_at, updated_at
             FROM conversations
             WHERE id = $1 AND tenant_id = $2
             "#,
@@ -135,6 +165,23 @@ impl ConversationStore for PgStore {
             )?);
         }
 
+        // Lineage: the conversation's superseded sessions — every session bar
+        // the current one — oldest-first. Empty until the conversation has
+        // migrated at least once.
+        let previous_session_ids = sqlx::query_scalar!(
+            r#"
+            SELECT id
+            FROM sessions
+            WHERE conversation_id = $1
+              AND ($2::uuid IS NULL OR id <> $2)
+            ORDER BY created_at, id
+            "#,
+            id,
+            head.current_session_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
         Ok(Some(Conversation {
             id: head.id,
             tenant_id: head.tenant_id,
@@ -144,6 +191,8 @@ impl ConversationStore for PgStore {
             // durable state; it is not persisted and reconstructs as unset.
             system_cache: None,
             messages,
+            current_session_id: head.current_session_id,
+            previous_session_ids,
             metadata: head.metadata,
             created_at: head.created_at,
             updated_at: head.updated_at,
@@ -223,11 +272,13 @@ impl ConversationStore for PgStore {
         let row = sqlx::query!(
             r#"
             INSERT INTO messages (
-                id, conversation_id, seq, role, content, raw_provider_payload, usage
+                id, conversation_id, session_id, seq, role,
+                content, raw_provider_payload, usage
             )
             VALUES (
                 $1,
                 $2,
+                (SELECT current_session_id FROM conversations WHERE id = $2),
                 (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = $2),
                 $3,
                 $4,

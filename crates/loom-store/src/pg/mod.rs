@@ -8,6 +8,7 @@ mod key;
 mod mcp;
 mod outbox;
 mod pricing;
+mod session;
 mod tenant;
 mod usage;
 

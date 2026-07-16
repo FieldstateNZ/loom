@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id, tenant_id, provider, model, system, metadata,\n                created_at, updated_at\n            FROM conversations\n            WHERE id = $1 AND tenant_id = $2\n            ",
+  "query": "\n            SELECT\n                id, tenant_id, provider, model, system, metadata,\n                current_session_id, created_at, updated_at\n            FROM conversations\n            WHERE id = $1 AND tenant_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -35,11 +35,16 @@
       },
       {
         "ordinal": 6,
+        "name": "current_session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -57,9 +62,10 @@
       false,
       true,
       false,
+      true,
       false,
       false
     ]
   },
-  "hash": "5703d487d1167c00060356d6585001106705845d26450116232c9a2cd99a340c"
+  "hash": "1125b777843b65ed4b890e96edd2bf7307cb9649cb630c6c2473f1535365d6ee"
 }

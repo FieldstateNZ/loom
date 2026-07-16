@@ -48,6 +48,7 @@ mod content;
 mod conversation;
 mod message;
 mod options;
+mod session;
 mod usage;
 
 pub use cache::{CacheHint, CacheNegotiation, CacheTtl};
@@ -55,6 +56,7 @@ pub use content::{Citation, ContentPart, MediaSource};
 pub use conversation::{Conversation, ProviderBinding};
 pub use message::{Message, Role};
 pub use options::{ConversationOptions, McpServerRef, ServerTool, ToolDefinition};
+pub use session::{Session, SessionStatus};
 pub use usage::Usage;
 
 /// The crate version, sourced from Cargo at build time.
