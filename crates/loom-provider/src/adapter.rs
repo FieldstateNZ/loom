@@ -106,10 +106,11 @@ pub struct SeedTranscript {
 /// [`Session`] must echo back faithfully.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateSessionOptions {
-    /// The agent definition this session is being created for. Must equal
+    /// The agent definition this session is being created for. MUST equal
     /// [`pinned_agent_version`](CreateSessionOptions::pinned_agent_version)'s
-    /// `agent_definition_id` — the same id, typed as a `Uuid` here rather than a
-    /// string so the two cannot drift or admit a malformed value.
+    /// `agent_definition_id`; typed as a `Uuid` (not a string) so it cannot
+    /// admit a malformed value. The two are independent fields, so a server
+    /// validates that they agree when it builds these options.
     pub agent_definition_id: Uuid,
     /// The provider-side agent id (from a prior create/update) to create the
     /// session against.

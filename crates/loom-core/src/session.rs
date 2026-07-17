@@ -9,8 +9,9 @@ use crate::AgentVersionRef;
 /// A resource mounted into a [`Session`] at creation: a file, an opaque memory
 /// store, or a GitHub repository. Discriminated on `type` on the wire.
 ///
-/// Mounted in full at session creation and carried nothing-forward; remounting
-/// for a new version is `migrate`'s job, not the session's.
+/// Resources are mounted in full at session creation and are **not**
+/// automatically carried forward to later sessions; re-mounting them for a new
+/// version is `migrate`'s job, not something a session does on its own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -85,8 +86,9 @@ pub struct Session {
     pub status: SessionStatus,
 
     /// The immutable agent version this session is pinned to, once created
-    /// against a published agent. Absent (rather than `null`) until version
-    /// pinning is wired at `createConversation`/`createSession`.
+    /// against a published agent. `None` until version pinning is wired at
+    /// `createConversation`/`createSession`; omitted from the serialized form
+    /// when unset (a JSON `null` on input also deserialises to `None`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_agent_version: Option<AgentVersionRef>,
 
