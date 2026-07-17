@@ -132,7 +132,7 @@ impl PendingToolCallStore for PgStore {
         // resolved/unresolved decision and the update are atomic.
         let row = sqlx::query!(
             r#"
-            SELECT p.id, (p.resolved_at IS NOT NULL) AS resolved
+            SELECT p.id, (p.resolved_at IS NOT NULL) AS "resolved!"
             FROM pending_tool_calls p
             JOIN sessions s ON s.id = p.session_id
             WHERE p.session_id = $1 AND p.tool_use_id = $2 AND s.tenant_id = $3
@@ -147,7 +147,7 @@ impl PendingToolCallStore for PgStore {
 
         let outcome = match row {
             None => ResolveOutcome::NotFound,
-            Some(row) if row.resolved.unwrap_or(false) => ResolveOutcome::AlreadyResolved,
+            Some(row) if row.resolved => ResolveOutcome::AlreadyResolved,
             Some(row) => {
                 sqlx::query!(
                     r#"
