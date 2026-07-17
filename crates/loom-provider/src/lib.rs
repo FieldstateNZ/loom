@@ -35,6 +35,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod adapter;
 mod capability;
 mod error;
 mod event;
@@ -44,6 +45,10 @@ mod registry;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 
+pub use adapter::{
+    AdapterError, AgentProvider, CreateSessionOptions, EnsureEnvironmentResult, EventStream,
+    ListSessionEventsOptions, ListSessionEventsResult, SeedTranscript,
+};
 pub use capability::{
     ensure_supported, required_capabilities, Capability, ModelDescriptor, ProviderDescriptor,
 };
