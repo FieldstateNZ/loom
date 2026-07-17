@@ -27,7 +27,8 @@ pub enum SessionResource {
         store_id: String,
     },
     /// A mounted GitHub repository.
-    GithubRepository {
+    #[serde(rename = "github_repository")]
+    GitHubRepository {
         /// Owner (user or organization) of the repository.
         owner: String,
         /// Name of the repository.

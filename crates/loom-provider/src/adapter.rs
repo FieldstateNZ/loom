@@ -104,7 +104,7 @@ pub struct SeedTranscript {
 
 /// Input to [`AgentProvider::create_session`]. Every field the returned
 /// [`Session`] must echo back faithfully.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreateSessionOptions {
     /// The agent definition this session is being created for. MUST equal
     /// [`pinned_agent_version`](CreateSessionOptions::pinned_agent_version)'s
@@ -136,7 +136,7 @@ pub struct EnsureEnvironmentResult {
 }
 
 /// Pagination input to [`AgentProvider::list_session_events`].
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListSessionEventsOptions {
     /// Return only events emitted strictly after this event id; `None` starts
     /// from the beginning of the session's history.
@@ -146,7 +146,7 @@ pub struct ListSessionEventsOptions {
 }
 
 /// A page of a session's normalised event history, in emission order.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ListSessionEventsResult {
     /// The events in this page, ordered by emission (equivalently by `id`).
     pub events: Vec<Event>,
