@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id, tenant_id, provider, model, system, metadata,\n                created_at, updated_at\n            FROM conversations\n            WHERE id = $1 AND tenant_id = $2\n            ",
+  "query": "\n            SELECT id, tenant_id, name, draft_version, published_version, created_at, updated_at\n            FROM agent_definitions\n            WHERE id = $1 AND tenant_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -15,31 +15,26 @@
       },
       {
         "ordinal": 2,
-        "name": "provider",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 3,
-        "name": "model",
-        "type_info": "Text"
+        "name": "draft_version",
+        "type_info": "Int4"
       },
       {
         "ordinal": 4,
-        "name": "system",
-        "type_info": "Text"
+        "name": "published_version",
+        "type_info": "Int4"
       },
       {
         "ordinal": 5,
-        "name": "metadata",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -57,9 +52,8 @@
       false,
       true,
       false,
-      false,
       false
     ]
   },
-  "hash": "5703d487d1167c00060356d6585001106705845d26450116232c9a2cd99a340c"
+  "hash": "f126015e8add002fac46fa5aefc44e580f52823fa9a7c197b12dec11c84ef8a3"
 }

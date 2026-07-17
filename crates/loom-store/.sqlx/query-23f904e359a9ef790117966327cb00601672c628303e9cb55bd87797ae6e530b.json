@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO agent_definition_versions (agent_definition_id, version, content)\n            VALUES ($1, 1, $2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "23f904e359a9ef790117966327cb00601672c628303e9cb55bd87797ae6e530b"
+}

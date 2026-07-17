@@ -4,6 +4,7 @@
 //! it never writes SQL. Every accessor that touches tenant-owned data takes a
 //! `tenant_id` and scopes its query to it.
 
+mod agent;
 mod batch;
 mod budget;
 mod conversation;
@@ -12,9 +13,12 @@ mod key;
 mod mcp;
 mod outbox;
 mod pricing;
+mod session;
+mod session_event;
 mod tenant;
 mod usage;
 
+pub use agent::AgentStore;
 pub use batch::BatchStore;
 pub use budget::BudgetStore;
 pub use conversation::ConversationStore;
@@ -23,5 +27,7 @@ pub use key::KeyStore;
 pub use mcp::McpServerStore;
 pub use outbox::OutboxStore;
 pub use pricing::PricingStore;
+pub use session::SessionStore;
+pub use session_event::SessionEventStore;
 pub use tenant::TenantStore;
 pub use usage::UsageStore;

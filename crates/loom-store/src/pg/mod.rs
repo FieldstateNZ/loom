@@ -1,5 +1,6 @@
 //! PostgreSQL implementation of the store traits.
 
+mod agent;
 mod batch;
 mod budget;
 mod conversation;
@@ -8,6 +9,8 @@ mod key;
 mod mcp;
 mod outbox;
 mod pricing;
+mod session;
+mod session_event;
 mod tenant;
 mod usage;
 

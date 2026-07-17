@@ -4,6 +4,7 @@
 //! the remaining structs mirror a persisted row. Conversation history is not
 //! modelled here — it round-trips the [`loom_core`] domain model directly.
 
+mod agent;
 mod batch_item;
 mod batch_job;
 mod batch_status;
@@ -18,6 +19,7 @@ mod tenant;
 mod usage_event;
 mod usage_rollup;
 
+pub use agent::NewAgentDefinition;
 pub use batch_item::{BatchItem, BatchItemStatus, NewBatchItem};
 pub use batch_job::{BatchCounts, BatchJob, NewBatchJob};
 pub use batch_status::BatchStatus;

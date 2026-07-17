@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO sessions (id, conversation_id, tenant_id, status, created_at)\n            VALUES ($1, $2, $3, 'active', $4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28765d856c93e1691bde51e2107a30c94564ae69255aa60e63cebbb1357fcd24"
+}
