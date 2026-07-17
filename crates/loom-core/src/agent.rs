@@ -4,6 +4,22 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// A reference to an exact, immutable agent version — the pin a session is
+/// created against.
+///
+/// Points at a specific [`AgentDefinitionVersion`] by `{agent_definition_id,
+/// version}`. Version resolution decides *which* version a context targets;
+/// this is the resolved result a session pins to verbatim, never re-resolved
+/// adapter-side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentVersionRef {
+    /// The definition this version belongs to.
+    pub agent_definition_id: Uuid,
+    /// The exact version pinned.
+    pub version: i32,
+}
+
 /// The immutable content of one [`AgentDefinitionVersion`] — the snapshot of
 /// what an agent *is* at a given version.
 ///
