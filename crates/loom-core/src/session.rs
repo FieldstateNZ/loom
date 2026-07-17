@@ -15,6 +15,7 @@ use crate::AgentVersionRef;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SessionResource {
     /// A single mounted file.
     File {

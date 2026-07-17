@@ -124,6 +124,7 @@ pub struct CreateSessionOptions {
     pub vault_ids: Vec<String>,
     /// A transcript to seed, if this session continues prior history (migrate);
     /// absent for a brand-new session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<SeedTranscript>,
 }
 
@@ -140,8 +141,10 @@ pub struct EnsureEnvironmentResult {
 pub struct ListSessionEventsOptions {
     /// Return only events emitted strictly after this event id; `None` starts
     /// from the beginning of the session's history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_id: Option<String>,
     /// Maximum number of events to return in this page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
 
@@ -152,6 +155,7 @@ pub struct ListSessionEventsResult {
     pub events: Vec<Event>,
     /// The `id` to pass as the next call's `after_id`, or `None` once this page
     /// reached the end of the currently-known history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
 
