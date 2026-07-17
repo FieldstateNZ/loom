@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id, p.session_id, p.tool_use_id, p.kind, p.name,\n                   p.input, p.mcp_server_url, p.created_at\n            FROM pending_tool_calls p\n            JOIN sessions s ON s.id = p.session_id\n            WHERE p.session_id = $1 AND s.tenant_id = $2 AND p.resolved_at IS NULL\n            ORDER BY p.created_at, p.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "tool_use_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "mcp_server_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "0d98c380dfa3b63f6c9b9b9fa7330ed4799f5b30e0a87a5e87f9ce06730aeb44"
+}

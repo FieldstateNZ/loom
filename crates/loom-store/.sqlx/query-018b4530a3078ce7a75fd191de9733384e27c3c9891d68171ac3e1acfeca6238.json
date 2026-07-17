@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO pending_tool_calls (\n                id, session_id, tool_use_id, kind, name, input, mcp_server_url\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            RETURNING created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "018b4530a3078ce7a75fd191de9733384e27c3c9891d68171ac3e1acfeca6238"
+}

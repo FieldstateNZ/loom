@@ -50,6 +50,7 @@ mod conversation;
 mod event;
 mod message;
 mod options;
+mod pending_tool_call;
 mod session;
 mod usage;
 
@@ -60,6 +61,7 @@ pub use conversation::{Conversation, ProviderBinding};
 pub use event::{Event, EventKind, RunStatus};
 pub use message::{Message, Role};
 pub use options::{ConversationOptions, McpServerRef, ServerTool, ToolDefinition};
+pub use pending_tool_call::{PendingToolCall, ToolKind};
 pub use session::{Session, SessionStatus};
 pub use usage::Usage;
 

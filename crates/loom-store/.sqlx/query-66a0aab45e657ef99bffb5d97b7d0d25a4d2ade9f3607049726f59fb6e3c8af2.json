@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE pending_tool_calls\n                    SET resolved_at = now(), result = $2, is_error = $3\n                    WHERE id = $1\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66a0aab45e657ef99bffb5d97b7d0d25a4d2ade9f3607049726f59fb6e3c8af2"
+}
