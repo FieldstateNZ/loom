@@ -8,6 +8,7 @@ mod credential;
 mod key;
 mod mcp;
 mod outbox;
+mod pending_tool_call;
 mod pricing;
 mod session;
 mod session_event;

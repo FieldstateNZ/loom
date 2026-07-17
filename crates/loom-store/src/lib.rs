@@ -38,16 +38,16 @@ pub use error::{Result, StoreError};
 pub use model::{
     BatchCounts, BatchItem, BatchItemStatus, BatchJob, BatchStatus, Budget, BudgetAction,
     BudgetWindow, KeyBudget, McpServer, ModelPrice, NewAgentDefinition, NewBatchItem, NewBatchJob,
-    NewMcpServer, NewModelPrice, NewProviderCredential, NewTenant, NewUsageEvent, NewVirtualKey,
-    OutboxEntry, ProviderCredential, RateLimit, RollupGroup, Tenant, UsageEvent, UsageRollup,
-    UsageRollupRow, VirtualKey,
+    NewMcpServer, NewModelPrice, NewPendingToolCall, NewProviderCredential, NewTenant,
+    NewUsageEvent, NewVirtualKey, OutboxEntry, ProviderCredential, RateLimit, RollupGroup, Tenant,
+    UsageEvent, UsageRollup, UsageRollupRow, VirtualKey,
 };
 pub use pg::PgStore;
 pub use pricing::Pricer;
 pub use store::{
     AgentStore, BatchStore, BudgetStore, ConversationStore, CredentialStore, KeyStore,
-    McpServerStore, OutboxStore, PricingStore, SessionEventStore, SessionStore, TenantStore,
-    UsageStore,
+    McpServerStore, OutboxStore, PendingToolCallStore, PricingStore, ResolveOutcome,
+    SessionEventStore, SessionStore, TenantStore, UsageStore,
 };
 
 /// Re-export of the domain model persisted by this layer.
