@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id, (p.resolved_at IS NOT NULL) AS \"resolved!\"\n            FROM pending_tool_calls p\n            JOIN sessions s ON s.id = p.session_id\n            WHERE p.session_id = $1 AND p.tool_use_id = $2 AND s.tenant_id = $3\n            FOR UPDATE OF p\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "resolved!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c9367fdb8d1deb6b6a8fab43b4136393e7848839d326f495f4c699b3b2b39e83"
+}
