@@ -42,6 +42,7 @@ impl SessionStore for PgStore {
             status: parse_session_status(&row.status),
             // The pin / resources / vaults are not persisted yet — they are
             // populated once session creation pins a version and mounts them.
+            // TODO(#36): persist once create_session wires these.
             pinned_agent_version: None,
             resources: Vec::new(),
             vault_ids: Vec::new(),
@@ -70,6 +71,7 @@ impl SessionStore for PgStore {
                 conversation_id: row.conversation_id,
                 tenant_id: row.tenant_id,
                 status: parse_session_status(&row.status),
+                // TODO(#36): persist once create_session wires these.
                 pinned_agent_version: None,
                 resources: Vec::new(),
                 vault_ids: Vec::new(),

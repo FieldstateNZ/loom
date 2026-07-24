@@ -46,8 +46,9 @@ mod registry;
 pub mod mock;
 
 pub use adapter::{
-    AdapterError, AgentProvider, CreateSessionOptions, EnsureEnvironmentResult, EventStream,
-    ListSessionEventsOptions, ListSessionEventsResult, SeedTranscript,
+    AdapterError, AdapterPendingToolCall, AdapterSession, AgentProvider, CreateSessionOptions,
+    EnsureEnvironmentResult, EventStream, ListSessionEventsOptions, ListSessionEventsResult,
+    SeedTranscript,
 };
 pub use capability::{
     ensure_supported, required_capabilities, Capability, ModelDescriptor, ProviderDescriptor,
