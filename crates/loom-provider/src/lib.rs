@@ -27,8 +27,10 @@
 //! - [`ProviderError`] — structured errors that preserve provider-native error
 //!   payloads.
 //!
-//! A [`MockProvider`](mock::MockProvider) is available under the `mock` feature
-//! for downstream crates' tests.
+//! A [`MockProvider`](mock::MockProvider) (per-turn [`Provider`]) and a
+//! [`MockAgentProvider`](mock_agent::MockAgentProvider) (session-lifecycle
+//! [`AgentProvider`]) are available under the `mock` feature for downstream
+//! crates' tests.
 //!
 //! See the [`Provider`] trait docs for a worked example provider
 //! implementation sketch.
@@ -44,6 +46,8 @@ mod registry;
 
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
+#[cfg(any(test, feature = "mock"))]
+pub mod mock_agent;
 
 pub use adapter::{
     AdapterError, AdapterPendingToolCall, AdapterSession, AgentProvider, CreateSessionOptions,
@@ -55,6 +59,8 @@ pub use capability::{
 };
 pub use error::{Cost, ProviderError};
 pub use event::{ContentDelta, StopReason, TurnCost, TurnEvent, TurnEventKind};
+#[cfg(any(test, feature = "mock"))]
+pub use mock_agent::MockAgentProvider;
 pub use provider::{Provider, TurnEventStream};
 pub use registry::ProviderRegistry;
 

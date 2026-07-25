@@ -1518,6 +1518,7 @@ name = "loom-provider"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "futures",
  "loom-core",
  "rust_decimal",

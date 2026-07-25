@@ -155,9 +155,15 @@ pub struct CreateSessionOptions {
     /// The exact agent version to pin the session to — preserved verbatim,
     /// never re-resolved adapter-side.
     pub pinned_agent_version: AgentVersionRef,
-    /// Resources to mount at creation, in full (never partially).
+    /// Resources to mount at creation, in full (never partially). An omitted
+    /// list deserialises to empty (no resources) and is omitted from the
+    /// serialized form when empty, matching [`loom_core::Session`]'s own fields.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resources: Vec<SessionResource>,
     /// Credential vault ids to attach at creation, in full (never partially).
+    /// An omitted list deserialises to empty (no vaults) and is omitted from
+    /// the serialized form when empty, matching [`loom_core::Session`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vault_ids: Vec<String>,
     /// A transcript to seed, if this session continues prior history (migrate);
     /// absent for a brand-new session.
