@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 loom-core = { workspace = true }
+uuid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
@@ -31,4 +32,3 @@ openapi = ["dep:utoipa", "loom-core/openapi"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
-uuid = { workspace = true }

@@ -47,6 +47,7 @@ mod agent;
 mod cache;
 mod content;
 mod conversation;
+mod deployment;
 mod event;
 mod message;
 mod options;
@@ -54,15 +55,16 @@ mod pending_tool_call;
 mod session;
 mod usage;
 
-pub use agent::{AgentContent, AgentDefinition, AgentDefinitionVersion};
+pub use agent::{AgentContent, AgentDefinition, AgentDefinitionVersion, AgentVersionRef};
 pub use cache::{CacheHint, CacheNegotiation, CacheTtl};
 pub use content::{Citation, ContentPart, MediaSource};
 pub use conversation::{Conversation, ProviderBinding};
+pub use deployment::Deployment;
 pub use event::{Event, EventKind, RunStatus};
 pub use message::{Message, Role};
 pub use options::{ConversationOptions, McpServerRef, ServerTool, ToolDefinition};
 pub use pending_tool_call::{PendingToolCall, ToolKind};
-pub use session::{Session, SessionStatus};
+pub use session::{Session, SessionResource, SessionStatus};
 pub use usage::Usage;
 
 /// The crate version, sourced from Cargo at build time.
