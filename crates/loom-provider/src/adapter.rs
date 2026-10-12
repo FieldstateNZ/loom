@@ -283,6 +283,11 @@ pub type EventStream = BoxStream<'static, Event>;
 /// string id**, echoed back from [`create_session`](Self::create_session) as
 /// [`AdapterSession::id`]. See the [module-level docs](self) for the full
 /// session-identity convention.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
     /// Idempotently ensures the named provider-side environment exists; MUST be

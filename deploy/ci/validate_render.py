@@ -23,6 +23,14 @@ Assertions per rendered file:
 
 Exit non-zero on any failure so the CI job goes red. The check functions take
 parsed documents so they can be unit-tested (see test_validate_render.py).
+
+Diagnostics are value-free by construction: rendered manifests can embed Secret
+material (a mis-templated `data:` block, a literal env value, a Secret key or
+path), and CI logs are broadly readable. A failure message may therefore name a
+fixed constant from this file (an env var name we police, a check), a count, or
+the CLI-supplied file path -- never a value, key, path or snippet taken from the
+document, and never the text of a parser/runtime exception (PyYAML quotes the
+offending source line). Unexpected exceptions are reported by type only.
 """
 import posixpath
 import re
@@ -35,6 +43,9 @@ REQUIRED_SECRET_ENV = ("DATABASE_URL", "LOOM_ENCRYPTION_KEY", "LOOM_ROOT_ADMIN_T
 REQUIRED_KINDS = {"Deployment", "Service", "ServiceAccount"}
 # Client-side key material must never be configured through the chart.
 FORBIDDEN_ENV = {"PGSSLCERT", "PGSSLKEY"}
+# Env names that may be echoed in a diagnostic. Document-supplied names outside
+# this set are only ever counted, never printed.
+POLICED_ENV = SECRET_ENV | FORBIDDEN_ENV | {"PGSSLROOTCERT"}
 
 PRIVATE_KEY_RE = re.compile(r"(^|[._-])(key|private)([._-]|$)", re.IGNORECASE)
 DIGEST_IMAGE_RE = re.compile(r"^[^@]+@sha256:[0-9a-f]{64}$")
@@ -65,8 +76,12 @@ def check_env(app: dict) -> list[str]:
     errs: list[str] = []
     env_list = app.get("env", []) or []
     names = [e.get("name") for e in env_list]
-    for name in sorted({n for n in names if names.count(n) > 1}):
-        errs.append(f"env {name} appears {names.count(name)} times (must be unique)")
+    for policed in sorted(POLICED_ENV):
+        if names.count(policed) > 1:
+            errs.append(f"env {policed} appears {names.count(policed)} times (must be unique)")
+    other_dupes = {n for n in names if n not in POLICED_ENV and names.count(n) > 1}
+    if other_dupes:
+        errs.append(f"{len(other_dupes)} other env name(s) appear more than once (must be unique)")
     if names.count("DATABASE_URL") != 1:
         errs.append(f"DATABASE_URL must appear exactly once, found {names.count('DATABASE_URL')}")
 
@@ -82,10 +97,11 @@ def check_env(app: dict) -> list[str]:
             errs.append(f"{name} must be sourced via secretKeyRef")
 
     # Any secret-shaped env that slipped through as a literal is a hard fail.
-    for name, e in env.items():
-        if name in SECRET_ENV and "value" in e:
+    for name in sorted(SECRET_ENV):
+        if "value" in env.get(name, {}):
             errs.append(f"SECRET {name} has an inline value")
-        if name in FORBIDDEN_ENV:
+    for name in sorted(FORBIDDEN_ENV):
+        if name in env:
             errs.append(f"env {name} must never be set: client key material is not supported")
     return errs
 
@@ -99,7 +115,7 @@ def check_ca_mount(server: dict, app: dict) -> list[str]:
         return errs
     path = root.get("value")
     if not isinstance(path, str) or not path.startswith("/"):
-        return [f"PGSSLROOTCERT must be a literal absolute file path, got {root!r}"]
+        return ["PGSSLROOTCERT must be a literal absolute file path"]
 
     mounts = app.get("volumeMounts", []) or []
     mount = next(
@@ -107,29 +123,28 @@ def check_ca_mount(server: dict, app: dict) -> list[str]:
         None,
     )
     if mount is None:
-        return [f"PGSSLROOTCERT {path} is not inside any volumeMount"]
+        return ["PGSSLROOTCERT is not inside any volumeMount"]
     if mount.get("readOnly") is not True:
-        errs.append(f"CA mount {mount['name']} at {mount['mountPath']} must be readOnly: true")
+        errs.append("CA volumeMount must be readOnly: true")
 
     volumes = {v["name"]: v for v in server["spec"]["template"]["spec"].get("volumes", []) or []}
     vol = volumes.get(mount["name"])
     if vol is None:
-        return errs + [f"volumeMount {mount['name']} has no matching volume"]
+        return errs + ["CA volumeMount has no matching volume"]
     secret = vol.get("secret")
     if not isinstance(secret, dict):
-        return errs + [f"CA volume {mount['name']} must be a `secret` volume"]
+        return errs + ["CA volume must be a `secret` volume"]
     items = secret.get("items")
     if not isinstance(items, list) or len(items) != 1:
-        errs.append(f"CA volume {mount['name']} must project exactly one item, got {items!r}")
+        count = len(items) if isinstance(items, list) else 0
+        errs.append(f"CA volume must project exactly one item, found {count}")
         return errs
     item = items[0]
     expected_file = posixpath.relpath(path, mount["mountPath"])
     if item.get("path") != expected_file:
-        errs.append(
-            f"CA volume item path {item.get('path')!r} does not match PGSSLROOTCERT file {expected_file!r}"
-        )
+        errs.append("CA volume item path does not match PGSSLROOTCERT file")
     if looks_like_private_key(str(item.get("key", ""))):
-        errs.append(f"CA volume projects Secret key {item.get('key')!r} which looks like a private key")
+        errs.append("CA volume projects a Secret key that looks like a private key")
     return errs
 
 
@@ -141,7 +156,7 @@ def check_no_private_keys_projected(server: dict) -> list[str]:
             continue
         for item in secret.get("items", []) or []:
             if looks_like_private_key(str(item.get("key", ""))):
-                errs.append(f"volume {vol['name']} projects Secret key {item.get('key')!r} (private key material)")
+                errs.append("a volume projects a Secret key that looks like private key material")
     return errs
 
 
@@ -149,11 +164,11 @@ def check_image(app: dict) -> list[str]:
     image = str(app.get("image", ""))
     if "@" in image:
         if not DIGEST_IMAGE_RE.match(image):
-            return [f"image {image!r} has a digest that is not sha256:<64 hex>"]
+            return ["image has a digest that is not sha256:<64 hex>"]
         return []
     last = image.rsplit("/", 1)[-1]
     if ":" not in last or last.endswith(":"):
-        return [f"image {image!r} must carry a tag or a sha256 digest"]
+        return ["image must carry a tag or a sha256 digest"]
     return []
 
 
@@ -162,9 +177,9 @@ def check_probes(app: dict) -> list[str]:
     live = app.get("livenessProbe", {}).get("httpGet", {}).get("path")
     ready = app.get("readinessProbe", {}).get("httpGet", {}).get("path")
     if live != "/healthz":
-        errs.append(f"livenessProbe path is {live!r}, expected /healthz")
+        errs.append("livenessProbe path must be /healthz")
     if ready != "/readyz":
-        errs.append(f"readinessProbe path is {ready!r}, expected /readyz")
+        errs.append("readinessProbe path must be /readyz")
     return errs
 
 
@@ -190,11 +205,20 @@ def validate_docs(docs: list[dict]) -> list[str]:
 
 
 def validate(path: str) -> list[str]:
+    """Value-free failures for one file; any unexpected error is a failure too."""
     try:
         docs = load_docs(path)
     except yaml.YAMLError as e:
-        return [f"{path}: invalid YAML: {e}"]
-    return [f"{path}: {e}" for e in validate_docs(docs)]
+        # str(e) quotes the offending source line, which may be Secret data.
+        mark = getattr(e, "problem_mark", None)
+        where = f" near line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
+        return [f"{path}: invalid YAML{where} (parser detail withheld)"]
+    except (OSError, UnicodeError):
+        return [f"{path}: cannot read file as UTF-8 text (detail withheld)"]
+    try:
+        return [f"{path}: {e}" for e in validate_docs(docs)]
+    except Exception as e:  # malformed shape must fail closed without echoing content
+        return [f"{path}: unexpected manifest structure ({type(e).__name__}; detail withheld)"]
 
 
 def main(argv: list[str]) -> int:

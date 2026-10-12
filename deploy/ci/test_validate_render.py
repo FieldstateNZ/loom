@@ -5,7 +5,9 @@
 """
 import copy
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -199,6 +201,142 @@ class StructureChecks(unittest.TestCase):
         vr.find_app_container(vr.find_server(docs))["readinessProbe"]["httpGet"]["path"] = "/healthz"
         errs = vr.validate_docs(docs)
         self.assertTrue(any("readinessProbe path" in e for e in errs), errs)
+
+
+SENTINEL = "SENTINEL-s3cr3t-7f3a9c"
+
+
+def run_cli(*paths: str) -> subprocess.CompletedProcess:
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validate_render.py")
+    return subprocess.run([sys.executable, script, *paths], capture_output=True, text=True, check=False)
+
+
+class DiagnosticsAreValueFree(unittest.TestCase):
+    """Rendered Secret-derived content must never reach CI logs (stdout or stderr)."""
+
+    def _run_text(self, text: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "render.yaml")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            return run_cli(path)
+
+    def _assert_clean(self, proc: subprocess.CompletedProcess) -> None:
+        self.assertNotIn(SENTINEL, proc.stdout)
+        self.assertNotIn(SENTINEL, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_malformed_yaml_fails_without_echoing_source(self) -> None:
+        # Each document makes PyYAML quote document content in str(exception):
+        # an undefined alias and an unknown tag name echo the sentinel, a bad
+        # token echoes a character, and all carry file/line context.
+        malformed = {
+            "undefined alias": f"kind: Secret\ndata:\n  token: *{SENTINEL}\n",
+            "unknown tag": f"kind: Secret\ndata:\n  token: !{SENTINEL} value\n",
+            "bad token": f"kind: Secret\ndata:\n  token: {SENTINEL}\n\t- {SENTINEL}: : :\n",
+            "unclosed flow": f"kind: Secret\ndata: [{SENTINEL}, {{a: {SENTINEL}\n",
+        }
+        for label, text in malformed.items():
+            with self.subTest(label):
+                proc = self._run_text(text)
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("invalid YAML", proc.stdout)
+                self._assert_clean(proc)
+
+    def test_malformed_yaml_message_has_no_parser_detail(self) -> None:
+        for text in (f"a: *{SENTINEL}\n", f"a: !{SENTINEL} v\n", f"a: b\n\tkey: {SENTINEL}\n"):
+            errs = vr.validate(self._write(text))
+            self.assertEqual(len(errs), 1)
+            self.assertNotIn(SENTINEL, errs[0])
+            self.assertIn("invalid YAML", errs[0])
+
+    def _write(self, text: str) -> str:
+        fd, path = tempfile.mkstemp(suffix=".yaml")
+        self.addCleanup(os.unlink, path)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+
+    def test_every_check_failure_omits_document_values(self) -> None:
+        docs = make_docs(
+            env=[
+                {"name": "DATABASE_URL", "value": SENTINEL},
+                {"name": "DATABASE_URL", "value": SENTINEL},
+                {"name": f"X_{SENTINEL}", "value": SENTINEL},
+                {"name": f"X_{SENTINEL}", "value": SENTINEL},
+                {"name": "PGSSLKEY", "value": SENTINEL},
+                {"name": "PGSSLROOTCERT", "value": f"/{SENTINEL}/ca.crt"},
+            ],
+            image=f"{SENTINEL}/loom@sha256:{SENTINEL}",
+            mounts=[{"name": f"m-{SENTINEL}", "mountPath": f"/{SENTINEL}"}],
+            volumes=[{"name": f"m-{SENTINEL}", "secret": {"items": [
+                {"key": f"{SENTINEL}.key", "path": SENTINEL},
+                {"key": f"tls-{SENTINEL}.key", "path": SENTINEL},
+            ]}}],
+        )
+        server = vr.find_server(docs)
+        app = vr.find_app_container(server)
+        app["livenessProbe"]["httpGet"]["path"] = SENTINEL
+        app["readinessProbe"]["httpGet"]["path"] = SENTINEL
+        errs = vr.validate_docs(docs)
+        self.assertGreater(len(errs), 5, errs)
+        for e in errs:
+            self.assertNotIn(SENTINEL, e)
+
+    def test_ca_checks_omit_sentinels(self) -> None:
+        for items, path in (
+            ([{"key": f"{SENTINEL}.key", "path": SENTINEL}], f"/etc/loom/db-ca/{SENTINEL}"),
+            ([{"key": SENTINEL, "path": SENTINEL}] * 2, "/etc/loom/db-ca/ca.crt"),
+        ):
+            docs = make_docs(
+                extra_env=[{"name": "PGSSLROOTCERT", "value": path}],
+                mounts=[ca_mount(read_only=False)],
+                volumes=[ca_volume(items)],
+            )
+            errs = vr.validate_docs(docs)
+            self.assertTrue(errs)
+            self.assertFalse([e for e in errs if SENTINEL in e], errs)
+        errs = vr.validate_docs(make_docs(extra_env=[{"name": "PGSSLROOTCERT", "value": f"relative-{SENTINEL}"}]))
+        self.assertEqual(errs, ["PGSSLROOTCERT must be a literal absolute file path"])
+
+    def test_unexpected_structure_fails_closed_without_traceback(self) -> None:
+        proc = self._run_text(f"- {SENTINEL}\n- kind: Deployment\n  metadata: {{name: {SENTINEL}}}\n")
+        self.assertEqual(proc.returncode, 1)
+        self._assert_clean(proc)
+        docs = make_docs()
+        vr.find_server(docs)["spec"]["template"]["spec"]["containers"] = [{"name": SENTINEL, "env": [{"value": SENTINEL}]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            import yaml
+            path = os.path.join(tmp, "render.yaml")
+            with open(path, "w", encoding="utf-8") as fh:
+                yaml.safe_dump_all(docs, fh)
+            proc = run_cli(path)
+        self.assertEqual(proc.returncode, 1)
+        self._assert_clean(proc)
+
+    def test_unreadable_input_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "bad.yaml")
+            with open(path, "wb") as fh:
+                fh.write(b"token: \xff\xfe" + SENTINEL.encode())
+            proc = run_cli(path)
+        self.assertEqual(proc.returncode, 1)
+        self._assert_clean(proc)
+
+    def test_refusal_semantics_unchanged_for_good_and_bad_files(self) -> None:
+        import yaml
+        with tempfile.TemporaryDirectory() as tmp:
+            good = os.path.join(tmp, "good.yaml")
+            bad = os.path.join(tmp, "bad.yaml")
+            with open(good, "w", encoding="utf-8") as fh:
+                yaml.safe_dump_all(make_docs(), fh)
+            with open(bad, "w", encoding="utf-8") as fh:
+                yaml.safe_dump_all(make_docs(env=[{"name": "DATABASE_URL", "value": SENTINEL}]), fh)
+            self.assertEqual(run_cli(good).returncode, 0)
+            proc = run_cli(good, bad)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("RENDER VALIDATION FAILED", proc.stdout)
+        self._assert_clean(proc)
 
 
 if __name__ == "__main__":
