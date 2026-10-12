@@ -73,8 +73,9 @@ cluster's `<cluster>-ca` Secret fits). The chart projects **only that key**,
 mounts it read-only at `/etc/loom/db-ca/ca.crt`, and sets `PGSSLROOTCERT` to
 that path (sqlx honours it). Nothing else from the Secret is mounted, and a
 key name that looks like private-key material (`tls.key`, `ca.key`,
-`*-key.pem`, …) fails the render — the server pod never receives a private key
-through the chart. `PGSSLROOTCERT` only supplies the trust anchor: the
+`*-key.pem`, …) fails the render. The naming guard does not inspect Secret
+contents; select the known CA certificate key in that Secret.
+`PGSSLROOTCERT` only supplies the trust anchor: the
 `DATABASE_URL` still has to ask for TLS (`sslmode=require`, `verify-ca` or
 `verify-full`).
 

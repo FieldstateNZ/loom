@@ -159,8 +159,8 @@ database:
     # that one key, mounts it read-only at /etc/loom/db-ca/ca.crt and sets
     # PGSSLROOTCERT to that path. The DATABASE_URL still has to request TLS
     # (sslmode=require / verify-ca / verify-full). A key that looks like private
-    # key material (tls.key, ca.key, *-key.pem, ...) fails the render: no
-    # private key is ever mounted into the server pod through this chart.
+    # key material (tls.key, ca.key, *-key.pem, ...) fails the render. Naming
+    # checks do not inspect Secret contents; select the known CA certificate key.
     caSecret: ""
     caKey: "ca.crt"
 

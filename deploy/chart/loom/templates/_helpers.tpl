@@ -152,9 +152,9 @@ Whether a CA-only trust anchor for the database connection is configured.
 {{- end -}}
 
 {{/*
-The Secret key projected as the CA certificate. Validated so a private key can
-never be mounted through this path: the chart mounts ONE key, read-only, and it
-must not look like key material.
+The Secret key projected as the CA certificate. The chart mounts ONE key,
+read-only, and rejects names matching the private-key naming guard. It does not
+inspect Secret contents; the operator must select the known CA certificate key.
 */}}
 {{- define "loom.databaseCaKey" -}}
 {{- $tls := (.Values.database | default dict).tls | default dict -}}
