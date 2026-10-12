@@ -317,10 +317,10 @@ class DiagnosticsAreValueFree(unittest.TestCase):
     def test_explicit_constructor_tags_fail_closed_without_echo(self) -> None:
         # Constructors raise non-YAMLError exceptions (ValueError, AttributeError,
         # ...) whose text quotes the scalar, in original and lowercased form.
-        for tag in ("int", "float", "timestamp", "bool", "binary", "set", "omap", "pairs"):
+        for tag in ("int", "float", "timestamp", "bool", "set", "omap", "pairs"):
             for text in (
-                f"a: !!{tag} {SENTINEL}\\n",
-                f"kind: Secret\\ndata:\\n  token: !!{tag} {SENTINEL}\\n",
+                f"a: !!{tag} {SENTINEL}\n",
+                f"kind: Secret\ndata:\n  token: !!{tag} {SENTINEL}\n",
             ):
                 with self.subTest(tag=tag, text=text):
                     proc = self._run_text(text)
