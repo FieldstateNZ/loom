@@ -21,3 +21,6 @@ dist/
 # Local scratch
 /tmp/
 *.log
+
+# Python bytecode from the deploy/ci test scripts
+__pycache__/

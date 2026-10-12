@@ -1,4 +1,7 @@
 {{- include "loom.requireExistingSecret" . -}}
+{{- include "loom.validateExtraEnv" . -}}
+{{- $dbSource := splitList "|" (include "loom.databaseUrlSource" .) -}}
+{{- $caEnabled := include "loom.databaseCaEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -78,18 +81,18 @@ spec:
               value: {{ .Values.otel.captureContent | quote }}
             {{- end }}
             # --- Secrets (from an existing Secret; never templated) ----------
-            {{- if .Values.postgresql.enabled }}
+            # DATABASE_URL is rendered exactly once; its source is resolved by
+            # the "loom.databaseUrlSource" helper (bundled DB > database.existingSecret > legacy).
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "loom.postgresql.secretName" . | quote }}
-                  key: DATABASE_URL
-            {{- else }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.secrets.existingSecret | quote }}
-                  key: {{ .Values.secrets.keys.databaseUrl | quote }}
+                  name: {{ index $dbSource 0 | quote }}
+                  key: {{ index $dbSource 1 | quote }}
+            {{- if $caEnabled }}
+            # CA-only trust anchor for the PostgreSQL TLS connection (sqlx reads
+            # PGSSLROOTCERT). The DATABASE_URL still chooses sslmode.
+            - name: PGSSLROOTCERT
+              value: {{ include "loom.databaseCaFile" . | quote }}
             {{- end }}
             - name: LOOM_ENCRYPTION_KEY
               valueFrom:
@@ -142,9 +145,24 @@ spec:
             # Read-only root filesystem: give the process a writable /tmp.
             - name: tmp
               mountPath: /tmp
+            {{- if $caEnabled }}
+            - name: db-ca
+              mountPath: {{ include "loom.databaseCaMountPath" . }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if $caEnabled }}
+        # Projects ONE key of the CA Secret (the certificate) and nothing else.
+        - name: db-ca
+          secret:
+            secretName: {{ .Values.database.tls.caSecret | quote }}
+            defaultMode: 0444
+            items:
+              - key: {{ include "loom.databaseCaKey" . | quote }}
+                path: ca.crt
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

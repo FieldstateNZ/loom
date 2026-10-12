@@ -24,7 +24,11 @@ cargo test --workspace
 ```
 
 Integration tests use [testcontainers](https://docs.rs/testcontainers) and need
-a running Docker daemon; they spin up their own PostgreSQL.
+a running Docker daemon; they spin up their own PostgreSQL. The `loom-store`
+tests can instead target an already-running server (a fresh database is
+created per test): set `LOOM_TEST_DATABASE_URL=postgres://user:pass@host/postgres`,
+and optionally `LOOM_TEST_EXPECT_PG_MAJOR=18` to fail unless that server is the
+expected major version. CI uses this to prove migrations on PostgreSQL 18.
 
 ## Before you push
 

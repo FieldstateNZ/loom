@@ -6,7 +6,7 @@ description: |
 type: application
 
 # Chart version. Bump on any change to the chart itself.
-version: 0.1.0
+version: 0.2.0
 
 # The default application version this chart deploys. Overridable via
 # `image.tag`; kept in sync with the loom-server release it targets.
