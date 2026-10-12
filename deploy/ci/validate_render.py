@@ -215,6 +215,8 @@ def validate(path: str) -> list[str]:
         return [f"{path}: invalid YAML{where} (parser detail withheld)"]
     except (OSError, UnicodeError):
         return [f"{path}: cannot read file as UTF-8 text (detail withheld)"]
+    except Exception as e:  # explicit tags (!!int, !!float, !!timestamp) raise non-YAMLError types quoting input
+        return [f"{path}: cannot construct YAML documents ({type(e).__name__}; detail withheld)"]
     try:
         return [f"{path}: {e}" for e in validate_docs(docs)]
     except Exception as e:  # malformed shape must fail closed without echoing content

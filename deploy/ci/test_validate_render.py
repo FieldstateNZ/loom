@@ -314,6 +314,25 @@ class DiagnosticsAreValueFree(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self._assert_clean(proc)
 
+    def test_explicit_constructor_tags_fail_closed_without_echo(self) -> None:
+        # Constructors raise non-YAMLError exceptions (ValueError, AttributeError,
+        # ...) whose text quotes the scalar, in original and lowercased form.
+        for tag in ("int", "float", "timestamp", "bool", "binary", "set", "omap", "pairs"):
+            for text in (
+                f"a: !!{tag} {SENTINEL}\\n",
+                f"kind: Secret\\ndata:\\n  token: !!{tag} {SENTINEL}\\n",
+            ):
+                with self.subTest(tag=tag, text=text):
+                    proc = self._run_text(text)
+                    self.assertEqual(proc.returncode, 1)
+                    self.assertIn("RENDER VALIDATION FAILED", proc.stdout)
+                    self._assert_clean(proc)
+                    for stream in (proc.stdout, proc.stderr):
+                        self.assertNotIn(SENTINEL.lower(), stream.lower())
+                    errs = vr.validate(self._write(text))
+                    self.assertEqual(len(errs), 1)
+                    self.assertNotIn(SENTINEL.lower(), errs[0].lower())
+
     def test_unreadable_input_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "bad.yaml")
