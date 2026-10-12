@@ -18,6 +18,11 @@ use crate::model::{Budget, RateLimit};
 /// the tenant default. Rate limits attach per key. Current spend is derived from
 /// the `usage_events` rollup (the #9 store) at enforcement time — never
 /// denormalised here.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait BudgetStore {
     /// Fetches a tenant's default budget, or `None` if it has none.

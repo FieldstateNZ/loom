@@ -12,6 +12,11 @@ use crate::model::{McpServer, NewMcpServer};
 /// decrypts its authorization token, and injects it into the provider request
 /// server-side. Every accessor is scoped to a `tenant_id` so one tenant can
 /// never read or delete another tenant's registration.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait McpServerStore {
     /// Inserts a registration, or replaces the existing one for the same

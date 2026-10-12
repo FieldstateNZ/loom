@@ -10,6 +10,11 @@ use loom_core::{Conversation, Message};
 ///
 /// History round-trips the loom-core domain model through JSONB losslessly:
 /// a conversation persisted and reloaded compares equal to the original.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ConversationStore {
     /// Persists a conversation together with its current message history.

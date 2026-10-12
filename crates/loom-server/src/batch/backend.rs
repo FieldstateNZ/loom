@@ -22,6 +22,11 @@ use super::submit_item::BatchSubmitItem;
 /// [`AnthropicProvider`](loom_provider_anthropic::AnthropicProvider)'s batch
 /// methods; tests inject a deterministic fake so the whole lifecycle runs
 /// without a live API or real time.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait BatchBackend: Send + Sync {
     /// Submits `items` as a new provider batch.
@@ -49,6 +54,11 @@ pub trait BatchBackend: Send + Sync {
 ///
 /// Mirrors [`ProviderFactory`](crate::provider::ProviderFactory): credential
 /// loading and decryption happen here so the worker never touches secrets.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait BatchBackendFactory: Send + Sync {
     /// Resolves `provider` for `tenant_id`, returning a shared backend handle.

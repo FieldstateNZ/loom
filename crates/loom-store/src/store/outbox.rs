@@ -12,6 +12,11 @@ use crate::model::{NewUsageEvent, OutboxEntry};
 /// [`UsageStore::record_event`](crate::UsageStore::record_event) write fails,
 /// the event is parked here and a drain pass
 /// ([`crate::drain_usage_outbox`]) replays it later.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait OutboxStore {
     /// Parks a usage event in the outbox (status `pending`), returning its id.

@@ -38,14 +38,16 @@ import sys
 
 import yaml
 
-SECRET_ENV = {"DATABASE_URL", "LOOM_ENCRYPTION_KEY", "LOOM_ROOT_ADMIN_TOKEN", "LOOM_KEY_PEPPER"}
-REQUIRED_SECRET_ENV = ("DATABASE_URL", "LOOM_ENCRYPTION_KEY", "LOOM_ROOT_ADMIN_TOKEN")
+# These are fixed, public environment VARIABLE NAMES from the chart contract, not
+# secret values: the names are safe to print; the values never are (see above).
+SECRET_BACKED_ENV_NAMES = {"DATABASE_URL", "LOOM_ENCRYPTION_KEY", "LOOM_ROOT_ADMIN_TOKEN", "LOOM_KEY_PEPPER"}
+REQUIRED_ENV_NAMES = ("DATABASE_URL", "LOOM_ENCRYPTION_KEY", "LOOM_ROOT_ADMIN_TOKEN")
 REQUIRED_KINDS = {"Deployment", "Service", "ServiceAccount"}
 # Client-side key material must never be configured through the chart.
 FORBIDDEN_ENV = {"PGSSLCERT", "PGSSLKEY"}
 # Env names that may be echoed in a diagnostic. Document-supplied names outside
 # this set are only ever counted, never printed.
-POLICED_ENV = SECRET_ENV | FORBIDDEN_ENV | {"PGSSLROOTCERT"}
+POLICED_ENV = SECRET_BACKED_ENV_NAMES |FORBIDDEN_ENV | {"PGSSLROOTCERT"}
 
 PRIVATE_KEY_RE = re.compile(r"(^|[._-])(key|private)([._-]|$)", re.IGNORECASE)
 DIGEST_IMAGE_RE = re.compile(r"^[^@]+@sha256:[0-9a-f]{64}$")
@@ -86,7 +88,7 @@ def check_env(app: dict) -> list[str]:
         errs.append(f"DATABASE_URL must appear exactly once, found {names.count('DATABASE_URL')}")
 
     env = {e["name"]: e for e in env_list}
-    for name in REQUIRED_SECRET_ENV:
+    for name in REQUIRED_ENV_NAMES:
         e = env.get(name)
         if e is None:
             errs.append(f"Deployment missing env {name}")
@@ -97,7 +99,7 @@ def check_env(app: dict) -> list[str]:
             errs.append(f"{name} must be sourced via secretKeyRef")
 
     # Any secret-shaped env that slipped through as a literal is a hard fail.
-    for name in sorted(SECRET_ENV):
+    for name in sorted(SECRET_BACKED_ENV_NAMES):
         if "value" in env.get(name, {}):
             errs.append(f"SECRET {name} has an inline value")
     for name in sorted(FORBIDDEN_ENV):

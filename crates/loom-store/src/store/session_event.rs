@@ -12,6 +12,11 @@ use loom_core::{Event, EventKind};
 /// The log is the durable backing for `stream` (SSE) and cursor-paginated
 /// `listSessionEvents`, and doubles as an audit source. Each appended event gets
 /// a per-session monotonic, order-comparable [`Event::id`].
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait SessionEventStore {
     /// Appends an event to a session's log and returns the stored [`Event`]

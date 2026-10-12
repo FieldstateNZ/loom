@@ -25,6 +25,11 @@ pub enum ResolveOutcome {
 /// The substrate for `getPendingToolCalls`, `sendToolResult` correlation, and
 /// `drain`: a call is pending from [`record_pending`](PendingToolCallStore::record_pending)
 /// until its result is posted via [`resolve`](PendingToolCallStore::resolve).
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait PendingToolCallStore {
     /// Records a blocking tool call on a session. Returns the recorded call, or
