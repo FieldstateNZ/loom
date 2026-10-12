@@ -13,6 +13,11 @@ use loom_core::{AgentContent, AgentDefinition, AgentDefinitionVersion};
 /// [`AgentDefinitionVersion`] snapshots. Editing advances the draft and records
 /// a new snapshot; [`publish`](AgentStore::publish) advances the published
 /// pointer to the current draft, monotonically.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait AgentStore {
     /// Creates a definition at draft version `1`, recording its first content

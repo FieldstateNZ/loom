@@ -29,6 +29,11 @@ use crate::state::AppState;
 /// Implementations map a provider name (and the calling tenant) to a ready-to-use
 /// provider. Credential loading and decryption happen here so handlers never
 /// touch secrets directly.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ProviderFactory: Send + Sync {
     /// Resolves `provider` for `tenant_id`, returning a shared provider handle.

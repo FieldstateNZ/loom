@@ -14,6 +14,11 @@ use loom_store::{NewUsageEvent, OutboxStore, PgStore, UsageStore};
 /// Records a usage event for a completed turn. Implementations are
 /// **best-effort**: `record` returns `()` and never propagates an error, so a
 /// persistence failure can never fail the turn that produced the usage.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait UsageRecorder: Send + Sync {
     /// Records `event`, swallowing and logging any failure.

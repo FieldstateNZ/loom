@@ -37,6 +37,13 @@ a single, non-HA pod. For DOKS/production set `postgresql.enabled=false` and
 point DATABASE_URL at a managed database.
 {{- end }}
 
+{{- $dbSource := splitList "|" (include "loom.databaseUrlSource" .) }}
+
 Secrets are read from the existing Secret "{{ .Values.secrets.existingSecret }}".
 Confirm it exists and carries the expected keys (LOOM_ENCRYPTION_KEY,
-LOOM_ROOT_ADMIN_TOKEN{{ if not .Values.postgresql.enabled }}, {{ .Values.secrets.keys.databaseUrl }}{{ end }}).
+LOOM_ROOT_ADMIN_TOKEN).
+DATABASE_URL is sourced from Secret "{{ index $dbSource 0 }}", key "{{ index $dbSource 1 }}".
+{{- if include "loom.databaseCaEnabled" . }}
+Database TLS trust: CA certificate from Secret "{{ .Values.database.tls.caSecret }}"
+(key "{{ include "loom.databaseCaKey" . }}") mounted read-only at {{ include "loom.databaseCaFile" . }} (PGSSLROOTCERT).
+{{- end }}

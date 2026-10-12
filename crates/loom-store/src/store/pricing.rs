@@ -8,6 +8,11 @@ use crate::error::Result;
 use crate::model::{ModelPrice, NewModelPrice};
 
 /// Persistence for the versioned pricing model.
+// `async_trait` (<= 0.1.89) stamps a bare `#[must_use]` on each async trait
+// method while the boxed future it returns is already `#[must_use]`, which
+// trips `clippy::double_must_use` on newer toolchains. The attribute is
+// macro-generated, so this scoped allow is the narrowest place to quiet it.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait PricingStore {
     /// Returns the effective price for `(provider, model)` at instant `at`:
