@@ -20,6 +20,11 @@ pub enum StoreError {
     #[error("migration error: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
 
+    /// Applied migration versions, checksums or success state differ from the
+    /// embedded release. Verification is read-only and never repairs metadata.
+    #[error("database schema does not match this release")]
+    SchemaMismatch,
+
     /// A domain value failed to serialise to, or deserialise from, JSON.
     ///
     /// This indicates that a persisted row no longer matches the loom-core

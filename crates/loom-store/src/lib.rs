@@ -97,6 +97,8 @@ where
     Ok(report)
 }
 
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 /// Applies the embedded migration set to `pool`, bringing an empty database up
 /// to the current schema.
 ///
@@ -110,6 +112,37 @@ where
 ///
 /// Returns [`StoreError::Migration`] if a migration fails to apply.
 pub async fn run_migrations(pool: &sqlx::PgPool) -> Result<()> {
-    sqlx::migrate!("./migrations").run(pool).await?;
+    MIGRATOR.run(pool).await?;
+    Ok(())
+}
+
+/// Verifies the exact embedded release against applied migration metadata.
+///
+/// This performs only SELECTs: runtime credentials need no migration/DDL
+/// permission. Older, newer, failed or checksum-mismatched schemas are refused;
+/// a compatible rollback requires an explicit release decision.
+///
+/// # Errors
+/// Returns [`StoreError::SchemaMismatch`] for a different release, or a database
+/// error when metadata is absent/unreadable. No migration is run or repaired.
+pub async fn verify_migrations(pool: &sqlx::PgPool) -> Result<()> {
+    let applied: Vec<(i64, Vec<u8>, bool)> =
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await?;
+    let expected: Vec<_> = MIGRATOR
+        .iter()
+        .filter(|m| m.migration_type.is_up_migration())
+        .collect();
+    if applied.len() != expected.len()
+        || applied
+            .iter()
+            .zip(expected)
+            .any(|((version, checksum, success), m)| {
+                !success || *version != m.version || checksum.as_slice() != m.checksum.as_ref()
+            })
+    {
+        return Err(StoreError::SchemaMismatch);
+    }
     Ok(())
 }

@@ -22,8 +22,8 @@
 //! # Endpoints
 //!
 //! - `GET /healthz` — liveness (always `200`).
-//! - `GET /readyz` — readiness (DB ping); `503` when the database is
-//!   unreachable.
+//! - `GET /readyz` — readiness (release schema); `503` when the database is
+//!   unreachable or its migration metadata differs from this release.
 //! - `GET /v1/whoami` — echoes the authenticated [`TenantContext`] (tenant
 //!   auth).
 //! - `GET /v1/conversations/{id}` — a tenant-scoped resource proving isolation
@@ -133,15 +133,14 @@ struct Readiness {
     status: &'static str,
 }
 
-/// Readiness endpoint: pings the database. `200` when reachable, `503`
+/// Readiness endpoint: verifies database/release schema. `200` when ready, `503`
 /// otherwise (with the structured error envelope).
 async fn readyz(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    sqlx::query("SELECT 1")
-        .execute(state.store().pool())
+    loom_store::verify_migrations(state.store().pool())
         .await
         .map_err(|err| {
             tracing::warn!(error = %err, "readiness probe failed");
-            ApiError::unavailable("database is not reachable")
+            ApiError::unavailable("database schema is not ready for this release")
         })?;
     Ok((StatusCode::OK, Json(Readiness { status: "ready" })))
 }

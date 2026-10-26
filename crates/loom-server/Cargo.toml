@@ -58,6 +58,7 @@ futures = { workspace = true }
 utoipa = { workspace = true, features = ["decimal"] }
 
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
+rustls = { workspace = true }
 
 # --- crypto / secrets ---
 aes-gcm = { workspace = true }
@@ -69,7 +70,8 @@ rand = { workspace = true }
 subtle = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
+reqwest = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 futures = { workspace = true }
 loom-provider = { workspace = true, features = ["mock"] }
