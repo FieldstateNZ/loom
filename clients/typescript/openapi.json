@@ -1013,6 +1013,39 @@
           }
         }
       },
+      "Binding": {
+        "type": "object",
+        "description": "Server-owned identity expected for every MCP request; never model input.",
+        "required": [
+          "principal_id",
+          "workspace_id",
+          "agent_definition_id",
+          "credential_id"
+        ],
+        "properties": {
+          "agent_definition_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "LucidBrain assistant definition."
+          },
+          "credential_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable credential identity, independent of access-token refresh."
+          },
+          "principal_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "LucidBrain acting principal (normally an agent service user)."
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Workspace hard-pinned by the credential."
+          }
+        },
+        "additionalProperties": false
+      },
       "CacheHint": {
         "type": "object",
         "description": "A request to cache the request prefix up to and including the annotated\nelement.\n\nThis is Loom's provider-agnostic spelling of a cache breakpoint (Anthropic's\n`cache_control: { \"type\": \"ephemeral\" }`). A hint is always *ephemeral*;\n[`ttl`](CacheHint::ttl) optionally selects a non-default lifetime.\n\n# Serde representation\n\nSerializes as an object carrying only a non-default `ttl`, so a default hint\nround-trips as `{}` and a hint with an explicit lifetime as\n`{ \"ttl\": \"one_hour\" }`. This keeps the on-the-wire domain form stable and\nprovider-agnostic; the mapping to a provider's native marker lives in that\nprovider's translator.",
@@ -1676,13 +1709,47 @@
           }
         }
       },
-      "McpServerList": {
+      "GatewayMcpRequest": {
         "type": "object",
-        "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nOnly names are ever included — never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
+        "description": "Opt-in private gateway memory execution. Only registered names and a read\nsubset are accepted. The caller's expected identity is an assertion, never\npermission: it must equal both the operator registration and the peer.",
         "required": [
-          "servers"
+          "name",
+          "allowed_tools",
+          "expected_binding"
         ],
         "properties": {
+          "allowed_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Requested subset of the registration's finite memory-read policy."
+          },
+          "expected_binding": {
+            "$ref": "#/components/schemas/Binding",
+            "description": "Provisioned identity the application expects. Cannot override the\noperator's registered binding or the credential's actual identity."
+          },
+          "name": {
+            "type": "string",
+            "description": "Tenant's operator-registered MCP server name."
+          }
+        },
+        "additionalProperties": false
+      },
+      "McpServerList": {
+        "type": "object",
+        "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nNames and the private-memory protocol version are included, never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
+        "required": [
+          "servers",
+          "gateway_memory_version"
+        ],
+        "properties": {
+          "gateway_memory_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Version 1 supports the explicit, identity-bound `gateway_mcp` read path.\nOlder servers omit this field; clients must refuse silent downgrade.",
+            "minimum": 0
+          },
           "servers": {
             "type": "array",
             "items": {
@@ -1914,6 +1981,17 @@
           "messages"
         ],
         "properties": {
+          "gateway_mcp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GatewayMcpRequest",
+                "description": "Private MCP requires a persistent conversation; present values are\nexplicitly rejected rather than silently ignored on this endpoint."
+              }
+            ]
+          },
           "messages": {
             "type": "array",
             "items": {
@@ -2292,6 +2370,17 @@
               "$ref": "#/components/schemas/ContentPart"
             },
             "description": "The user turn's content parts, in provider-significant order."
+          },
+          "gateway_mcp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GatewayMcpRequest",
+                "description": "Private gateway execution, separate from provider-hosted MCP options."
+              }
+            ]
           },
           "options": {
             "oneOf": [

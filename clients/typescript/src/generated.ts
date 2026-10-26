@@ -364,6 +364,29 @@ export interface components {
              */
             updated_at: string;
         };
+        /** @description Server-owned identity expected for every MCP request; never model input. */
+        Binding: {
+            /**
+             * Format: uuid
+             * @description LucidBrain assistant definition.
+             */
+            agent_definition_id: string;
+            /**
+             * Format: uuid
+             * @description Stable credential identity, independent of access-token refresh.
+             */
+            credential_id: string;
+            /**
+             * Format: uuid
+             * @description LucidBrain acting principal (normally an agent service user).
+             */
+            principal_id: string;
+            /**
+             * Format: uuid
+             * @description Workspace hard-pinned by the credential.
+             */
+            workspace_id: string;
+        };
         /**
          * @description A request to cache the request prefix up to and including the annotated
          *     element.
@@ -776,14 +799,36 @@ export interface components {
             system?: string | null;
         };
         /**
+         * @description Opt-in private gateway memory execution. Only registered names and a read
+         *     subset are accepted. The caller's expected identity is an assertion, never
+         *     permission: it must equal both the operator registration and the peer.
+         */
+        GatewayMcpRequest: {
+            /** @description Requested subset of the registration's finite memory-read policy. */
+            allowed_tools: string[];
+            /**
+             * @description Provisioned identity the application expects. Cannot override the
+             *     operator's registered binding or the credential's actual identity.
+             */
+            expected_binding: components["schemas"]["Binding"];
+            /** @description Tenant's operator-registered MCP server name. */
+            name: string;
+        };
+        /**
          * @description The `/v1/mcp-servers` response: the tenant's registered MCP server names.
          *
-         *     Only names are ever included — never the URL or authorization token, both
+         *     Names and the private-memory protocol version are included, never the URL or authorization token, both
          *     of which stay server-side so a virtual key can discover which
          *     [`withMcp`](loom_core::McpServerRef) references are valid without learning
          *     anything it could use to reach the server directly.
          */
         McpServerList: {
+            /**
+             * Format: int32
+             * @description Version 1 supports the explicit, identity-bound `gateway_mcp` read path.
+             *     Older servers omit this field; clients must refuse silent downgrade.
+             */
+            gateway_memory_version: number;
             /** @description The tenant's registered MCP server names, in store order (by name). */
             servers: string[];
         };
@@ -959,6 +1004,7 @@ export interface components {
          *     and nothing is persisted.
          */
         StatelessTurnRequest: {
+            gateway_mcp?: null | components["schemas"]["GatewayMcpRequest"];
             /** @description The full, inline message history to run. */
             messages: components["schemas"]["Message"][];
             /** @description The model identifier, as the provider expects it. */
@@ -1102,6 +1148,7 @@ export interface components {
         TurnRequest: {
             /** @description The user turn's content parts, in provider-significant order. */
             content: components["schemas"]["ContentPart"][];
+            gateway_mcp?: null | components["schemas"]["GatewayMcpRequest"];
             options?: null | components["schemas"]["ConversationOptions"];
             /** @description Whether to stream the assistant turn as Server-Sent Events. */
             stream?: boolean;

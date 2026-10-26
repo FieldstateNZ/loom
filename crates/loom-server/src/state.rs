@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 use loom_provider::Provider;
@@ -31,6 +32,8 @@ pub struct AppState {
 
 struct Inner {
     store: PgStore,
+    /// Hold at most half the work pool in long-lived conversation transactions.
+    conversation_slots: Arc<Semaphore>,
     crypto: Crypto,
     hasher: KeyHasher,
     root_admin_token: String,
@@ -54,9 +57,13 @@ impl AppState {
         hasher: KeyHasher,
         root_admin_token: String,
     ) -> Self {
+        let conversation_slots = Arc::new(Semaphore::new(
+            (store.pool().options().get_max_connections() / 2) as usize,
+        ));
         Self {
             inner: Arc::new(Inner {
                 store,
+                conversation_slots,
                 crypto,
                 hasher,
                 root_admin_token,
@@ -81,6 +88,7 @@ impl AppState {
         Self {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
+                conversation_slots: self.inner.conversation_slots.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -104,6 +112,7 @@ impl AppState {
         Self {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
+                conversation_slots: self.inner.conversation_slots.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -127,6 +136,7 @@ impl AppState {
         Self {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
+                conversation_slots: self.inner.conversation_slots.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -156,6 +166,26 @@ impl AppState {
     #[must_use]
     pub fn store(&self) -> &PgStore {
         &self.inner.store
+    }
+
+    /// Admit before borrowing a connection for a long-lived advisory lock.
+    /// All state/factory clones share this gate; the remaining pool connections
+    /// stay available for lookups, persistence, usage and readiness.
+    pub(crate) fn admit_conversation(&self) -> Result<OwnedSemaphorePermit, ApiError> {
+        if self.inner.store.pool().options().get_max_connections() < 2 {
+            return Err(ApiError::unavailable(
+                "conversation execution requires at least two database connections",
+            ));
+        }
+        self.inner
+            .conversation_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                ApiError::unavailable(
+                    "conversation capacity is busy; try again when an active turn finishes",
+                )
+            })
     }
 
     /// The credential encryptor.

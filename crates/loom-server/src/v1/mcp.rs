@@ -14,7 +14,7 @@ use crate::state::AppState;
 
 /// The `/v1/mcp-servers` response: the tenant's registered MCP server names.
 ///
-/// Only names are ever included — never the URL or authorization token, both
+/// Names and the private-memory protocol version are included, never the URL or authorization token, both
 /// of which stay server-side so a virtual key can discover which
 /// [`withMcp`](loom_core::McpServerRef) references are valid without learning
 /// anything it could use to reach the server directly.
@@ -22,6 +22,9 @@ use crate::state::AppState;
 pub(super) struct McpServerList {
     /// The tenant's registered MCP server names, in store order (by name).
     servers: Vec<String>,
+    /// Version 1 supports the explicit, identity-bound `gateway_mcp` read path.
+    /// Older servers omit this field; clients must refuse silent downgrade.
+    gateway_memory_version: u32,
 }
 
 /// `GET /v1/mcp-servers` — lists the names of MCP servers registered for the
@@ -49,5 +52,8 @@ pub(super) async fn list_mcp_servers(
         .into_iter()
         .map(|server| server.name)
         .collect();
-    Ok(Json(McpServerList { servers }))
+    Ok(Json(McpServerList {
+        servers,
+        gateway_memory_version: 1,
+    }))
 }

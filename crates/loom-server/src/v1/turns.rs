@@ -46,6 +46,8 @@ pub(super) async fn create_turn(
         return Err(ApiError::bad_request("content must not be empty"));
     }
 
+    let guard = super::conversation_lock::acquire(&state, ctx.tenant_id, id).await?;
+
     let mut conversation = state
         .store()
         .get_conversation(ctx.tenant_id, id)
@@ -54,6 +56,31 @@ pub(super) async fn create_turn(
         .ok_or_else(|| ApiError::not_found("conversation not found"))?;
 
     let mut options = req.options.unwrap_or_default();
+    let prior_runtime = super::gateway_mcp::runtime(&state, ctx.tenant_id, id).await?;
+    if let Some((_, status)) = prior_runtime.as_ref() {
+        if req.gateway_mcp.is_none() || status != "idle" {
+            return Err(ApiError::conflict("this private memory conversation requires its verified binding and a completed prior run"));
+        }
+    }
+    let gateway = if let Some(request) = req.gateway_mcp.as_ref() {
+        if prior_runtime.is_none() && !conversation.messages.is_empty() {
+            return Err(ApiError::conflict(
+                "start a new conversation to enable private memory execution",
+            ));
+        }
+        if req
+            .content
+            .iter()
+            .any(|p| !matches!(p, loom_core::ContentPart::Text { .. }))
+        {
+            return Err(ApiError::bad_request(
+                "private memory turns accept user text, not caller-supplied tool results",
+            ));
+        }
+        Some(super::gateway_mcp::prepare(&state, ctx.tenant_id, request, &mut options).await?)
+    } else {
+        None
+    };
     let user_turn = Message::new(Role::User, req.content);
 
     // Resolve named MCP server references to their URL + decrypted token
@@ -68,11 +95,23 @@ pub(super) async fn create_turn(
         .resolve_provider(ctx.tenant_id, &conversation.binding.provider)
         .await?;
     conversation.messages.push(user_turn.clone());
-    negotiate(provider.as_ref(), &conversation, &options, req.stream)?;
+    negotiate(
+        provider.as_ref(),
+        &conversation,
+        &options,
+        req.stream || gateway.is_some(),
+    )?;
 
     // Enforce rate limits and budget *before* the provider call (and before
     // persisting the user turn, so a blocked request leaves history untouched).
     let warning = enforce_limits(&state, &ctx).await?;
+
+    if let Some(prepared) = gateway.as_ref() {
+        super::gateway_mcp::pin(&state, ctx.tenant_id, id, prepared).await?;
+        // Written before the user turn and inference: crashes, cancellation and
+        // unknown upstream outcomes remain durably fenced across replicas.
+        super::gateway_mcp::mark(&state, ctx.tenant_id, id, "running").await?;
+    }
 
     // Persist the user turn now that the request is known to be runnable.
     state
@@ -82,17 +121,32 @@ pub(super) async fn create_turn(
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::not_found("conversation not found"))?;
 
-    execute_turn(
-        provider,
-        &state,
-        conversation,
-        options,
-        req.stream,
-        true,
-        ctx.key_id,
-        warning,
-    )
-    .await
+    let response = if let Some(prepared) = gateway {
+        super::gateway_mcp::execute(
+            provider,
+            &state,
+            conversation,
+            options,
+            req.stream,
+            ctx,
+            warning,
+            prepared,
+        )
+        .await?
+    } else {
+        execute_turn(
+            provider,
+            &state,
+            conversation,
+            options,
+            req.stream,
+            true,
+            ctx.key_id,
+            warning,
+        )
+        .await?
+    };
+    Ok(super::conversation_lock::hold(response, guard))
 }
 
 /// `POST /v1/turns` — run the provider on a fully-inline conversation with **no**
@@ -117,6 +171,11 @@ pub(super) async fn stateless_turn(
     ctx: TenantContext,
     crate::extract::Json(req): crate::extract::Json<StatelessTurnRequest>,
 ) -> Result<Response, ApiError> {
+    if req.gateway_mcp.is_some() {
+        return Err(ApiError::bad_request(
+            "private memory requires a persistent conversation",
+        ));
+    }
     if req.provider.trim().is_empty() || req.model.trim().is_empty() {
         return Err(ApiError::bad_request(
             "provider and model must not be empty",

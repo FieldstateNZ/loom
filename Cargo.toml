@@ -5,6 +5,7 @@ members = [
     "crates/loom-provider",
     "crates/loom-provider-anthropic",
     "crates/loom-provider-openai",
+    "crates/loom-mcp",
     "crates/loom-store",
     "crates/loom-server",
 ]
@@ -40,6 +41,12 @@ http = "1"
 # --- http client ---
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 eventsource-stream = "0.2"
+rmcp = { version = "=3.7.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
+# The official MCP SDK uses reqwest 0.13; keep existing provider clients on 0.12.
+reqwest-mcp = { package = "reqwest", version = "=0.13.5", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+# Match the existing reqwest 0.12 ring backend; two default crypto providers
+# cause Rustls auto-selection to fail when both clients are linked together.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # --- persistence ---
 sqlx = "0.8"
 # --- errors / util ---
@@ -77,6 +84,7 @@ loom-provider = { path = "crates/loom-provider" }
 loom-provider-anthropic = { path = "crates/loom-provider-anthropic" }
 loom-provider-openai = { path = "crates/loom-provider-openai" }
 loom-store = { path = "crates/loom-store" }
+loom-mcp = { path = "crates/loom-mcp" }
 
 # --- dev / test ---
 [workspace.dependencies.testcontainers]

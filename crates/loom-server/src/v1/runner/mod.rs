@@ -32,7 +32,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 use crate::telemetry;
 
-mod attribution;
+pub(super) mod attribution;
 mod stream;
 
 use self::attribution::{record_turn_usage, turn_cost, UsageAttribution};

@@ -5,6 +5,21 @@ use utoipa::ToSchema;
 
 use loom_core::{CacheHint, ConversationOptions, Message};
 
+/// Opt-in private gateway memory execution. Only registered names and a read
+/// subset are accepted. The caller's expected identity is an assertion, never
+/// permission: it must equal both the operator registration and the peer.
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayMcpRequest {
+    /// Tenant's operator-registered MCP server name.
+    pub name: String,
+    /// Requested subset of the registration's finite memory-read policy.
+    pub allowed_tools: Vec<String>,
+    /// Provisioned identity the application expects. Cannot override the
+    /// operator's registered binding or the credential's actual identity.
+    pub expected_binding: loom_mcp::Binding,
+}
+
 /// Request body for creating a conversation.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateConversationRequest {
@@ -31,6 +46,9 @@ pub struct TurnRequest {
     /// Request-time provider options (sampling, tools, …).
     #[serde(default)]
     pub options: Option<ConversationOptions>,
+    /// Private gateway execution, separate from provider-hosted MCP options.
+    #[serde(default)]
+    pub gateway_mcp: Option<GatewayMcpRequest>,
 }
 
 /// Request body for a stateless turn: the whole conversation is supplied inline
@@ -55,4 +73,8 @@ pub struct StatelessTurnRequest {
     /// Whether to stream the assistant turn as Server-Sent Events.
     #[serde(default)]
     pub stream: bool,
+    /// Private MCP requires a persistent conversation; present values are
+    /// explicitly rejected rather than silently ignored on this endpoint.
+    #[serde(default)]
+    pub gateway_mcp: Option<GatewayMcpRequest>,
 }
