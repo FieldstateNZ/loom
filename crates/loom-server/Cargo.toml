@@ -28,7 +28,7 @@ loom-mcp = { workspace = true, features = ["openapi"] }
 axum = { workspace = true }
 tower = { workspace = true }
 http = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
