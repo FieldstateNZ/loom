@@ -23,7 +23,9 @@
 //! - [`usage`] — `GET /v1/usage`.
 //! - [`mcp`] — `GET /v1/mcp-servers`.
 
+mod conversation_lock;
 mod conversations;
+mod gateway_mcp;
 mod mcp;
 mod requests;
 mod runner;

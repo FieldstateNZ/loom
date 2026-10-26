@@ -198,6 +198,16 @@ pub(crate) async fn resolve_mcp_servers(
         // Inject the decrypted token server-side, replacing anything the client
         // sent for this named reference. Done before the field moves below so
         // the whole row is still borrowable here.
+        if registered
+            .tool_configuration
+            .as_ref()
+            .is_some_and(|c| c.get("gateway").is_some())
+        {
+            return Err(ApiError::unprocessable(
+                "mcp_gateway_required",
+                "this MCP registration requires private gateway execution",
+            ));
+        }
         server.authorization = decrypt_mcp_token(state, tenant_id, &registered.name, &registered)?;
         server.url = Some(registered.url);
         // The caller's tool_configuration (if any) overrides the registry's.
@@ -212,7 +222,7 @@ pub(crate) async fn resolve_mcp_servers(
 /// `Ok(None)` when the server has no token. The AEAD associated data is rebuilt
 /// from the row's own `(tenant_id, name)` identity via [`mcp_aad`], so a
 /// ciphertext relocated into another row fails to decrypt.
-fn decrypt_mcp_token(
+pub(crate) fn decrypt_mcp_token(
     state: &AppState,
     tenant_id: Uuid,
     name: &str,

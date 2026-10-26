@@ -22,12 +22,12 @@ use crate::state::AppState;
 /// `conversation_id` is `Some` only for stateful turns; a stateless turn
 /// records usage against the tenant and key with no conversation.
 #[derive(Clone)]
-pub(super) struct UsageAttribution {
-    pub(super) tenant_id: Uuid,
-    pub(super) virtual_key_id: Option<Uuid>,
-    pub(super) conversation_id: Option<Uuid>,
-    pub(super) provider: String,
-    pub(super) model: String,
+pub(crate) struct UsageAttribution {
+    pub(crate) tenant_id: Uuid,
+    pub(crate) virtual_key_id: Option<Uuid>,
+    pub(crate) conversation_id: Option<Uuid>,
+    pub(crate) provider: String,
+    pub(crate) model: String,
 }
 
 /// Records a priced usage event for a completed turn (best effort).
@@ -38,7 +38,7 @@ pub(super) struct UsageAttribution {
 /// is never lost and cost can be recomputed later. The write itself goes through
 /// the state's [`UsageRecorder`](crate::usage::UsageRecorder), which parks the
 /// event in the outbox on failure — a usage-write fault never fails the turn.
-pub(super) async fn record_turn_usage(
+pub(crate) async fn record_turn_usage(
     state: &AppState,
     attribution: &UsageAttribution,
     usage: Usage,
@@ -117,7 +117,7 @@ pub(super) async fn record_turn_usage(
 ///
 /// [`ModelPrice`]: loom_store::ModelPrice
 /// [`ModelPrice::currency`]: loom_store::ModelPrice::currency
-pub(super) fn turn_cost(amount: Option<Decimal>) -> Option<TurnCost> {
+pub(crate) fn turn_cost(amount: Option<Decimal>) -> Option<TurnCost> {
     amount.map(|amount| TurnCost {
         amount,
         currency: "USD".to_owned(),

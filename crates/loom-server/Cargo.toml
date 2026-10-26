@@ -23,6 +23,7 @@ loom-provider = { workspace = true, features = ["openapi"] }
 loom-provider-anthropic = { workspace = true }
 loom-provider-openai = { workspace = true }
 loom-store = { workspace = true }
+loom-mcp = { workspace = true, features = ["openapi"] }
 
 axum = { workspace = true }
 tower = { workspace = true }

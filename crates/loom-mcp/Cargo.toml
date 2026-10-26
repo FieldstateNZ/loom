@@ -1,0 +1,29 @@
+[package]
+name = "loom-mcp"
+description = "Identity-bound private LucidBrain memory client for Loom-managed execution."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+utoipa = { workspace = true, optional = true }
+loom-core.workspace = true
+rmcp.workspace = true
+reqwest-mcp.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tokio = { workspace = true, features = ["time"] }
+futures.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock.workspace = true
+
+[features]
+openapi = ["dep:utoipa"]

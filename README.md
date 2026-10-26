@@ -94,6 +94,7 @@ Zod-first schemas, generated JSON Schema/OpenAPI, and the v0 concept draft live 
 | `loom-provider` | Provider plugin trait, capability model, capability negotiation, `TurnEvent` streaming envelope, provider registry. |
 | `loom-provider-anthropic` | Anthropic provider: Messages API translation (non-streaming + SSE), prompt caching, server-side tools, MCP connector, batches. |
 | `loom-provider-openai` | OpenAI Responses translation (non-streaming + SSE), local history replay, function calls and reasoning continuity. |
+| `loom-mcp` | Identity-bound private LucidBrain memory reads using the official MCP client; no provider-side credential forwarding or write tools. |
 | `loom-store` | PostgreSQL persistence via `sqlx` — tenants, virtual keys, credentials, conversations, messages, usage events. |
 | `loom-server` | The HTTP gateway (`axum`): `/v1` conversation endpoints, auth middleware, budgets, usage rollups, OpenAPI. |
 
