@@ -40,6 +40,62 @@ fn sse(events: &[Value]) -> String {
         })
         .collect()
 }
+
+#[tokio::test]
+async fn truncated_function_calls_preserve_incomplete_terminal_usage_without_executable_content() {
+    for earlier_item_done in [false, true] {
+        for initial_deltas in [false, true] {
+            let call = json!({"id":"fc_cutoff","type":"function_call","status":"incomplete","call_id":"call_cutoff","name":"memory_recall","arguments":"{\"query\":"});
+            let response = json!({"id":"resp_cutoff","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[call],"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":4}}});
+            let mut events = vec![
+                json!({"type":"response.created","response":{"id":"resp_cutoff","status":"in_progress"}}),
+            ];
+            if initial_deltas {
+                let mut initial = call.clone();
+                initial["arguments"] = json!("");
+                initial["status"] = json!("in_progress");
+                events.push(
+                    json!({"type":"response.output_item.added","output_index":0,"item":initial}),
+                );
+                events.push(json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"query\":"}));
+            }
+            if earlier_item_done {
+                events
+                    .push(json!({"type":"response.output_item.done","output_index":0,"item":call}));
+            }
+            events.push(json!({"type":"response.incomplete","response":response}));
+            let events = stream(sse(&events)).await;
+            assert!(
+                events.iter().all(Result::is_ok),
+                "item_done={earlier_item_done}, deltas={initial_deltas}: {events:?}"
+            );
+            let mut complete = BTreeMap::new();
+            for event in &events {
+                if let TurnEventKind::ContentPartComplete { index, part } =
+                    &event.as_ref().unwrap().kind
+                {
+                    assert!(!matches!(part, ContentPart::ToolUse { .. }));
+                    complete.insert(*index, part.clone());
+                }
+            }
+            assert!(complete.values().any(|part|matches!(part,ContentPart::ProviderExtension {kind,payload,..} if kind=="incomplete_function_call" && payload==&call)));
+            let last = events.last().unwrap().as_ref().unwrap();
+            assert!(
+                matches!(&last.kind,TurnEventKind::TurnEnded {stop_reason:StopReason::MaxTokens,usage:Some(usage),..} if usage.input_tokens==Some(8) && usage.output_tokens==Some(7) && usage.cache_read_tokens==Some(4) && usage.raw.as_ref()==Some(&response["usage"]))
+            );
+            assert_eq!(last.raw["response"], response);
+            let message = translate::response(&response).unwrap();
+            assert_eq!(message.content, complete.into_values().collect::<Vec<_>>());
+            let mut convo = conversation();
+            convo.messages.push(message);
+            convo.messages.push(Message::user("Follow up"));
+            assert!(
+                translate::request(&convo, &ConversationOptions::new(), false).is_err(),
+                "An unfinished native call must not be replayed as a callable input item"
+            );
+        }
+    }
+}
 async fn server(template: ResponseTemplate) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
