@@ -4,8 +4,8 @@
 //! The gateway never hard-codes a single provider into its handlers. Instead a
 //! [`ProviderFactory`] resolves the bound provider at request time, so the
 //! conversation API stays a thin layer over the [`Provider`] trait. The
-//! [`DefaultProviderFactory`] compiles in the providers Loom ships with — today,
-//! Anthropic — loading each tenant's encrypted credential from the store,
+//! [`DefaultProviderFactory`] compiles in Anthropic and OpenAI, loading each
+//! tenant's encrypted credential from the store,
 //! decrypting it with the gateway [`Crypto`](crate::crypto::Crypto), and
 //! constructing a provider bound to that API key (and optional base-URL
 //! override). Tests substitute their own factory (for example one returning a
@@ -19,6 +19,7 @@ use uuid::Uuid;
 use loom_core::ConversationOptions;
 use loom_provider::Provider;
 use loom_provider_anthropic::{AnthropicProvider, PROVIDER_NAME as ANTHROPIC_PROVIDER};
+use loom_provider_openai::{OpenAIProvider, PROVIDER_NAME as OPENAI_PROVIDER};
 use loom_store::{CredentialStore, McpServerStore, ProviderCredential};
 
 use crate::error::ApiError;
@@ -53,8 +54,8 @@ pub trait ProviderFactory: Send + Sync {
 
 /// The default factory over the providers compiled into the gateway.
 ///
-/// Recognises `"anthropic"`, building an [`AnthropicProvider`] from the tenant's
-/// stored credential (falling back to a gateway-global credential). Any other
+/// Recognises `"anthropic"` and `"openai"`, building the corresponding provider
+/// from the tenant's stored credential (falling back to a gateway-global credential). Any other
 /// provider name yields a `422` rather than a panic.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultProviderFactory;
@@ -68,6 +69,17 @@ impl ProviderFactory for DefaultProviderFactory {
         provider: &str,
     ) -> Result<Arc<dyn Provider>, ApiError> {
         match provider {
+            OPENAI_PROVIDER => {
+                let credential = load_credential(state, tenant_id, provider).await?;
+                let api_key = decrypt_api_key(state, &credential)?;
+                let mut openai = OpenAIProvider::new(api_key).map_err(ApiError::from_provider)?;
+                if let Some(base_url) = credential.base_url {
+                    openai = openai
+                        .with_base_url(base_url)
+                        .map_err(ApiError::from_provider)?;
+                }
+                Ok(Arc::new(openai))
+            }
             ANTHROPIC_PROVIDER => {
                 let credential = load_credential(state, tenant_id, provider).await?;
                 let api_key = decrypt_api_key(state, &credential)?;

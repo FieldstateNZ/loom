@@ -1,0 +1,30 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_synthetic_text","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_synthetic","type":"reasoning","summary":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_synthetic","type":"reasoning","summary":[],"encrypted_content":"opaque-synthetic-ciphertext"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"msg_synthetic","type":"message","role":"assistant","status":"in_progress","phase":"final_answer","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","output_index":1,"content_index":0,"item_id":"msg_synthetic","part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"item_id":"msg_synthetic","delta":"Hello from OpenAI "}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"item_id":"msg_synthetic","delta":"through Loom."}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","output_index":1,"content_index":0,"item_id":"msg_synthetic","part":{"type":"output_text","text":"Hello from OpenAI through Loom.","annotations":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_synthetic","type":"message","role":"assistant","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"Hello from OpenAI through Loom.","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_text","object":"response","status":"completed","model":"gpt-6-luna","output":[{"id":"rs_synthetic","type":"reasoning","summary":[],"encrypted_content":"opaque-synthetic-ciphertext"},{"id":"msg_synthetic","type":"message","role":"assistant","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"Hello from OpenAI through Loom.","annotations":[]}]}],"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":4},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":1},"total_tokens":15}}}
+

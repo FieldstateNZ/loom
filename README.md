@@ -30,7 +30,10 @@ whatever it lacks. Anything a provider models natively that the contract does no
 yet name rides through a `ProviderExtension` escape hatch, so no capability is
 dropped.
 
-Anthropic is the first adapter, including its managed capabilities.
+Anthropic is the first adapter, including its managed capabilities. OpenAI's
+native Responses adapter supports the existing conversation API with text,
+streaming, function calls, reasoning continuity and image inputs; see
+[OpenAI Responses](docs/providers/openai.md) for its explicit capability boundaries.
 
 ```
                  ┌──────────────────────────────────────────────┐
@@ -90,6 +93,7 @@ Zod-first schemas, generated JSON Schema/OpenAPI, and the v0 concept draft live 
 | `loom-core` | The fluent conversation domain model (conversations, messages, content parts, usage, options). No provider assumptions. |
 | `loom-provider` | Provider plugin trait, capability model, capability negotiation, `TurnEvent` streaming envelope, provider registry. |
 | `loom-provider-anthropic` | Anthropic provider: Messages API translation (non-streaming + SSE), prompt caching, server-side tools, MCP connector, batches. |
+| `loom-provider-openai` | OpenAI Responses translation (non-streaming + SSE), local history replay, function calls and reasoning continuity. |
 | `loom-store` | PostgreSQL persistence via `sqlx` — tenants, virtual keys, credentials, conversations, messages, usage events. |
 | `loom-server` | The HTTP gateway (`axum`): `/v1` conversation endpoints, auth middleware, budgets, usage rollups, OpenAPI. |
 
