@@ -137,6 +137,7 @@ impl Fixture {
             .respond_with(ResponseTemplate::new(405))
             .mount(&mcp)
             .await;
+        let slow_tool = mode == "slowtool";
         for method_name in [
             "initialize",
             "notifications/initialized",
@@ -152,7 +153,8 @@ impl Fixture {
                         "tools/list"=>json!({"tools":[{"name":"memory_search","inputSchema":{"type":"object","properties":{"search":{"type":"string"}}}}]}),
                         _=>json!({"content":[{"type":"text","text":"{\"data\":[{\"content\":\"blue tea\"}]}"}]}),
                     };
-                    ResponseTemplate::new(200).set_body_json(json!({"jsonrpc":"2.0","id":request["id"],"result":result}))
+                    let response=ResponseTemplate::new(200).set_body_json(json!({"jsonrpc":"2.0","id":request["id"],"result":result}));
+                    if slow_tool && method_name=="tools/call" {response.set_delay(std::time::Duration::from_secs(2))} else {response}
                 }).mount(&mcp).await;
         }
         let mode = mode.to_owned();
@@ -419,6 +421,43 @@ async fn model_requested_write_is_never_dispatched_and_never_reported_as_success
     assert!(!text.contains("turn_ended"));
     assert_eq!(f.model_calls().await, 1);
     assert_eq!(f.tool_calls().await, 0);
+}
+
+#[tokio::test]
+async fn disconnect_during_an_actual_tool_request_stops_continuation_and_keeps_the_fence() {
+    let f = Fixture::new("slowtool").await;
+    let id = f.conversation().await;
+    let route = format!("/v1/conversations/{id}/turns");
+    let response = request(&f.app, "POST", &route, &f.key, Some(f.turn(true))).await;
+    let mut body = response.into_body().into_data_stream();
+    assert!(String::from_utf8_lossy(&body.next().await.unwrap().unwrap()).contains("turn_started"));
+    assert!(
+        String::from_utf8_lossy(&body.next().await.unwrap().unwrap())
+            .contains("loom_memory_activity")
+    );
+    let waiting = tokio::spawn(async move { body.next().await });
+    for _ in 0..100 {
+        if f.tool_calls().await == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(f.tool_calls().await, 1);
+    waiting.abort();
+    assert!(waiting.await.unwrap_err().is_cancelled());
+    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+    assert_eq!(f.model_calls().await, 1);
+    assert_eq!(f.tool_calls().await, 1);
+    assert_eq!(
+        f.history(&id).await["messages"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(
+        call(&f.app, "POST", &route, &f.key, Some(f.turn(true)))
+            .await
+            .0,
+        409
+    );
 }
 
 #[tokio::test]
