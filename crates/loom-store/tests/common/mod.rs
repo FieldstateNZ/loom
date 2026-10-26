@@ -44,13 +44,24 @@ pub struct TestDatabase {
 /// Boots a fresh, migrated database and returns a guard (which must be kept
 /// alive for the duration of the test) plus a connected store.
 pub async fn setup() -> (TestDatabase, PgStore) {
+    setup_database(true).await
+}
+
+/// Isolated empty database for upgrade-chain tests; honours the same external
+/// engine selection as setup(). Other test binaries include this module too.
+#[allow(dead_code)]
+pub async fn setup_unmigrated() -> (TestDatabase, PgStore) {
+    setup_database(false).await
+}
+
+async fn setup_database(migrate: bool) -> (TestDatabase, PgStore) {
     match std::env::var(EXTERNAL_DATABASE_URL_ENV) {
-        Ok(url) if !url.trim().is_empty() => setup_external(url.trim()).await,
-        _ => setup_container().await,
+        Ok(url) if !url.trim().is_empty() => setup_external(url.trim(), migrate).await,
+        _ => setup_container(migrate).await,
     }
 }
 
-async fn setup_container() -> (TestDatabase, PgStore) {
+async fn setup_container(migrate: bool) -> (TestDatabase, PgStore) {
     let container = Postgres::default()
         .with_tag("16")
         .start()
@@ -62,9 +73,11 @@ async fn setup_container() -> (TestDatabase, PgStore) {
         .expect("map postgres port");
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
     let store = PgStore::connect(&url).await.expect("connect to postgres");
-    run_migrations(store.pool())
-        .await
-        .expect("migrations apply cleanly from empty database");
+    if migrate {
+        run_migrations(store.pool())
+            .await
+            .expect("migrations apply cleanly from empty database");
+    }
     (
         TestDatabase {
             _container: Some(container),
@@ -73,7 +86,7 @@ async fn setup_container() -> (TestDatabase, PgStore) {
     )
 }
 
-async fn setup_external(url: &str) -> (TestDatabase, PgStore) {
+async fn setup_external(url: &str, migrate: bool) -> (TestDatabase, PgStore) {
     let base = PgConnectOptions::from_str(url)
         .unwrap_or_else(|e| panic!("{EXTERNAL_DATABASE_URL_ENV} is not a valid URL: {e}"));
 
@@ -95,8 +108,10 @@ async fn setup_external(url: &str) -> (TestDatabase, PgStore) {
         .await
         .expect("connect to per-test database");
     let store = PgStore::new(pool);
-    run_migrations(store.pool())
-        .await
-        .expect("migrations apply cleanly from empty database");
+    if migrate {
+        run_migrations(store.pool())
+            .await
+            .expect("migrations apply cleanly from empty database");
+    }
     (TestDatabase { _container: None }, store)
 }
