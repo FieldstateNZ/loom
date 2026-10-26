@@ -1,0 +1,329 @@
+{
+  "pricing_date": "2026-10-27",
+  "currency": "USD",
+  "region": "ap-southeast-2",
+  "month_hours": 730,
+  "scenarios": [
+    {
+      "name": "scheduled_ecs_ec2_pilot",
+      "items": [
+        {
+          "item": "4 GB t4g.medium Linux",
+          "rate": "ec2_t4g_medium_hour",
+          "quantity": "40",
+          "usd": "1.6960000000"
+        },
+        {
+          "item": "Encrypted gp3: 8 GB root + 16 GB data",
+          "rate": "gp3_gb_month",
+          "quantity": "24",
+          "usd": "2.3040000000"
+        },
+        {
+          "item": "One retained IPv4, including stopped hours",
+          "rate": "ipv4_hour",
+          "quantity": "730",
+          "usd": "3.650"
+        },
+        {
+          "item": "One public DNS hosted zone",
+          "rate": "hosted_zone_month",
+          "quantity": "1",
+          "usd": "0.5000000000"
+        },
+        {
+          "item": "Private image retention",
+          "rate": "ecr_gb_month",
+          "quantity": "2",
+          "usd": "0.2000000000"
+        },
+        {
+          "item": "Retained compressed logical backups",
+          "rate": "s3_gb_month",
+          "quantity": "2",
+          "usd": "0.0500000000"
+        },
+        {
+          "item": "Stored EBS snapshot data",
+          "rate": "snapshot_gb_month",
+          "quantity": "2",
+          "usd": "0.1100000000"
+        },
+        {
+          "item": "Standard log ingestion",
+          "rate": "logs_ingest_gb",
+          "quantity": ".1",
+          "usd": "0.06700000000"
+        },
+        {
+          "item": "Log storage",
+          "rate": "logs_storage_gb_month",
+          "quantity": ".1",
+          "usd": "0.00330000000"
+        },
+        {
+          "item": "Three standard alarm metrics",
+          "rate": "standard_alarm_month",
+          "quantity": "3",
+          "usd": "0.3000000000"
+        },
+        {
+          "item": "One custom backup/health metric",
+          "rate": "custom_metric_month",
+          "quantity": "1",
+          "usd": "0.3000000000"
+        },
+        {
+          "item": "Existing serverless entry/storage/identity",
+          "rate": null,
+          "usd": "0.25",
+          "basis": "Planning allowance: 100 logical chat turns and <=5,000 total HTTP requests/month; small DynamoDB/PITR data. Not a quoted AWS rate or a cap."
+        },
+        {
+          "item": "Control, DNS, KMS and backup requests",
+          "rate": null,
+          "usd": "0.10",
+          "basis": "Small-pilot request allowance; no customer-managed KMS key monthly fee assumed."
+        },
+        {
+          "item": "Provider/API internet transfer",
+          "rate": null,
+          "usd": "0.12",
+          "basis": "1 GB planning allowance; retained separate from OpenAI inference. Not an AWS transfer quote."
+        }
+      ],
+      "total_usd_unrounded": "9.65030000000",
+      "total_usd": "9.65",
+      "availability": "40 total running hours/month, including startup, backups and maintenance; unavailable between test windows"
+    },
+    {
+      "name": "same_ecs_ec2_pilot_always_on",
+      "items": [
+        {
+          "item": "4 GB t4g.medium Linux",
+          "rate": "ec2_t4g_medium_hour",
+          "quantity": "730",
+          "usd": "30.9520000000"
+        },
+        {
+          "item": "Encrypted gp3: 8 GB root + 16 GB data",
+          "rate": "gp3_gb_month",
+          "quantity": "24",
+          "usd": "2.3040000000"
+        },
+        {
+          "item": "One retained IPv4, including stopped hours",
+          "rate": "ipv4_hour",
+          "quantity": "730",
+          "usd": "3.650"
+        },
+        {
+          "item": "One public DNS hosted zone",
+          "rate": "hosted_zone_month",
+          "quantity": "1",
+          "usd": "0.5000000000"
+        },
+        {
+          "item": "Private image retention",
+          "rate": "ecr_gb_month",
+          "quantity": "2",
+          "usd": "0.2000000000"
+        },
+        {
+          "item": "Retained compressed logical backups",
+          "rate": "s3_gb_month",
+          "quantity": "2",
+          "usd": "0.0500000000"
+        },
+        {
+          "item": "Stored EBS snapshot data",
+          "rate": "snapshot_gb_month",
+          "quantity": "2",
+          "usd": "0.1100000000"
+        },
+        {
+          "item": "Standard log ingestion",
+          "rate": "logs_ingest_gb",
+          "quantity": ".1",
+          "usd": "0.06700000000"
+        },
+        {
+          "item": "Log storage",
+          "rate": "logs_storage_gb_month",
+          "quantity": ".1",
+          "usd": "0.00330000000"
+        },
+        {
+          "item": "Three standard alarm metrics",
+          "rate": "standard_alarm_month",
+          "quantity": "3",
+          "usd": "0.3000000000"
+        },
+        {
+          "item": "One custom backup/health metric",
+          "rate": "custom_metric_month",
+          "quantity": "1",
+          "usd": "0.3000000000"
+        },
+        {
+          "item": "Existing serverless entry/storage/identity",
+          "rate": null,
+          "usd": "0.25",
+          "basis": "Planning allowance: 100 logical chat turns and <=5,000 total HTTP requests/month; small DynamoDB/PITR data. Not a quoted AWS rate or a cap."
+        },
+        {
+          "item": "Control, DNS, KMS and backup requests",
+          "rate": null,
+          "usd": "0.10",
+          "basis": "Small-pilot request allowance; no customer-managed KMS key monthly fee assumed."
+        },
+        {
+          "item": "Provider/API internet transfer",
+          "rate": null,
+          "usd": "0.12",
+          "basis": "1 GB planning allowance; retained separate from OpenAI inference. Not an AWS transfer quote."
+        }
+      ],
+      "total_usd_unrounded": "38.90630000000",
+      "total_usd": "38.91",
+      "availability": "730 running hours/month; single-host, single-AZ, still not a highly available production tier"
+    },
+    {
+      "name": "managed_private_network_reference",
+      "items": [
+        {
+          "item": "Fargate ARM: Loom .25 + LucidBrain .5 + Tandem relay .25 vCPU",
+          "rate": "fargate_arm_vcpu_hour",
+          "quantity": "730",
+          "usd": "28.3605000000"
+        },
+        {
+          "item": "Fargate ARM: total 2 GB requested memory",
+          "rate": "fargate_arm_gb_hour",
+          "quantity": "1460",
+          "usd": "6.2196000000"
+        },
+        {
+          "item": "RDS PostgreSQL db.t4g.small Multi-AZ",
+          "rate": "rds_multi_hour",
+          "quantity": "730",
+          "usd": "74.4600000000"
+        },
+        {
+          "item": "RDS Multi-AZ gp3 provisioned storage",
+          "rate": "rds_gp3_multi_gb_month",
+          "quantity": "20",
+          "usd": "5.5200000000"
+        },
+        {
+          "item": "Public Loom ALB + private MCP ALB",
+          "rate": "alb_hour",
+          "quantity": "1460",
+          "usd": "36.7920000000"
+        },
+        {
+          "item": "Assumed average .1 LCU per ALB",
+          "rate": "alb_lcu_hour",
+          "quantity": "146.0",
+          "usd": "1.16800000000"
+        },
+        {
+          "item": "Two NAT gateways for private tasks, one per AZ",
+          "rate": "nat_hour",
+          "quantity": "1460",
+          "usd": "86.1400000000"
+        },
+        {
+          "item": "NAT processing allowance: 10 GB",
+          "rate": "nat_gb",
+          "quantity": "10",
+          "usd": "0.5900000000"
+        },
+        {
+          "item": "Two public ALB addresses + two NAT addresses",
+          "rate": "ipv4_hour",
+          "quantity": "2920",
+          "usd": "14.600"
+        },
+        {
+          "item": "Public + private hosted zones",
+          "rate": "hosted_zone_month",
+          "quantity": "2",
+          "usd": "1.0000000000"
+        },
+        {
+          "item": "Private image retention",
+          "rate": "ecr_gb_month",
+          "quantity": "2",
+          "usd": "0.2000000000"
+        },
+        {
+          "item": "Additional logical backup retention",
+          "rate": "s3_gb_month",
+          "quantity": "2",
+          "usd": "0.0500000000"
+        },
+        {
+          "item": "Standard log ingestion",
+          "rate": "logs_ingest_gb",
+          "quantity": "1",
+          "usd": "0.6700000000"
+        },
+        {
+          "item": "Log storage",
+          "rate": "logs_storage_gb_month",
+          "quantity": "1",
+          "usd": "0.0330000000"
+        },
+        {
+          "item": "Six standard alarm metrics",
+          "rate": "standard_alarm_month",
+          "quantity": "6",
+          "usd": "0.6000000000"
+        },
+        {
+          "item": "Three custom metrics",
+          "rate": "custom_metric_month",
+          "quantity": "3",
+          "usd": "0.9000000000"
+        },
+        {
+          "item": "Serverless entry/storage/identity",
+          "rate": null,
+          "usd": "0.25",
+          "basis": "Same low-traffic workload as pilot; no model charges."
+        },
+        {
+          "item": "Control/DNS/KMS/backup requests",
+          "rate": null,
+          "usd": "0.10",
+          "basis": "No paid container insights, managed tracing, custom KMS key or private CA."
+        },
+        {
+          "item": "Internet transfer",
+          "rate": null,
+          "usd": "0.12",
+          "basis": "Same 1 GB planning allowance; extra cross-AZ/transfer charges remain variable."
+        }
+      ],
+      "total_usd_unrounded": "257.77310000000",
+      "total_usd": "257.77",
+      "availability": "Managed hosting reference, not an approved budget or production sizing proof. One application replica each; distributed controls gate horizontal scaling."
+    }
+  ],
+  "excluded": [
+    "OpenAI inference and embeddings",
+    "taxes",
+    "new domain registration",
+    "character production/rendering/downloads",
+    "staff/operations time",
+    "unexpected data growth/usage above assumptions",
+    "optional paid security/telemetry services"
+  ],
+  "notes": [
+    "No free credits or commitment discounts applied.",
+    "This is an estimate, not a spend cap.",
+    "The scheduled host retains storage and IPv4 while stopped.",
+    "Resource/ARM/migration/TLS/restore qualification is a release gate, not established by this calculation."
+  ]
+}

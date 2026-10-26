@@ -1,0 +1,206 @@
+{
+  "pricing_date": "2026-10-27",
+  "timezone": "Pacific/Auckland",
+  "region": "ap-southeast-2",
+  "currency": "USD",
+  "retrieved_at": "2026-10-26T20:22:17.203905+00:00",
+  "basis": "Public on-demand prices. No credits, Savings Plans, reservations, free-tier discounts or AI usage assumed. Rates are snapshots, not billing guarantees.",
+  "rates": {
+    "ec2_t4g_medium_hour": {
+      "usd": "0.0424000000",
+      "unit": "Hrs",
+      "sku": "9TP3ARTXQ46KEGHK",
+      "usage_type": "APS2-BoxUsage:t4g.medium",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "ec2_t4g_small_hour": {
+      "usd": "0.0212000000",
+      "unit": "Hrs",
+      "sku": "EG26BW4WNM66NNWJ",
+      "usage_type": "APS2-BoxUsage:t4g.small",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "gp3_gb_month": {
+      "usd": "0.0960000000",
+      "unit": "GB-Mo",
+      "sku": "QR74UAP3E9WUYT9B",
+      "usage_type": "APS2-EBS:VolumeUsage.gp3",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "snapshot_gb_month": {
+      "usd": "0.0550000000",
+      "unit": "GB-Mo",
+      "sku": "759N2ESGG4Z2C95V",
+      "usage_type": "APS2-EBS:SnapshotUsage",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "nat_hour": {
+      "usd": "0.0590000000",
+      "unit": "Hrs",
+      "sku": "NUKV5QPTHVFBW7DE",
+      "usage_type": "APS2-NatGateway-Hours",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "nat_gb": {
+      "usd": "0.0590000000",
+      "unit": "GB",
+      "sku": "KSHYFCUNWFSUXCAV",
+      "usage_type": "APS2-NatGateway-Bytes",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv",
+      "publication": "\"Publication Date\",\"2026-10-23T22:13:55Z\""
+    },
+    "fargate_arm_vcpu_hour": {
+      "usd": "0.0388500000",
+      "unit": "hours",
+      "sku": "5AV2ZNMQZ3K2BS3H",
+      "usage_type": "APS2-Fargate-ARM-vCPU-Hours:perCPU",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-19T22:43:17Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/ap-southeast-2/index.json"
+    },
+    "fargate_arm_gb_hour": {
+      "usd": "0.0042600000",
+      "unit": "hours",
+      "sku": "9MBXA5HZWPG2955P",
+      "usage_type": "APS2-Fargate-ARM-GB-Hours",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-19T22:43:17Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/ap-southeast-2/index.json"
+    },
+    "rds_single_hour": {
+      "usd": "0.0510000000",
+      "unit": "Hrs",
+      "sku": "E4MYB7J8FG6M2YVM",
+      "usage_type": "APS2-InstanceUsage:db.t4g.small",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-26T19:24:32Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json"
+    },
+    "rds_multi_hour": {
+      "usd": "0.1020000000",
+      "unit": "Hrs",
+      "sku": "ZGPYGHA8HVVHSFNW",
+      "usage_type": "APS2-Multi-AZUsage:db.t4g.small",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-26T19:24:32Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json"
+    },
+    "rds_gp3_single_gb_month": {
+      "usd": "0.1380000000",
+      "unit": "GB-Mo",
+      "sku": "XVCEBKZQD46QGPYP",
+      "usage_type": "APS2-RDS:GP3-Storage",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-26T19:24:32Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json"
+    },
+    "rds_gp3_multi_gb_month": {
+      "usd": "0.2760000000",
+      "unit": "GB-Mo",
+      "sku": "26GFBMYETW3FNUDC",
+      "usage_type": "APS2-RDS:Multi-AZ-GP3-Storage",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-26T19:24:32Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json"
+    },
+    "alb_hour": {
+      "usd": "0.0252000000",
+      "unit": "Hrs",
+      "sku": "M84CYHYUVJ4USFHD",
+      "usage_type": "APS2-LoadBalancerUsage",
+      "effective_date": "2026-08-01T00:00:00Z",
+      "publication": "2026-09-11T12:45:44Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/ap-southeast-2/index.json"
+    },
+    "alb_lcu_hour": {
+      "usd": "0.0080000000",
+      "unit": "LCU-Hrs",
+      "sku": "6CFSD9EDEA5XS33F",
+      "usage_type": "APS2-LCUUsage",
+      "effective_date": "2026-08-01T00:00:00Z",
+      "publication": "2026-09-11T12:45:44Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/ap-southeast-2/index.json"
+    },
+    "s3_gb_month": {
+      "usd": "0.0250000000",
+      "unit": "GB-Mo",
+      "sku": "5QVJMK36NJC9G6DC",
+      "usage_type": "APS2-TimedStorage-ByteHrs",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-15T17:35:40Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-southeast-2/index.json"
+    },
+    "logs_ingest_gb": {
+      "usd": "0.6700000000",
+      "unit": "GB",
+      "sku": "VSJ57WXDQXM2VKQK",
+      "usage_type": "APS2-DataProcessing-Bytes",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-07T11:55:40Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/ap-southeast-2/index.json"
+    },
+    "logs_storage_gb_month": {
+      "usd": "0.0330000000",
+      "unit": "GB-Mo",
+      "sku": "SXS5MH23MB3SHA9C",
+      "usage_type": "APS2-TimedStorage-ByteHrs",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-07T11:55:40Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/ap-southeast-2/index.json"
+    },
+    "standard_alarm_month": {
+      "usd": "0.1000000000",
+      "unit": "Alarms",
+      "sku": "9FZA8ZKS9CGQBUTK",
+      "usage_type": "APS2-CW:AlarmMonitorUsage",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-07T11:55:40Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/ap-southeast-2/index.json"
+    },
+    "custom_metric_month": {
+      "usd": "0.3000000000",
+      "unit": "Metrics",
+      "sku": "F52S8X9YS2XFUA7F",
+      "usage_type": "APS2-CW:MetricMonitorUsage",
+      "effective_date": "2026-10-01T00:00:00Z",
+      "publication": "2026-10-07T11:55:40Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/ap-southeast-2/index.json"
+    },
+    "ecr_gb_month": {
+      "usd": "0.1000000000",
+      "unit": "GB-Mo",
+      "sku": "YBDKSSGX2GMZ62JV",
+      "usage_type": "APS2-TimedStorage-ByteHrs",
+      "effective_date": "2025-11-01T00:00:00Z",
+      "publication": "2026-09-11T12:44:25Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECR/current/ap-southeast-2/index.json"
+    },
+    "hosted_zone_month": {
+      "usd": "0.5000000000",
+      "unit": "HostedZone",
+      "sku": "KVPGEJE88UW8S779",
+      "usage_type": "HostedZone",
+      "effective_date": "2026-08-01T00:00:00Z",
+      "publication": "2026-09-11T12:45:04Z",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRoute53/current/index.json"
+    },
+    "ipv4_hour": {
+      "usd": "0.005",
+      "unit": "address-hour",
+      "source_url": "https://aws.amazon.com/vpc/pricing/",
+      "retrieved_date": "2026-10-27",
+      "note": "Published flat price for in-use and idle public IPv4; no discount applied."
+    }
+  }
+}
