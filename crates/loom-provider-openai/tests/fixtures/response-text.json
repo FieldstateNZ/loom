@@ -1,0 +1,11 @@
+{
+  "id": "resp_synthetic_text",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-6-luna",
+  "output": [
+    {"id":"rs_synthetic","type":"reasoning","summary":[],"encrypted_content":"opaque-synthetic-ciphertext"},
+    {"id":"msg_synthetic","type":"message","role":"assistant","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"Hello from OpenAI through Loom.","annotations":[]}]}
+  ],
+  "usage": {"input_tokens":10,"input_tokens_details":{"cached_tokens":4},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":1},"total_tokens":15}
+}

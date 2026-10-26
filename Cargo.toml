@@ -4,6 +4,7 @@ members = [
     "crates/loom-core",
     "crates/loom-provider",
     "crates/loom-provider-anthropic",
+    "crates/loom-provider-openai",
     "crates/loom-store",
     "crates/loom-server",
 ]
@@ -74,6 +75,7 @@ subtle = "2"
 loom-core = { path = "crates/loom-core" }
 loom-provider = { path = "crates/loom-provider" }
 loom-provider-anthropic = { path = "crates/loom-provider-anthropic" }
+loom-provider-openai = { path = "crates/loom-provider-openai" }
 loom-store = { path = "crates/loom-store" }
 
 # --- dev / test ---
