@@ -134,6 +134,12 @@ pub(super) async fn delete_conversation(
     ctx: TenantContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let _guard = super::conversation_lock::acquire(&state, ctx.tenant_id, id).await?;
+    let unconfirmed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM gateway_actions WHERE tenant_id=$1 AND conversation_id=$2 AND (status IN ('dispatched','uncertain') OR (status='approved' AND expires_at>now())))")
+        .bind(ctx.tenant_id).bind(id).fetch_one(state.store().pool()).await.map_err(|_|ApiError::internal())?;
+    if unconfirmed {
+        return Err(ApiError::conflict("cancel undispatched approvals or reconcile task outcomes before deleting this conversation"));
+    }
     if state
         .store()
         .delete_conversation(ctx.tenant_id, id)

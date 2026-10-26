@@ -144,6 +144,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/conversations/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists retained action proposals and outcomes for one owned conversation. */
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{id}/actions/{action}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancellation wins atomically before dispatch. After dispatch it records the
+         *     user's intent but cannot promise that an already-sent write was undone.
+         */
+        post: operations["cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{id}/actions/{action}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accepts or rejects a proposal; this endpoint does not execute a write. */
+        post: operations["decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{id}/actions/{action}/{command}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dispatches, explicitly retries the same approved operation, or reconciles
+         *     read-only. A dropped/crashed dispatch remains durably unconfirmed.
+         */
+        post: operations["command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/conversations/{id}/turns": {
         parameters: {
             query?: never;
@@ -249,6 +323,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description A reviewable task proposal and its durable application-owned outcome.
+         *     Private MCP configuration, credentials and identities are never returned.
+         */
+        Action: {
+            approval_digest: string;
+            /** Format: int32 */
+            attempts: number;
+            cancel_requested: boolean;
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            proposal: components["schemas"]["Payload"];
+            receipt?: null | components["schemas"]["CaptureReceipt"];
+            status: string;
+        };
         /** @description The gateway-wide usage response envelope. */
         AdminUsageResponse: {
             /** Format: date-time */
@@ -428,6 +522,28 @@ export interface components {
          * @enum {string}
          */
         CacheTtl: "five_minutes" | "one_hour";
+        /** @description Minimal immutable receipt returned by LucidBrain's atomic capture contract. */
+        CaptureReceipt: {
+            /** @description Original commit timestamp. */
+            committedAt: string;
+            /**
+             * Format: uuid
+             * @description UUID of the originally created task (which may later have been deleted).
+             */
+            itemId: string;
+            /**
+             * Format: uuid
+             * @description Application-owned operation UUID, retained on every retry.
+             */
+            operationId: string;
+            /** @description Must be `committed`; a tool error is never success. */
+            status: string;
+            /**
+             * Format: uuid
+             * @description Original workspace.
+             */
+            workspaceId: string;
+        };
         /**
          * @description A citation attributing a span of generated text to a source.
          *
@@ -438,6 +554,8 @@ export interface components {
          *     that inner value.
          */
         Citation: unknown;
+        /** @description No payload or identity overrides are accepted by dispatch/retry/reconcile. */
+        Command: Record<string, never>;
         /**
          * @description An incremental change to a streaming content part.
          *
@@ -798,6 +916,13 @@ export interface components {
             /** @description An optional system prompt applied to the whole conversation. */
             system?: string | null;
         };
+        /** @description Explicit application decision over the exact displayed proposal digest. */
+        Decision: {
+            /** @description Digest returned alongside the proposal, never reconstructed from text. */
+            approval_digest: string;
+            /** @description `approve` or `reject`; a model does not receive this API as a tool. */
+            decision: string;
+        };
         /**
          * @description Opt-in private gateway memory execution. Only registered names and a read
          *     subset are accepted. The caller's expected identity is an assertion, never
@@ -813,6 +938,13 @@ export interface components {
             expected_binding: components["schemas"]["Binding"];
             /** @description Tenant's operator-registered MCP server name. */
             name: string;
+            /** @description Offer host-owned task proposals. Never grants permission to dispatch. */
+            propose_tasks?: boolean;
+            /**
+             * @description Host-owned context provenance. Task proposals require `real_world` in
+             *     both this request and the operator registration.
+             */
+            provenance?: string | null;
         };
         /**
          * @description The `/v1/mcp-servers` response: the tenant's registered MCP server names.
@@ -823,6 +955,12 @@ export interface components {
          *     anything it could use to reach the server directly.
          */
         McpServerList: {
+            /**
+             * Format: int32
+             * @description Version 1 provides durable proposals, digest-bound decisions, explicit
+             *     dispatch/retry and read-only reconciliation. Inference cannot approve.
+             */
+            gateway_action_version: number;
             /**
              * Format: int32
              * @description Version 1 supports the explicit, identity-bound `gateway_mcp` read path.
@@ -921,6 +1059,13 @@ export interface components {
             /** @description The author of the message. */
             role: components["schemas"]["Role"];
             usage?: null | components["schemas"]["Usage"];
+        };
+        Payload: {
+            category: components["schemas"]["TaskCategory"];
+            input: components["schemas"]["TaskInput"];
+            provenance: string;
+            /** Format: uuid */
+            workspace_id: string;
         };
         /**
          * @description The provider a conversation is bound to, and the model to use.
@@ -1031,6 +1176,23 @@ export interface components {
              *     preserved verbatim.
              */
             other: string;
+        };
+        /** @description Actual active category metadata verified in the pinned workspace. */
+        TaskCategory: {
+            /**
+             * Format: uuid
+             * @description LucidBrain category UUID.
+             */
+            id: string;
+            /** @description Current human-readable category name. */
+            name: string;
+        };
+        /** @description Text proposed by inference. No actor, operation, category or workspace IDs. */
+        TaskInput: {
+            /** @description Optional detail displayed for approval. */
+            detail?: string | null;
+            /** @description Exact title displayed for approval. */
+            title: string;
         };
         /**
          * @description The definition of a **client-side** tool the model may choose to call.
@@ -1607,6 +1769,139 @@ export interface operations {
             };
             /** @description No such conversation for this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Action"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                action: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Command"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Action"];
+                };
+            };
+        };
+    };
+    decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                action: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Decision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Action"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    command: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                action: string;
+                /** @description dispatch, retry or reconcile */
+                command: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Command"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Action"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,5 +1,6 @@
-//! Private, identity-bound LucidBrain memory access. No write tools, provider
-//! credential forwarding, redirect following, transparent retries or sampling.
+//! Private, identity-bound LucidBrain access. Inference can read reviewed memory
+//! and optionally propose a task. Actual task delivery is a separate host API.
+//! No provider credential forwarding, redirects, transparent retries or sampling.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
@@ -27,6 +28,25 @@ use serde_json::Value;
 use uuid::Uuid;
 
 mod arguments;
+mod tasks;
+pub use tasks::{CaptureReceipt, TaskCategory, TaskInput};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Memory,
+    Tasks,
+    Receipts,
+}
+impl Mode {
+    fn permits(self, name: &str) -> bool {
+        is_memory_read(name)
+            || (self != Self::Memory
+                && matches!(
+                    name,
+                    "list_categories" | "capture_item" | "get_capture_operation"
+                ))
+    }
+}
 
 /// Server-owned identity expected for every MCP request; never model input.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +91,7 @@ struct Context {
     credential_id: Uuid,
     allowed_tools: Option<Vec<String>>,
     transport_mode: String,
+    capture_operation_version: Option<u32>,
 }
 
 /// Only the two source-reviewed LucidBrain read tools are currently executable.
@@ -79,10 +100,12 @@ pub fn is_memory_read(name: &str) -> bool {
     matches!(name, "memory_recall" | "memory_search")
 }
 
-/// An authenticated private MCP connection, freshly created for a logical turn.
+/// An authenticated private MCP connection, freshly created for a logical turn
+/// or host action command. The historical name preserves the read-client API.
 /// The official SDK owns the legacy handshake and JSON/SSE protocol handling.
 /// Dropping the connection cancels its service; no tool request is retried.
 pub struct MemoryClient {
+    mode: Mode,
     http: Client,
     context_url: Url,
     headers: HeaderMap,
@@ -101,11 +124,77 @@ impl MemoryClient {
         registered_tools: &[String],
         requested_tools: &[String],
     ) -> Result<Self, Error> {
+        Self::connect_mode(
+            endpoint,
+            token,
+            binding,
+            registered_tools,
+            requested_tools,
+            Mode::Memory,
+        )
+        .await
+    }
+
+    /// Connects the reviewed task contract. Only memory reads and a synthetic
+    /// proposal tool are exposed to inference; capture is a separate host API.
+    pub async fn connect_tasks(
+        endpoint: &str,
+        token: &str,
+        binding: Binding,
+        registered_tools: &[String],
+        memory_tools: &[String],
+    ) -> Result<Self, Error> {
+        if memory_tools.iter().any(|n| !is_memory_read(n)) {
+            return Err(Error::Configuration);
+        }
+        let mut required = memory_tools.to_vec();
+        required
+            .extend(["list_categories", "capture_item", "get_capture_operation"].map(String::from));
+        let mut client = Self::connect_mode(
+            endpoint,
+            token,
+            binding,
+            registered_tools,
+            &required,
+            Mode::Tasks,
+        )
+        .await?;
+        client.tools.retain(|t| is_memory_read(&t.name));
+        client.tools.push(tasks::proposal_tool());
+        Ok(client)
+    }
+
+    /// Read-only receipt connection, usable after write permission is removed.
+    pub async fn connect_receipts(
+        endpoint: &str,
+        token: &str,
+        binding: Binding,
+        registered_tools: &[String],
+    ) -> Result<Self, Error> {
+        Self::connect_mode(
+            endpoint,
+            token,
+            binding,
+            registered_tools,
+            &["get_capture_operation".into()],
+            Mode::Receipts,
+        )
+        .await
+    }
+
+    async fn connect_mode(
+        endpoint: &str,
+        token: &str,
+        binding: Binding,
+        registered_tools: &[String],
+        requested_tools: &[String],
+        mode: Mode,
+    ) -> Result<Self, Error> {
         let endpoint = checked_endpoint(endpoint)?;
         if token.is_empty()
             || requested_tools.is_empty()
             || registered_tools.is_empty()
-            || registered_tools.iter().any(|n| !is_memory_read(n))
+            || registered_tools.iter().any(|n| !mode.permits(n))
             || requested_tools
                 .iter()
                 .any(|n| !registered_tools.contains(n))
@@ -143,7 +232,7 @@ impl MemoryClient {
             .map_err(|_| Error::Configuration)?;
         let mut context_url = endpoint.clone();
         context_url.set_path(&format!("{}/context", endpoint.path()));
-        let policy = attest(&http, &context_url, &headers, &binding).await?;
+        let policy = attest(&http, &context_url, &headers, &binding, mode).await?;
         if requested_tools.iter().any(|n| !policy.contains(n)) {
             return Err(Error::Binding);
         }
@@ -172,7 +261,9 @@ impl MemoryClient {
             .await
             .map_err(|_| Error::Transport)?
             .map_err(|_| Error::Transport)?;
-        if listed.next_cursor.is_some() || listed.tools.len() > 2 {
+        if listed.next_cursor.is_some()
+            || listed.tools.len() > if mode == Mode::Memory { 2 } else { 5 }
+        {
             return Err(Error::Binding);
         }
         let names: BTreeSet<_> = listed.tools.iter().map(|t| t.name.to_string()).collect();
@@ -199,6 +290,7 @@ impl MemoryClient {
             });
         }
         Ok(Self {
+            mode,
             http,
             context_url,
             headers,
@@ -220,7 +312,11 @@ impl MemoryClient {
         if !self.tools.iter().any(|t| t.name == name) {
             return Err(Error::Tool);
         }
-        arguments::validate(name, input)
+        if name == "propose_task" && self.mode == Mode::Tasks {
+            TaskInput::parse(input).map(|_| ())
+        } else {
+            arguments::validate(name, input)
+        }
     }
 
     /// Validates authorization and arguments before dispatching a read once.
@@ -228,7 +324,21 @@ impl MemoryClient {
     /// model. Sampling, input-required rounds and asynchronous tasks are refused.
     pub async fn call(&self, name: &str, input: &Value) -> Result<(Value, bool), Error> {
         self.validate(name, input)?;
-        let current = attest(&self.http, &self.context_url, &self.headers, &self.binding).await?;
+        if !is_memory_read(name) {
+            return Err(Error::Tool);
+        }
+        self.call_private(name, input).await
+    }
+
+    async fn call_private(&self, name: &str, input: &Value) -> Result<(Value, bool), Error> {
+        let current = attest(
+            &self.http,
+            &self.context_url,
+            &self.headers,
+            &self.binding,
+            self.mode,
+        )
+        .await?;
         if !current.contains(name) {
             return Err(Error::Binding);
         }
@@ -262,6 +372,7 @@ async fn attest(
     url: &Url,
     headers: &HeaderMap,
     binding: &Binding,
+    mode: Mode,
 ) -> Result<BTreeSet<String>, Error> {
     let response = http
         .get(url.clone())
@@ -292,8 +403,14 @@ async fn attest(
     {
         return Err(Error::Binding);
     }
+    if mode != Mode::Memory && ctx.capture_operation_version != Some(1) {
+        return Err(Error::Binding);
+    }
     let tools = ctx.allowed_tools.ok_or(Error::Binding)?;
-    if tools.is_empty() || tools.len() > 2 || tools.iter().any(|n| !is_memory_read(n)) {
+    if tools.is_empty()
+        || tools.len() > if mode == Mode::Memory { 2 } else { 5 }
+        || tools.iter().any(|n| !mode.permits(n))
+    {
         return Err(Error::Binding);
     }
     let set: BTreeSet<_> = tools.into_iter().collect();

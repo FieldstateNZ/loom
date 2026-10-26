@@ -483,6 +483,263 @@
         ]
       }
     },
+    "/v1/conversations/{id}/actions": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Lists retained action proposals and outcomes for one owned conversation.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Action"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{id}/actions/{action}/cancel": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Cancellation wins atomically before dispatch. After dispatch it records the\nuser's intent but cannot promise that an already-sent write was undone.",
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Action"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{id}/actions/{action}/decision": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Accepts or rejects a proposal; this endpoint does not execute a write.",
+        "operationId": "decide",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Decision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Action"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{id}/actions/{action}/{command}": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Dispatches, explicitly retries the same approved operation, or reconciles\nread-only. A dropped/crashed dispatch remains durably unconfirmed.",
+        "operationId": "command",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "command",
+            "in": "path",
+            "description": "dispatch, retry or reconcile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Action"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "virtual_key": []
+          }
+        ]
+      }
+    },
     "/v1/conversations/{id}/turns": {
       "post": {
         "tags": [
@@ -767,6 +1024,64 @@
   },
   "components": {
     "schemas": {
+      "Action": {
+        "type": "object",
+        "description": "A reviewable task proposal and its durable application-owned outcome.\nPrivate MCP configuration, credentials and identities are never returned.",
+        "required": [
+          "id",
+          "conversation_id",
+          "kind",
+          "status",
+          "proposal",
+          "approval_digest",
+          "cancel_requested",
+          "attempts",
+          "expires_at"
+        ],
+        "properties": {
+          "approval_digest": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/Payload"
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaptureReceipt"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "AdminUsageResponse": {
         "type": "object",
         "description": "The gateway-wide usage response envelope.",
@@ -1079,8 +1394,50 @@
           "one_hour"
         ]
       },
+      "CaptureReceipt": {
+        "type": "object",
+        "description": "Minimal immutable receipt returned by LucidBrain's atomic capture contract.",
+        "required": [
+          "operationId",
+          "status",
+          "itemId",
+          "workspaceId",
+          "committedAt"
+        ],
+        "properties": {
+          "committedAt": {
+            "type": "string",
+            "description": "Original commit timestamp."
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the originally created task (which may later have been deleted)."
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Application-owned operation UUID, retained on every retry."
+          },
+          "status": {
+            "type": "string",
+            "description": "Must be `committed`; a tool error is never success."
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Original workspace."
+          }
+        },
+        "additionalProperties": false
+      },
       "Citation": {
         "description": "A citation attributing a span of generated text to a source.\n\nProvider citation shapes vary widely (character ranges, page ranges, web\nsearch result locations, …). To remain lossless and provider-faithful,\n`Citation` wraps the provider's native citation object verbatim rather than\nflattening it into a single normalized form. It serializes transparently as\nthat inner value."
+      },
+      "Command": {
+        "type": "object",
+        "description": "No payload or identity overrides are accepted by dispatch/retry/reconcile.",
+        "additionalProperties": false
       },
       "ContentDelta": {
         "oneOf": [
@@ -1709,6 +2066,25 @@
           }
         }
       },
+      "Decision": {
+        "type": "object",
+        "description": "Explicit application decision over the exact displayed proposal digest.",
+        "required": [
+          "decision",
+          "approval_digest"
+        ],
+        "properties": {
+          "approval_digest": {
+            "type": "string",
+            "description": "Digest returned alongside the proposal, never reconstructed from text."
+          },
+          "decision": {
+            "type": "string",
+            "description": "`approve` or `reject`; a model does not receive this API as a tool."
+          }
+        },
+        "additionalProperties": false
+      },
       "GatewayMcpRequest": {
         "type": "object",
         "description": "Opt-in private gateway memory execution. Only registered names and a read\nsubset are accepted. The caller's expected identity is an assertion, never\npermission: it must equal both the operator registration and the peer.",
@@ -1732,6 +2108,17 @@
           "name": {
             "type": "string",
             "description": "Tenant's operator-registered MCP server name."
+          },
+          "propose_tasks": {
+            "type": "boolean",
+            "description": "Offer host-owned task proposals. Never grants permission to dispatch."
+          },
+          "provenance": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Host-owned context provenance. Task proposals require `real_world` in\nboth this request and the operator registration."
           }
         },
         "additionalProperties": false
@@ -1741,9 +2128,16 @@
         "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nNames and the private-memory protocol version are included, never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
         "required": [
           "servers",
-          "gateway_memory_version"
+          "gateway_memory_version",
+          "gateway_action_version"
         ],
         "properties": {
+          "gateway_action_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Version 1 provides durable proposals, digest-bound decisions, explicit\ndispatch/retry and read-only reconciliation. Inference cannot approve.",
+            "minimum": 0
+          },
           "gateway_memory_version": {
             "type": "integer",
             "format": "int32",
@@ -1863,6 +2257,30 @@
                 "description": "Resource usage reported for this message, when the provider supplied it\n(typically only on assistant/provider responses)."
               }
             ]
+          }
+        }
+      },
+      "Payload": {
+        "type": "object",
+        "required": [
+          "input",
+          "category",
+          "workspace_id",
+          "provenance"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/TaskCategory"
+          },
+          "input": {
+            "$ref": "#/components/schemas/TaskInput"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -2101,6 +2519,46 @@
           }
         ],
         "description": "The reason a provider stopped generating a turn.\n\nKnown reasons are modelled as typed variants; anything a provider reports\nthat Loom does not (yet) model is preserved verbatim in\n[`StopReason::Other`]. The enum is `#[non_exhaustive]`."
+      },
+      "TaskCategory": {
+        "type": "object",
+        "description": "Actual active category metadata verified in the pinned workspace.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "LucidBrain category UUID."
+          },
+          "name": {
+            "type": "string",
+            "description": "Current human-readable category name."
+          }
+        }
+      },
+      "TaskInput": {
+        "type": "object",
+        "description": "Text proposed by inference. No actor, operation, category or workspace IDs.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional detail displayed for approval."
+          },
+          "title": {
+            "type": "string",
+            "description": "Exact title displayed for approval."
+          }
+        },
+        "additionalProperties": false
       },
       "ToolDefinition": {
         "type": "object",
