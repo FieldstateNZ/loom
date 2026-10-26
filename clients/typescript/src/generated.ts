@@ -817,7 +817,7 @@ export interface components {
         /**
          * @description The `/v1/mcp-servers` response: the tenant's registered MCP server names.
          *
-         *     Only names are ever included — never the URL or authorization token, both
+         *     Names and the private-memory protocol version are included, never the URL or authorization token, both
          *     of which stay server-side so a virtual key can discover which
          *     [`withMcp`](loom_core::McpServerRef) references are valid without learning
          *     anything it could use to reach the server directly.

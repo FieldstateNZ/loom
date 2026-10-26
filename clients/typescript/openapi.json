@@ -1738,7 +1738,7 @@
       },
       "McpServerList": {
         "type": "object",
-        "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nOnly names are ever included — never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
+        "description": "The `/v1/mcp-servers` response: the tenant's registered MCP server names.\n\nNames and the private-memory protocol version are included, never the URL or authorization token, both\nof which stay server-side so a virtual key can discover which\n[`withMcp`](loom_core::McpServerRef) references are valid without learning\nanything it could use to reach the server directly.",
         "required": [
           "servers",
           "gateway_memory_version"
