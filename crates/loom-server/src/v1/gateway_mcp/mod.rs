@@ -3,7 +3,7 @@
 use super::requests::GatewayMcpRequest;
 use crate::{error::ApiError, state::AppState};
 use loom_core::ConversationOptions;
-use loom_mcp::{Binding, MemoryClient};
+use loom_mcp::{Binding, MemoryClient, TaskCategory};
 use loom_store::McpServerStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,23 +13,37 @@ mod collect;
 mod execute;
 pub(super) use execute::execute;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Registry {
     enabled: bool,
     allowed_tools: Vec<String>,
     gateway: Gateway,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Gateway {
     kind: String,
     binding: Binding,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task_capture: Option<TaskPolicy>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TaskPolicy {
+    workspace_slug: String,
+    category_id: Uuid,
+    provenance: String,
 }
 
 pub(super) struct Prepared {
-    client: MemoryClient,
-    fingerprint: String,
+    pub(super) client: MemoryClient,
+    pub(super) fingerprint: String,
+    pub(super) category: Option<TaskCategory>,
+    pub(super) request: GatewayMcpRequest,
+    pub(super) registration_id: Uuid,
+    pub(super) endpoint_hash: String,
 }
 
 pub(super) async fn runtime(
@@ -48,7 +62,7 @@ pub(super) async fn prepare(
     options: &mut ConversationOptions,
 ) -> Result<Prepared, ApiError> {
     if request.name != "lucidbrain"
-        || request.allowed_tools.is_empty()
+        || (request.allowed_tools.is_empty() && !request.propose_tasks)
         || request.allowed_tools.len() > 2
         || !options.tools.is_empty()
         || !options.mcp_servers.is_empty()
@@ -82,15 +96,28 @@ pub(super) async fn prepare(
     if !policy.enabled
         || policy.gateway.kind != "lucidbrain_memory"
         || policy.allowed_tools.is_empty()
-        || policy.allowed_tools.len() > 2
+        || policy.allowed_tools.len() > if request.propose_tasks { 5 } else { 2 }
         || policy
             .allowed_tools
             .iter()
-            .any(|name| !loom_mcp::is_memory_read(name))
+            .any(|name| !private_tool(name, request.propose_tasks))
     {
         return Err(ApiError::unprocessable(
             "gateway_mcp_policy",
             "private memory registration is not enabled for reviewed reads",
+        ));
+    }
+    if request.propose_tasks
+        && (request.provenance.as_deref() != Some("real_world")
+            || policy
+                .gateway
+                .task_capture
+                .as_ref()
+                .is_none_or(|p| p.provenance != "real_world"))
+    {
+        return Err(ApiError::unprocessable(
+            "gateway_action_policy",
+            "task proposals require explicit real-world application and operator provenance",
         ));
     }
     policy.allowed_tools.sort();
@@ -110,19 +137,47 @@ pub(super) async fn prepare(
             "private memory requires an assistant credential",
         )
     })?;
-    let client = MemoryClient::connect(
-        &registered.url,
-        &token,
-        policy.gateway.binding.clone(),
-        &policy.allowed_tools,
-        &requested,
-    )
-    .await
+    let client = if request.propose_tasks {
+        MemoryClient::connect_tasks(
+            &registered.url,
+            &token,
+            policy.gateway.binding.clone(),
+            &policy.allowed_tools,
+            &requested,
+        )
+        .await
+    } else {
+        MemoryClient::connect(
+            &registered.url,
+            &token,
+            policy.gateway.binding.clone(),
+            &policy.allowed_tools,
+            &requested,
+        )
+        .await
+    }
     .map_err(|_| {
         ApiError::unavailable(
             "private memory identity, permission or connection verification failed",
         )
     })?;
+    let category = if request.propose_tasks {
+        let target = policy
+            .gateway
+            .task_capture
+            .as_ref()
+            .ok_or_else(ApiError::internal)?;
+        Some(
+            client
+                .task_category(&target.workspace_slug, target.category_id)
+                .await
+                .map_err(|_| {
+                    ApiError::unavailable("the approved task category could not be verified")
+                })?,
+        )
+    } else {
+        None
+    };
     options.tools = client.tools().to_vec();
     let fingerprint = hex::encode(Sha256::digest(
         serde_json::to_vec(&(registered.id, &registered.url, policy, requested))
@@ -131,6 +186,68 @@ pub(super) async fn prepare(
     Ok(Prepared {
         client,
         fingerprint,
+        category,
+        request: request.clone(),
+        registration_id: registered.id,
+        endpoint_hash: hex::encode(Sha256::digest(registered.url.as_bytes())),
+    })
+}
+
+fn private_tool(name: &str, tasks: bool) -> bool {
+    loom_mcp::is_memory_read(name)
+        || (tasks
+            && matches!(
+                name,
+                "list_categories" | "capture_item" | "get_capture_operation"
+            ))
+}
+
+/// Reconciliation may follow intentional credential replacement, but cannot
+/// change the principal, workspace, assistant, registration or endpoint.
+pub(super) async fn receipt_client(
+    state: &AppState,
+    tenant: Uuid,
+    request: &GatewayMcpRequest,
+    registration_id: Uuid,
+    endpoint_hash: &str,
+) -> Result<MemoryClient, ApiError> {
+    let server = state
+        .store()
+        .get_mcp_server(tenant, &request.name)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::unavailable("task connection is unavailable"))?;
+    let policy: Registry =
+        serde_json::from_value(server.tool_configuration.clone().unwrap_or_default())
+            .map_err(|_| ApiError::unavailable("task connection is unavailable"))?;
+    let a = &policy.gateway.binding;
+    let b = &request.expected_binding;
+    if !policy.enabled
+        || policy.gateway.kind != "lucidbrain_memory"
+        || server.id != registration_id
+        || hex::encode(Sha256::digest(server.url.as_bytes())) != endpoint_hash
+        || a.principal_id != b.principal_id
+        || a.workspace_id != b.workspace_id
+        || a.agent_definition_id != b.agent_definition_id
+        || policy.allowed_tools.iter().any(|n| !private_tool(n, true))
+    {
+        return Err(ApiError::unavailable(
+            "task reconciliation identity or policy changed",
+        ));
+    }
+    let token = crate::provider::decrypt_mcp_token(state, tenant, &server.name, &server)?
+        .ok_or_else(|| ApiError::unavailable("task connection is unavailable"))?;
+    MemoryClient::connect_receipts(
+        &server.url,
+        &token,
+        policy.gateway.binding,
+        &policy.allowed_tools,
+    )
+    .await
+    .map_err(|_| {
+        ApiError::unavailable(
+            "task reconciliation identity, permission or connection verification failed",
+        )
     })
 }
 

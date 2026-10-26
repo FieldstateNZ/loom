@@ -62,6 +62,7 @@ async fn migrated_schema_has_every_expected_table() {
         "batch_jobs",
         "conversations",
         "gateway_mcp_runtime",
+        "gateway_actions",
         "mcp_servers",
         "messages",
         "model_prices",

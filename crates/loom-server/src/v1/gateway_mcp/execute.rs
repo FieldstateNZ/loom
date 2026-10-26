@@ -44,6 +44,7 @@ struct Run {
     events: VecDeque<TurnEvent>,
     done: bool,
     pending: VecDeque<(String, String, Value)>,
+    proposed: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -93,6 +94,7 @@ pub(crate) async fn execute(
         events: VecDeque::new(),
         done: false,
         pending: VecDeque::new(),
+        proposed: false,
     };
     let mut response = if streaming {
         run.events
@@ -192,7 +194,32 @@ impl Run {
     async fn step(&mut self) -> Result<Option<(Message, StopReason)>, ApiError> {
         if let Some((id, name, input)) = self.pending.pop_front() {
             self.calls += 1;
-            let (value, is_error) =
+            let (value, is_error) = if name == "propose_task" {
+                let input = loom_mcp::TaskInput::parse(&input).map_err(|_| {
+                    ApiError::unprocessable("gateway_action_input", "invalid task proposal")
+                })?;
+                let action = super::super::actions::propose(
+                    &self.state,
+                    self.ctx.tenant_id,
+                    self.conversation.id,
+                    &id,
+                    input,
+                    &self.prepared,
+                )
+                .await?;
+                self.proposed = true;
+                let data = serde_json::to_value(action).map_err(|_| ApiError::internal())?;
+                self.events.push_back(TurnEvent::new(
+                    TurnEventKind::Other {
+                        native_type: Some("loom_action_proposed".into()),
+                    },
+                    data.clone(),
+                ));
+                (
+                    json!({"status":"requires_application_approval","action_id":data["id"],"created":false}),
+                    false,
+                )
+            } else {
                 self.prepared
                     .client
                     .call(&name, &input)
@@ -201,7 +228,8 @@ impl Run {
                         ApiError::unavailable(
                         "private memory read was interrupted or denied; start a new conversation",
                     )
-                    })?;
+                    })?
+            };
             self.append(Message::new(
                 Role::User,
                 vec![ContentPart::ToolResult {
@@ -289,6 +317,18 @@ impl Run {
             return Err(ApiError::unprocessable(
                 "gateway_mcp_limit",
                 "private memory tool-call limit or protocol violation",
+            ));
+        }
+        if calls
+            .iter()
+            .filter(|(_, name, _)| name == "propose_task")
+            .count()
+            + usize::from(self.proposed)
+            > 1
+        {
+            return Err(ApiError::unprocessable(
+                "gateway_action_limit",
+                "only one task may be proposed in a turn",
             ));
         }
         // Validate the whole set before executing any call. Repeated IDs cannot

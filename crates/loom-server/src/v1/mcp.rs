@@ -25,6 +25,9 @@ pub(super) struct McpServerList {
     /// Version 1 supports the explicit, identity-bound `gateway_mcp` read path.
     /// Older servers omit this field; clients must refuse silent downgrade.
     gateway_memory_version: u32,
+    /// Version 1 provides durable proposals, digest-bound decisions, explicit
+    /// dispatch/retry and read-only reconciliation. Inference cannot approve.
+    gateway_action_version: u32,
 }
 
 /// `GET /v1/mcp-servers` — lists the names of MCP servers registered for the
@@ -55,5 +58,6 @@ pub(super) async fn list_mcp_servers(
     Ok(Json(McpServerList {
         servers,
         gateway_memory_version: 1,
+        gateway_action_version: 1,
     }))
 }

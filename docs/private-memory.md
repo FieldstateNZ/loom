@@ -1,5 +1,10 @@
 # Private LucidBrain memory execution
 
+This document describes the default read-only mode. The separately opt-in
+[confirmed task action extension](approved-actions.md) adds application proposals,
+approval, host-only capture and read-only receipt reconciliation; it must not be
+enabled until the application has a verified visible confirmation flow.
+
 This is an opt-in Loom-owned execution path for the current persistent `/v1`
 conversation API. Tandem can use OpenAI function calling to read LucidBrain
 memory while the MCP connection stays inside the application's network.

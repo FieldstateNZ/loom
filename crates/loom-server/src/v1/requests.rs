@@ -1,6 +1,6 @@
 //! Request DTOs for the `/v1` conversation and turn endpoints.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use loom_core::{CacheHint, ConversationOptions, Message};
@@ -8,7 +8,7 @@ use loom_core::{CacheHint, ConversationOptions, Message};
 /// Opt-in private gateway memory execution. Only registered names and a read
 /// subset are accepted. The caller's expected identity is an assertion, never
 /// permission: it must equal both the operator registration and the peer.
-#[derive(Clone, Debug, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GatewayMcpRequest {
     /// Tenant's operator-registered MCP server name.
@@ -18,6 +18,13 @@ pub struct GatewayMcpRequest {
     /// Provisioned identity the application expects. Cannot override the
     /// operator's registered binding or the credential's actual identity.
     pub expected_binding: loom_mcp::Binding,
+    /// Offer host-owned task proposals. Never grants permission to dispatch.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub propose_tasks: bool,
+    /// Host-owned context provenance. Task proposals require `real_world` in
+    /// both this request and the operator registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
 }
 
 /// Request body for creating a conversation.

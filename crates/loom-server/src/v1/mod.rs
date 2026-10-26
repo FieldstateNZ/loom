@@ -23,6 +23,7 @@
 //! - [`usage`] — `GET /v1/usage`.
 //! - [`mcp`] — `GET /v1/mcp-servers`.
 
+mod actions;
 mod conversation_lock;
 mod conversations;
 mod gateway_mcp;
@@ -59,6 +60,19 @@ pub fn router() -> Router<AppState> {
             get(conversations::get_conversation).delete(conversations::delete_conversation),
         )
         .route("/v1/conversations/{id}/turns", post(turns::create_turn))
+        .route("/v1/conversations/{id}/actions", get(actions::list))
+        .route(
+            "/v1/conversations/{id}/actions/{action}/decision",
+            post(actions::decide),
+        )
+        .route(
+            "/v1/conversations/{id}/actions/{action}/cancel",
+            post(actions::cancel),
+        )
+        .route(
+            "/v1/conversations/{id}/actions/{action}/{command}",
+            post(actions::command),
+        )
         .route("/v1/turns", post(turns::stateless_turn))
         .route("/v1/usage", get(usage::usage_rollup))
         .route("/v1/mcp-servers", get(mcp::list_mcp_servers))
@@ -119,6 +133,10 @@ impl Modify for SecurityAddon {
         turns::stateless_turn,
         usage::usage_rollup,
         mcp::list_mcp_servers,
+        actions::list,
+        actions::decide,
+        actions::cancel,
+        actions::command,
         crate::batch::create_batch,
         crate::batch::get_batch,
         crate::batch::get_batch_results,
@@ -129,6 +147,9 @@ impl Modify for SecurityAddon {
         CreateConversationRequest,
         TurnRequest,
         StatelessTurnRequest,
+        actions::Action,
+        actions::Decision,
+        actions::Command,
         crate::batch::CreateBatchRequest,
         crate::batch::BatchItemInput,
         crate::batch::BatchJobDto,

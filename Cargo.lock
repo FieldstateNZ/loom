@@ -1523,6 +1523,7 @@ dependencies = [
 name = "loom-mcp"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "futures",
  "loom-core",
  "reqwest 0.13.5",
