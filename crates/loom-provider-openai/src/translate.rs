@@ -233,6 +233,13 @@ fn append_message(message: &Message, input: &mut Vec<Value>) -> Result<(), Provi
                     }
                     call_metadata = Some(payload.clone());
                 }
+                "incomplete_function_call" => {
+                    // Retain the native cutoff for inspection, but do not send
+                    // a dangling call back as an executable history item.
+                    return Err(invalid(
+                        "incomplete OpenAI function calls cannot be replayed; start a new conversation",
+                    ));
+                }
                 "refusal" | "message_content" => {
                     if metadata.is_none() {
                         return Err(invalid("OpenAI message content needs its native metadata"));
@@ -314,6 +321,13 @@ pub fn output_item(item: &Value) -> Result<Vec<ContentPart>, ProviderError> {
             }
             parts
         }
+        "function_call" if item.get("status").and_then(Value::as_str) != Some("completed") => vec![
+            extension("function_call_metadata", item),
+            // A cutoff can leave syntactically invalid arguments. Preserve it
+            // without parsing or emitting a completed ToolUse, so terminal
+            // reason/usage are still delivered by the stream accumulator.
+            extension("incomplete_function_call", item),
+        ],
         "function_call" => vec![
             extension("function_call_metadata", item),
             ContentPart::ToolUse {
@@ -377,8 +391,15 @@ pub fn stop_reason(native: &Value) -> StopReason {
         };
     }
     let output = native.get("output").and_then(Value::as_array);
-    if output.is_some_and(|items| items.iter().any(|item| item["type"] == "function_call")) {
+    if output.is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["type"] == "function_call" && item["status"] == "completed")
+    }) {
         return StopReason::ToolUse;
+    }
+    if output.is_some_and(|items| items.iter().any(|item| item["type"] == "function_call")) {
+        return StopReason::Other("incomplete:function_call".into());
     }
     if output.is_some_and(|items| {
         items

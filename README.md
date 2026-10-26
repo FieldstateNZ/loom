@@ -444,3 +444,9 @@ notices (see [`NOTICE`](./NOTICE)).
 
 Internal crate names are `loom-*`; a future crates.io publish would be prefixed
 `fieldstate-loom-*` (the `loom` name is taken). Not published yet.
+
+### Conversation lock capacity
+
+Stateful conversation execution holds a PostgreSQL advisory transaction lock. A shared per-AppState admission gate permits at most half the configured SQLx pool size to hold these long-lived transactions; the other half remains work capacity for lookups, persistence, usage and health checks. AppState factory/recorder clones share the same gate. At least two pool connections are needed for stateful execution; a smaller pool or exhausted admission returns 503 before acquiring a lock, pinning a memory run or making a provider call. This does not increase the pool or add database connections.
+
+The admission slot remains held until the lock transaction rolls back, including body drop and canceled cleanup waits. Completed private-memory runs retain their normal `idle` state; canceled/unknown runs remain fenced. This protects one AppState's pool from conversation-lock exhaustion; separate application states should not share that pool, and database outages or other long-running queries remain operational concerns. It is not a distributed rate/budget limit or proof of the AWS host capacity.

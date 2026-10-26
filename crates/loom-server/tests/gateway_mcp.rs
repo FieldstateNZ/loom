@@ -99,13 +99,24 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(mode: &str) -> Self {
+        Self::with_pool_size(mode, 10).await
+    }
+    async fn with_pool_size(mode: &str, max_connections: u32) -> Self {
         let pg = Postgres::default().with_tag("16").start().await.unwrap();
         let port = pg.get_host_port_ipv4(5432).await.unwrap();
-        let store = PgStore::connect(&format!(
-            "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
-        ))
-        .await
-        .unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(max_connections)
+            .acquire_timeout(if max_connections == 1 {
+                std::time::Duration::from_millis(300)
+            } else {
+                std::time::Duration::from_secs(30)
+            })
+            .connect(&format!(
+                "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
+            ))
+            .await
+            .unwrap();
+        let store = PgStore::new(pool);
         loom_store::run_migrations(store.pool()).await.unwrap();
         let state = AppState::new(
             store,
@@ -227,6 +238,193 @@ impl Fixture {
             .filter(|r| String::from_utf8_lossy(&r.body).contains("tools/call"))
             .count()
     }
+}
+
+#[tokio::test]
+async fn undersized_pool_refuses_before_conversation_lock_fence_or_inference() {
+    let f = Fixture::with_pool_size("normal", 1).await;
+    let id = f.conversation().await;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        request(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{id}/turns"),
+            &f.key,
+            Some(f.turn(true)),
+        ),
+    )
+    .await
+    .expect("Admission must reject before waiting for another pool connection");
+    assert_eq!(response.status(), 503);
+    assert_eq!(
+        f.history(&id).await["messages"].as_array().unwrap().len(),
+        0
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM gateway_mcp_runtime")
+        .fetch_one(f.state.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    assert_eq!(f.model_calls().await, 0);
+    assert_eq!(f.tool_calls().await, 0);
+    assert_eq!(call(&f.app, "GET", "/readyz", ADMIN, None).await.0, 200);
+}
+
+#[tokio::test]
+async fn concurrent_private_turns_leave_database_work_capacity_and_complete_without_false_fences() {
+    let f = Fixture::with_pool_size("normal", 4).await;
+    let ids = [
+        f.conversation().await,
+        f.conversation().await,
+        f.conversation().await,
+    ];
+    let (_, other_key) = identity(&f.app).await;
+    let mut held = Vec::new();
+    for id in &ids[..2] {
+        let r = request(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{id}/turns"),
+            &f.key,
+            Some(f.turn(true)),
+        )
+        .await;
+        assert_eq!(r.status(), 200);
+        held.push(r);
+    }
+    let alternate = build_router(
+        f.state
+            .clone()
+            .with_usage_recorder(f.state.usage_recorder().clone())
+            .with_provider_factory(std::sync::Arc::new(loom_server::DefaultProviderFactory)),
+    );
+    let rejected = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        request(
+            &alternate,
+            "POST",
+            &format!("/v1/conversations/{}/turns", ids[2]),
+            &f.key,
+            Some(f.turn(true)),
+        ),
+    )
+    .await
+    .expect("Full lock admission must reject promptly");
+    assert_eq!(rejected.status(), 503);
+    assert_eq!(f.model_calls().await, 0);
+    assert_eq!(f.tool_calls().await, 0);
+    assert_eq!(call(&f.app, "GET", "/readyz", ADMIN, None).await.0, 200);
+    assert_eq!(
+        call(&f.app, "GET", "/v1/whoami", &other_key, None).await.0,
+        200
+    );
+    assert_eq!(
+        f.history(&ids[2]).await["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    let bodies = futures::future::join_all(
+        held.into_iter()
+            .map(|r| axum::body::to_bytes(r.into_body(), 8 * 1024 * 1024)),
+    )
+    .await;
+    for body in bodies {
+        let text = String::from_utf8(body.unwrap().to_vec()).unwrap();
+        assert!(text.contains("turn_ended"));
+        assert!(!text.contains("event: error"));
+    }
+    for id in &ids[..2] {
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM gateway_mcp_runtime WHERE conversation_id=$1")
+                .bind(Uuid::parse_str(id).unwrap())
+                .fetch_one(f.state.store().pool())
+                .await
+                .unwrap();
+        assert_eq!(status, "idle");
+        assert_eq!(f.history(id).await["messages"].as_array().unwrap().len(), 4);
+    }
+    for id in [&ids[2], &ids[0]] {
+        let (status, body) = call(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{id}/turns"),
+            &f.key,
+            Some(f.turn(true)),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(String::from_utf8(body).unwrap().contains("turn_ended"));
+    }
+    assert_eq!(f.model_calls().await, 8);
+    assert_eq!(f.tool_calls().await, 4);
+}
+
+#[tokio::test]
+async fn dropping_a_response_releases_database_admission_for_another_conversation() {
+    let f = Fixture::with_pool_size("normal", 2).await;
+    let a = f.conversation().await;
+    let b = f.conversation().await;
+    let first = request(
+        &f.app,
+        "POST",
+        &format!("/v1/conversations/{a}/turns"),
+        &f.key,
+        Some(f.turn(true)),
+    )
+    .await;
+    assert_eq!(first.status(), 200);
+    assert_eq!(
+        request(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{b}/turns"),
+            &f.key,
+            Some(f.turn(true))
+        )
+        .await
+        .status(),
+        503
+    );
+    drop(first);
+    let next = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let r = request(
+                &f.app,
+                "POST",
+                &format!("/v1/conversations/{b}/turns"),
+                &f.key,
+                Some(f.turn(true)),
+            )
+            .await;
+            if r.status() != 503 {
+                break r;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Dropped body must release its lock connection and admission");
+    assert_eq!(next.status(), 200);
+    assert_eq!(f.model_calls().await, 0);
+    let text = String::from_utf8(
+        axum::body::to_bytes(next.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(text.contains("turn_ended"));
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM gateway_mcp_runtime WHERE conversation_id=$1")
+            .bind(Uuid::parse_str(&b).unwrap())
+            .fetch_one(f.state.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(status, "idle");
+    assert_eq!(f.model_calls().await, 2);
 }
 
 #[tokio::test]
