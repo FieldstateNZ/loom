@@ -49,7 +49,7 @@ impl McpServerStore for PgStore {
         )
         .fetch_one(&mut *lease.connection)
         .await?;
-        Ok(McpServer {
+        let stored = McpServer {
             id: row.id,
             tenant_id: row.tenant_id,
             name: row.name,
@@ -59,7 +59,9 @@ impl McpServerStore for PgStore {
             tool_configuration: row.tool_configuration,
             created_at: row.created_at,
             updated_at: row.updated_at,
-        })
+        };
+        lease.release().await?;
+        Ok(stored)
     }
 
     async fn get_mcp_server(&self, tenant_id: Uuid, name: &str) -> Result<Option<McpServer>> {
@@ -131,6 +133,7 @@ impl McpServerStore for PgStore {
         )
         .execute(&mut *lease.connection)
         .await?;
+        lease.release().await?;
         Ok(result.rows_affected() > 0)
     }
 }

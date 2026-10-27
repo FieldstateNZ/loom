@@ -59,7 +59,7 @@ serialization and credential lease). Admission shares the existing floor(pool/2)
 slot budget, preserving normal database work capacity. A four-connection pool
 admits one renewable conversation; a ten-connection pool admits at most two.
 Locks are connection-owned, no transaction spans renewal HTTP, and connections
-close on drop. Normal async cleanup retains admission until close finishes.
+close on drop. Normal completion awaits an explicit PostgreSQL unlock acknowledgement before closing; a TCP close alone does not prove the remote lock was released. Async cleanup retains admission until close finishes.
 Stalled streaming responses may hold a lease until their transport drops; ingress
 and client request deadlines remain operational requirements. This is a personal
 pilot design, not a qualified high-concurrency service.

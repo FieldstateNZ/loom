@@ -203,3 +203,38 @@ async fn private_mcp_leases_serialize_replicas_fence_static_replacement_and_casc
         .await
         .unwrap());
 }
+
+#[tokio::test]
+async fn completed_registration_and_lease_release_allow_immediate_exclusive_reacquisition() {
+    let (_pg, store) = common::setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new(
+            "private-release-ack",
+            "Release acknowledgement",
+        ))
+        .await
+        .unwrap();
+    let registration = NewMcpServer {
+        tenant_id: tenant.id,
+        name: "lucidbrain".into(),
+        url: "https://memory.invalid/mcp".into(),
+        encrypted_token: None,
+        nonce: None,
+        tool_configuration: None,
+    };
+    for _ in 0..64 {
+        store.upsert_mcp_server(registration.clone()).await.unwrap();
+        let lease = store
+            .lease_mcp_credential(tenant.id, "lucidbrain", true)
+            .await
+            .unwrap()
+            .expect("a completed registration must release its remote lock");
+        lease.release().await.unwrap();
+        let lease = store
+            .lease_mcp_credential(tenant.id, "lucidbrain", true)
+            .await
+            .unwrap()
+            .expect("release must await PostgreSQL unlock acknowledgement");
+        lease.release().await.unwrap();
+    }
+}

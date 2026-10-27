@@ -60,8 +60,23 @@ impl PgStore {
 
 impl McpCredentialLease {
     /// Closes this session and waits for its advisory locks to be released.
-    pub async fn release(self) -> Result<()> {
+    pub async fn release(mut self) -> Result<()> {
+        // A TCP close is not an acknowledgement that the remote backend has
+        // released session locks. Wait for explicit unlock before a subsequent
+        // request can attempt another lease. Cancellation still closes on drop.
+        let query = if self.exclusive {
+            "SELECT pg_advisory_unlock(hashtextextended($1, 0))"
+        } else {
+            "SELECT pg_advisory_unlock_shared(hashtextextended($1, 0))"
+        };
+        let unlocked: bool = sqlx::query_scalar(query)
+            .bind(format!("loom:mcp:{}:{}", self.tenant, self.name))
+            .fetch_one(&mut *self.connection)
+            .await?;
         self.connection.close().await?;
+        if !unlocked {
+            return Err(sqlx::Error::Protocol("MCP lease was not held".into()).into());
+        }
         Ok(())
     }
 

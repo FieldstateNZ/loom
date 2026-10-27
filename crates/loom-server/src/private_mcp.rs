@@ -345,6 +345,7 @@ pub(crate) async fn install(
                 "private credential already installed; controlled recovery required",
             ));
         }
+        guard.release().await.map_err(|_| unavailable())?;
         return Ok(());
     }
     save(
@@ -361,6 +362,7 @@ pub(crate) async fn install(
         },
     )
     .await?;
+    guard.release().await.map_err(|_| unavailable())?;
     Ok(())
 }
 fn sorted_tools(value: &serde_json::Value) -> Result<Vec<String>, ApiError> {
