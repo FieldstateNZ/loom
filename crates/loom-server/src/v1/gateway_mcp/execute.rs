@@ -361,7 +361,7 @@ impl Run {
             ));
         }
         // Validate the whole set before executing any call. Repeated IDs cannot
-        // be replayed as fresh actions; only source-reviewed read tools exist.
+        // be replayed as fresh actions; saves use a separate stable host operation.
         for (id, name, input) in &calls {
             if id.is_empty()
                 || id.len() > 200

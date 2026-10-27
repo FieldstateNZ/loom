@@ -1,4 +1,4 @@
-//! Explicit host-side validation for the two source-reviewed memory tools.
+//! Host-side validation for reviewed memory reads and the opt-in save tool.
 use crate::Error;
 use serde_json::Value;
 

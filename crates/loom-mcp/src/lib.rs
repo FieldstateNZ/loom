@@ -1,5 +1,5 @@
-//! Private, identity-bound LucidBrain access. Inference can read reviewed memory
-//! and optionally propose a task. Actual task delivery is a separate host API.
+//! Private, identity-bound LucidBrain access. Inference can read memory, opt in
+//! to requested real-world saves and propose tasks. Task delivery is a separate host API.
 //! No provider credential forwarding, redirects, transparent retries or sampling.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -97,7 +97,7 @@ struct Context {
     memory_operation_version: Option<u32>,
 }
 
-/// Only the two source-reviewed LucidBrain read tools are currently executable.
+/// Names of the two source-reviewed LucidBrain read tools.
 #[must_use]
 pub fn is_memory_read(name: &str) -> bool {
     matches!(name, "memory_recall" | "memory_search")
