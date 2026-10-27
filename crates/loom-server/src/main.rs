@@ -14,10 +14,25 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    // Docker/compose HEALTHCHECK path: `loom-server --healthcheck` performs a
-    // dependency-free HTTP probe of the running server and exits 0/1.
-    if std::env::args().any(|arg| arg == "--healthcheck") {
-        return ExitCode::from(healthcheck());
+    // SQLx can establish TLS before the MCP client is constructed. Choose the
+    // workspace's ring backend here when transitive dependencies also enable
+    // aws-lc-rs; otherwise Rustls cannot choose a default and panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mode = match mode(std::env::args().skip(1).collect()) {
+        Ok(mode) => mode,
+        Err(()) => {
+            eprintln!("Usage: loom-server [--migrate | --healthcheck | --help]");
+            return ExitCode::from(2);
+        }
+    };
+    match mode {
+        Mode::Healthcheck => return ExitCode::from(healthcheck()),
+        Mode::Help => {
+            println!("Usage: loom-server [--migrate | --healthcheck | --help]\n--migrate reads DATABASE_URL, applies/verifies schema, and exits without starting HTTP, workers or provider clients.");
+            return ExitCode::SUCCESS;
+        }
+        Mode::Migrate => return migrate_only().await,
+        Mode::Serve => {}
     }
 
     // Installs JSON logs and, when an OTLP endpoint is configured, the
@@ -34,17 +49,96 @@ async fn main() -> ExitCode {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    Serve,
+    Migrate,
+    Healthcheck,
+    Help,
+}
+fn mode(args: Vec<String>) -> Result<Mode, ()> {
+    match args.as_slice() {
+        [] => Ok(Mode::Serve),
+        [arg] => match arg.as_str() {
+            "--migrate" => Ok(Mode::Migrate),
+            "--healthcheck" => Ok(Mode::Healthcheck),
+            "--help" => Ok(Mode::Help),
+            _ => Err(()),
+        },
+        _ => Err(()),
+    }
+}
+
+// Deliberately bypass normal config/telemetry: migration jobs need only the
+// database credential, not admin/encryption/provider secrets or network clients.
+async fn migrate_only() -> ExitCode {
+    let Some(url) = std::env::var("DATABASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    else {
+        eprintln!("Migration requires DATABASE_URL.");
+        return ExitCode::FAILURE;
+    };
+    let timeout = match std::env::var("LOOM_MIGRATION_TIMEOUT_SECS") {
+        Ok(v) => match v.parse::<u64>().ok().filter(|n| (1..=900).contains(n)) {
+            Some(n) => n,
+            None => {
+                eprintln!("LOOM_MIGRATION_TIMEOUT_SECS must be from 1 to 900.");
+                return ExitCode::FAILURE;
+            }
+        },
+        Err(std::env::VarError::NotPresent) => 120,
+        Err(_) => {
+            eprintln!("Invalid migration timeout.");
+            return ExitCode::FAILURE;
+        }
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(timeout), async {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .connect(&url)
+            .await?;
+        let result = async {
+            loom_store::run_migrations(&pool).await?;
+            loom_store::verify_migrations(&pool).await
+        }
+        .await;
+        pool.close().await;
+        result
+    })
+    .await;
+    if matches!(result, Ok(Ok::<(), loom_store::StoreError>(()))) {
+        println!("Database migrations completed and verified.");
+        ExitCode::SUCCESS
+    } else {
+        // DSNs can carry passwords, CA paths and private hostnames. Keep CLI
+        // failures non-diagnostic; operators inspect the private DB job context.
+        eprintln!("Database migration failed or timed out; release was not started.");
+        ExitCode::FAILURE
+    }
+}
+
 /// Boots and serves the gateway, returning an error rather than panicking so the
 /// process exits with a clean, logged failure.
 async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
 
-    let store = PgStore::connect(&config.database_url).await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(config.database_max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&config.database_url)
+        .await?;
+    let store = PgStore::new(pool);
 
     if config.run_migrations {
         tracing::info!("applying database migrations");
         loom_store::run_migrations(store.pool()).await?;
     }
+
+    // Schema verification is SELECT-only. A dedicated migration job must
+    // finish before a runtime with no DDL privileges can accept any traffic.
+    loom_store::verify_migrations(store.pool()).await?;
 
     let bind_addr = config.bind_addr;
     let state = AppState::from_config(&config, store);
@@ -130,5 +224,24 @@ fn healthcheck() -> u8 {
     match response.lines().next() {
         Some(status_line) if status_line.contains("200") => 0,
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    #[test]
+    fn commands_are_exclusive_and_unknown_flags_cannot_start_a_service() {
+        use super::{mode, Mode};
+        assert_eq!(mode(vec![]), Ok(Mode::Serve));
+        assert_eq!(mode(vec!["--migrate".into()]), Ok(Mode::Migrate));
+        assert_eq!(mode(vec!["--healthcheck".into()]), Ok(Mode::Healthcheck));
+        assert_eq!(mode(vec!["--help".into()]), Ok(Mode::Help));
+        for args in [
+            vec!["--migrate", "--healthcheck"],
+            vec!["--migrate", "--migrate"],
+            vec!["--unknown"],
+        ] {
+            assert!(mode(args.into_iter().map(str::to_owned).collect()).is_err());
+        }
     }
 }

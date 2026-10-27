@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 mod collect;
 mod execute;
+pub(crate) mod preflight;
 pub(super) use execute::execute;
 
 #[derive(Clone, Deserialize, Serialize)]

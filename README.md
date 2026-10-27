@@ -176,11 +176,13 @@ with a clear diagnostic if one is missing or malformed.
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | yes | — | PostgreSQL connection URL. |
+| `LOOM_DATABASE_MAX_CONNECTIONS` | no | `10` | Runtime pool maximum, integer 2–64. [Migration-only mode](docs/database-release.md) uses one connection. |
+| `LOOM_MIGRATION_TIMEOUT_SECS` | no | `120` | Whole migration job timeout, integer 1–900; used only by `--migrate`. |
 | `LOOM_ROOT_ADMIN_TOKEN` | yes | — | Bearer token guarding the `/admin` API. Compared in constant time. |
 | `LOOM_ENCRYPTION_KEY` | yes | — | 32-byte AES-256-GCM key, hex-encoded (64 hex chars). Encrypts provider credentials at rest. |
 | `LOOM_BIND_ADDR` | no | `0.0.0.0:8080` | `host:port` to bind the HTTP listener. |
 | `LOOM_KEY_PEPPER` | no | derived | Pepper for the virtual-key lookup HMAC. When unset it is derived deterministically as `HMAC-SHA256(LOOM_ENCRYPTION_KEY, "loom.virtual-key.pepper.v1")`. Set it explicitly to decouple its lifecycle from the encryption key. |
-| `LOOM_RUN_MIGRATIONS` | no | `true` | Apply database migrations on startup; set `false`/`0`/`no`/`off` to skip. |
+| `LOOM_RUN_MIGRATIONS` | no | `true` | Apply database migrations on startup; set `false`/`0`/`no`/`off` for a separate migration job. Runtime still verifies release compatibility. |
 | `LOOM_BATCH_POLL_INTERVAL_SECS` | no | `5` | Seconds between batch poll-worker passes (advancing async batch jobs). `0` disables the in-process worker (e.g. when a dedicated worker process owns it). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — | OTLP collector endpoint. **Its presence turns telemetry export on**; unset means JSON logs only, no exporter (the default). Signal-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` override it. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | no | `grpc` | OTLP transport: `grpc` (tonic) or `http/protobuf` (HTTP). |
@@ -237,7 +239,7 @@ Jaeger (with OTLP enabled), Honeycomb, and so on.
 | Method & path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /healthz` | none | Liveness (always `200 ok`). |
-| `GET /readyz` | none | Readiness — pings the database; `503` if unreachable. |
+| `GET /readyz` | none | Readiness — verifies the release's migration metadata; `503` if unreachable or incompatible. |
 | `GET /openapi.json` | none | The generated OpenAPI 3.x document for the API. |
 | `GET /v1/whoami` | virtual key | Echoes the authenticated tenant context. |
 | `POST /v1/conversations` | virtual key | Create a conversation `{ provider, model, system?, metadata? }`. |
@@ -450,3 +452,5 @@ Internal crate names are `loom-*`; a future crates.io publish would be prefixed
 Stateful conversation execution holds a PostgreSQL advisory transaction lock. A shared per-AppState admission gate permits at most half the configured SQLx pool size to hold these long-lived transactions; the other half remains work capacity for lookups, persistence, usage and health checks. AppState factory/recorder clones share the same gate. At least two pool connections are needed for stateful execution; a smaller pool or exhausted admission returns 503 before acquiring a lock, pinning a memory run or making a provider call. This does not increase the pool or add database connections.
 
 The admission slot remains held until the lock transaction rolls back, including body drop and canceled cleanup waits. Completed private-memory runs retain their normal `idle` state; canceled/unknown runs remain fenced. This protects one AppState's pool from conversation-lock exhaustion; separate application states should not share that pool, and database outages or other long-running queries remain operational concerns. It is not a distributed rate/budget limit or proof of the AWS host capacity.
+
+Private-memory operators: [registered credential readiness](docs/registered-mcp-preflight.md).

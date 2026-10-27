@@ -108,6 +108,7 @@ struct Peer {
     slow_category: AtomicBool,
     receipts_only: AtomicBool,
     bad_proposal: AtomicBool,
+    stateful_context: AtomicBool,
 }
 struct Fixture {
     app: Router,
@@ -159,16 +160,29 @@ impl Fixture {
             slow_category: AtomicBool::new(false),
             receipts_only: AtomicBool::new(false),
             bad_proposal: AtomicBool::new(false),
+            stateful_context: AtomicBool::new(false),
         });
         let p = peer.clone();
         Mock::given(method("GET"))
             .and(path("/mcp/context"))
-            .respond_with(move |_: &MockRequest| {
+            .respond_with(move |request: &MockRequest| {
+                if request
+                    .headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    != Some("Bearer synthetic-private-mcp-token")
+                {
+                    return ResponseTemplate::new(401);
+                }
                 let mut c = p.binding.lock().unwrap().clone();
                 c["schema_version"] = json!(1);
                 c["capture_operation_version"] = json!(1);
                 c["kind"] = json!("workspace_assistant");
-                c["transport_mode"] = json!("stateless");
+                c["transport_mode"] = json!(if p.stateful_context.load(Ordering::SeqCst) {
+                    "stateful"
+                } else {
+                    "stateless"
+                });
                 c["allowed_tools"] = if p.receipts_only.load(Ordering::SeqCst) {
                     json!(["get_capture_operation"])
                 } else {
@@ -705,4 +719,196 @@ async fn canceling_an_uncertain_operation_never_retries_a_write() {
     assert_eq!(reconciled["status"], "completed");
     assert_eq!(reconciled["cancel_requested"], true);
     assert_eq!(f.peer.captures.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn registered_preflight_verifies_the_actual_client_without_inference_or_capture() {
+    let f = Fixture::new().await;
+    let path = format!(
+        "/admin/tenants/{}/mcp-servers/lucidbrain/preflight",
+        f.tenant
+    );
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &path,
+            &f.key,
+            Some(json!({"expected_binding":f.binding}))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let response = request(
+        &f.app,
+        "POST",
+        &path,
+        ADMIN,
+        Some(json!({"expected_binding":f.binding})),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let bytes = axum::body::to_bytes(response.into_body(), 16384)
+        .await
+        .unwrap();
+    let proof = parsed(&bytes);
+    assert_eq!(proof["binding"], f.binding);
+    assert_eq!(proof["transport_mode"], "stateless");
+    assert_eq!(proof["category_id"], f.peer.category);
+    assert_eq!(proof["credential_preflight_version"], 1);
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        !text.contains("synthetic-private-mcp-token")
+            && !text.contains(ADMIN)
+            && !text.contains(&f.mcp.uri())
+    );
+    assert_eq!(f.peer.captures.load(Ordering::SeqCst), 0);
+    assert_eq!(f.peer.lists.load(Ordering::SeqCst), 1);
+    assert!(f.model.received_requests().await.unwrap().is_empty());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM conversations")
+        .fetch_one(f.state.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn registered_preflight_cannot_be_bypassed_with_a_separate_valid_token() {
+    let f = Fixture::new().await;
+    let path = format!(
+        "/admin/tenants/{}/mcp-servers/lucidbrain/preflight",
+        f.tenant
+    );
+    let row = loom_store::McpServerStore::get_mcp_server(
+        f.state.store(),
+        Uuid::parse_str(&f.tenant).unwrap(),
+        "lucidbrain",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    for bad in [
+        "synthetic-invalid-stored-token",
+        "synthetic-revoked-stored-token",
+        "synthetic-other-owner-token",
+    ] {
+        json_call(&f.app,"PUT",&format!("/admin/tenants/{}/mcp-servers/lucidbrain",f.tenant),ADMIN,json!({"url":row.url,"authorization_token":bad,"tool_configuration":row.tool_configuration})).await;
+        let (status, bytes) = call(
+            &f.app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":f.binding})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!String::from_utf8_lossy(&bytes).contains(bad));
+        assert_eq!(call(&f.app,"POST",&path,ADMIN,Some(json!({"expected_binding":f.binding,"authorization_token":"synthetic-private-mcp-token"}))).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    f.register().await;
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":f.binding}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(f.model.received_requests().await.unwrap().is_empty());
+    assert_eq!(f.peer.captures.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn registered_preflight_refuses_incompatible_transport_identity_and_disabled_owner() {
+    let f = Fixture::new().await;
+    let path = format!(
+        "/admin/tenants/{}/mcp-servers/lucidbrain/preflight",
+        f.tenant
+    );
+    f.peer.stateful_context.store(true, Ordering::SeqCst);
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":f.binding}))
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    f.peer.stateful_context.store(false, Ordering::SeqCst);
+    let mut wrong = f.binding.clone();
+    wrong["credential_id"] = json!(Uuid::new_v4());
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":wrong}))
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    sqlx::query("UPDATE tenants SET status='suspended' WHERE id=$1")
+        .bind(Uuid::parse_str(&f.tenant).unwrap())
+        .execute(f.state.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":f.binding}))
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(f.model.received_requests().await.unwrap().is_empty());
+    assert_eq!(f.peer.captures.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn registered_preflight_fails_if_the_registration_changes_during_verification() {
+    let f = Fixture::new().await;
+    f.peer.slow_category.store(true, Ordering::SeqCst);
+    let app = f.app.clone();
+    let path = format!(
+        "/admin/tenants/{}/mcp-servers/lucidbrain/preflight",
+        f.tenant
+    );
+    let binding = f.binding.clone();
+    let pending = tokio::spawn(async move {
+        call(
+            &app,
+            "POST",
+            &path,
+            ADMIN,
+            Some(json!({"expected_binding":binding})),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while f.peer.lists.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    f.register().await;
+    assert_eq!(pending.await.unwrap().0, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(f.model.received_requests().await.unwrap().is_empty());
+    assert_eq!(f.peer.captures.load(Ordering::SeqCst), 0);
 }

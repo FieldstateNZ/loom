@@ -37,6 +37,7 @@ mod whoami;
 
 pub use requests::{CreateConversationRequest, StatelessTurnRequest, TurnRequest};
 
+pub(crate) use gateway_mcp::preflight::{preflight as preflight_gateway_mcp, PreflightRequest};
 pub(crate) use turns::enforce_limits;
 
 use axum::routing::{get, post};

@@ -90,7 +90,8 @@ init-container. A `startupProbe` gives that first boot room before liveness
 kicks in. See [Migrations](#migrations).
 
 **Health endpoints.** Liveness → `/healthz` (process up), readiness → `/readyz`
-(PostgreSQL reachable). Both are wired by the chart.
+(PostgreSQL reachable with this release's exact migration metadata). Both are
+wired by the chart.
 
 ---
 
@@ -252,12 +253,15 @@ safe and idempotent. This is why a `startupProbe` (default 150 s budget) guards
 the first boot — a fresh database's migration pass must finish before liveness
 probing begins.
 
-If you prefer to gate migrations (e.g. run them from a single controlled
-rollout and keep application pods read-only against schema), set
-`config.runMigrations: false` on the app release and run one migrating rollout
-separately. There is no separate migration Job in the chart by design; the
-on-boot path is the supported default and matches the container's behavior in
-`docker-compose`.
+For a separate migration owner and runtime DML role, run the pinned release's
+`loom-server --migrate` command as a controlled job with the owner DSN. Require
+success, reconcile grants, then start that same release with the runtime DSN and
+`config.runMigrations: false`. Startup and readiness still verify exact migration
+metadata without DDL. The chart does not create the migration Job or provision
+database roles; supply those through the deployment workflow. See the
+[database release procedure](../docs/database-release.md) for credentials, TLS,
+timeouts, grants and failure handling. On-boot migration remains the development
+default used by `docker-compose`.
 
 ---
 
@@ -305,7 +309,7 @@ kubectl -n loom rollout status deploy/loom
 # Port-forward and probe health.
 kubectl -n loom port-forward svc/loom 8080:80
 curl -s localhost:8080/healthz   # -> ok
-curl -s localhost:8080/readyz    # -> {"status":"ready"}  (once PostgreSQL is reachable)
+curl -s localhost:8080/readyz    # -> {"status":"ready"}  (database and release metadata match)
 
 # Inspect what was rendered without applying (great for reviews / CI parity):
 helm template loom deploy/chart/loom -f deploy/chart/loom/values-staging.yaml \

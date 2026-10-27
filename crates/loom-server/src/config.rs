@@ -22,6 +22,8 @@ mod env_keys {
     pub const BIND_ADDR: &str = "LOOM_BIND_ADDR";
     /// PostgreSQL connection URL.
     pub const DATABASE_URL: &str = "DATABASE_URL";
+    /// Runtime pool bound (migration-only commands always use one connection).
+    pub const DATABASE_MAX_CONNECTIONS: &str = "LOOM_DATABASE_MAX_CONNECTIONS";
     /// Bearer token guarding the `/admin` API.
     pub const ROOT_ADMIN_TOKEN: &str = "LOOM_ROOT_ADMIN_TOKEN";
     /// 32-byte AES-256-GCM key, hex-encoded (64 hex chars).
@@ -46,6 +48,8 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     /// The PostgreSQL connection URL.
     pub database_url: String,
+    /// Runtime database connection budget, including held conversation locks.
+    pub database_max_connections: u32,
     /// Whether to apply database migrations on startup.
     pub run_migrations: bool,
     /// How often the batch poll worker advances active jobs. Zero disables the
@@ -71,6 +75,7 @@ impl Config {
     /// # Optional variables
     ///
     /// - `LOOM_BIND_ADDR` (default `0.0.0.0:8080`)
+    /// - `LOOM_DATABASE_MAX_CONNECTIONS` (default `10`, range `2..=64`)
     /// - `LOOM_KEY_PEPPER` (default: derived deterministically from the
     ///   encryption key via `HMAC-SHA256(encryption_key, "loom.virtual-key.pepper.v1")`)
     /// - `LOOM_RUN_MIGRATIONS` (`false`/`0`/`no`/`off` disable it; default on)
@@ -91,6 +96,8 @@ impl Config {
                 })?;
 
         let database_url = required(env_keys::DATABASE_URL)?;
+        let database_max_connections =
+            parse_pool_limit(optional(env_keys::DATABASE_MAX_CONNECTIONS))?;
 
         let root_admin_token = required(env_keys::ROOT_ADMIN_TOKEN)?;
         if root_admin_token.is_empty() {
@@ -129,6 +136,7 @@ impl Config {
         Ok(Self {
             bind_addr,
             database_url,
+            database_max_connections,
             run_migrations,
             batch_poll_interval,
             root_admin_token,
@@ -161,12 +169,41 @@ impl std::fmt::Debug for Config {
         f.debug_struct("Config")
             .field("bind_addr", &self.bind_addr)
             .field("database_url", &"<redacted>")
+            .field("database_max_connections", &self.database_max_connections)
             .field("run_migrations", &self.run_migrations)
             .field("batch_poll_interval", &self.batch_poll_interval)
             .field("root_admin_token", &"<redacted>")
             .field("encryption_key", &"<redacted>")
             .field("key_pepper", &"<redacted>")
             .finish()
+    }
+}
+
+fn parse_pool_limit(value: Option<String>) -> Result<u32, ConfigError> {
+    match value {
+        None => Ok(10),
+        Some(value) => value
+            .parse::<u32>()
+            .ok()
+            .filter(|n| (2..=64).contains(n))
+            .ok_or(ConfigError::Malformed {
+                name: env_keys::DATABASE_MAX_CONNECTIONS,
+                detail: "expected an integer from 2 to 64".into(),
+            }),
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    #[test]
+    fn pool_budget_is_bounded_and_keeps_database_work_capacity() {
+        assert_eq!(super::parse_pool_limit(None).unwrap(), 10);
+        for n in [2, 6, 64] {
+            assert_eq!(super::parse_pool_limit(Some(n.to_string())).unwrap(), n);
+        }
+        for n in ["0", "1", "65", "-1", "1.5", "unexpected"] {
+            assert!(super::parse_pool_limit(Some(n.into())).is_err());
+        }
     }
 }
 

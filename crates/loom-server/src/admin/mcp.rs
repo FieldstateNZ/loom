@@ -16,6 +16,17 @@ use crate::extract;
 use crate::provider::mcp_aad;
 use crate::state::AppState;
 
+/// Checks the actual registered credential through the gateway's own private
+/// client. Read-only metadata/category calls; never inference or task capture.
+pub(super) async fn preflight(
+    State(state): State<AppState>,
+    Path((tenant, name)): Path<(Uuid, String)>,
+    extract::Json(input): extract::Json<crate::v1::PreflightRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let proof = crate::v1::preflight_gateway_mcp(&state, tenant, &name, input).await?;
+    Ok(([(http::header::CACHE_CONTROL, "no-store")], Json(proof)))
+}
+
 /// Request body for registering (or replacing) a tenant MCP server.
 #[derive(Debug, Deserialize)]
 pub(super) struct PutMcpServerRequest {
