@@ -24,6 +24,8 @@ fn context(b: &Binding) -> Value {
 
 async fn fixture(ctx: Value, call_status: u16, result: Value) -> MockServer {
     let server = MockServer::start().await;
+    let listed: Vec<Value> = ctx["allowed_tools"].as_array().into_iter().flatten().filter_map(Value::as_str)
+        .map(|name| json!({"name":name,"description":"Reviewed fixture tool","inputSchema":{"type":"object","properties":{}}})).collect();
     Mock::given(method("GET"))
         .and(path("/mcp/context"))
         .respond_with(ResponseTemplate::new(200).set_body_json(ctx))
@@ -45,9 +47,16 @@ async fn fixture(ctx: Value, call_status: u16, result: Value) -> MockServer {
         .respond_with(ResponseTemplate::new(202))
         .mount(&server)
         .await;
-    Mock::given(method("POST")).and(path("/mcp")).and(body_partial_json(json!({"method":"tools/list"})))
-        .respond_with(|r:&Request|{let req:Value=serde_json::from_slice(&r.body).unwrap();ResponseTemplate::new(200).set_body_json(json!({"jsonrpc":"2.0","id":req["id"],
-            "result":{"tools":[{"name":"memory_search","description":"Browse memories","inputSchema":{"type":"object","properties":{"search":{"type":"string"}}}}]}}))}).mount(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .and(body_partial_json(json!({"method":"tools/list"})))
+        .respond_with(move |r: &Request| {
+            let req: Value = serde_json::from_slice(&r.body).unwrap();
+            ResponseTemplate::new(200).set_body_json(json!({"jsonrpc":"2.0","id":req["id"],
+            "result":{"tools":listed}}))
+        })
+        .mount(&server)
+        .await;
     Mock::given(method("POST"))
         .and(path("/mcp"))
         .and(body_partial_json(json!({"method":"tools/call"})))
@@ -236,4 +245,97 @@ async fn unsafe_endpoints_and_unregistered_tool_requests_are_rejected() {
     .await
     .is_err());
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn personal_memory_save_keeps_scope_and_operation_out_of_model_arguments() {
+    let b = binding();
+    let allowed: Vec<String> = [
+        "memory_search",
+        "memory_remember",
+        "list_categories",
+        "capture_item",
+        "get_capture_operation",
+    ]
+    .map(String::from)
+    .to_vec();
+    let mut ctx = context(&b);
+    ctx["allowed_tools"] = json!(allowed);
+    ctx["capture_operation_version"] = json!(1);
+    ctx["memory_operation_version"] = json!(1);
+    let operation = "a".repeat(64);
+    let receipt = json!({"id":Uuid::new_v4(),"workspaceId":b.workspace_id,"status":"committed","provenance":"real_world","operationId":operation});
+    let server = fixture(
+        ctx.clone(),
+        200,
+        json!({"content":[{"type":"text","text":receipt.to_string()}]}),
+    )
+    .await;
+    let client = MemoryClient::connect_assistant(
+        &format!("{}/mcp", server.uri()),
+        "synthetic-private-token",
+        b.clone(),
+        &allowed,
+        &["memory_search".into()],
+        true,
+    )
+    .await
+    .unwrap();
+    let schema = client
+        .tools()
+        .iter()
+        .find(|t| t.name == "memory_remember")
+        .unwrap();
+    for field in ["operationId", "workspaceId", "source", "credential_id"] {
+        assert!(!schema.input_schema.to_string().contains(field));
+    }
+    for input in [
+        json!({"content":"tea","operationId":operation}),
+        json!({"content":"tea","source":"simulated_world"}),
+        json!({"content":"tea","workspaceId":Uuid::new_v4()}),
+    ] {
+        assert!(client.remember(&operation, &input).await.is_err());
+    }
+    assert!(client
+        .call("memory_remember", &json!({"content":"tea"}))
+        .await
+        .is_err());
+    let (result, failed) = client
+        .remember(&operation, &json!({"content":"tea","type":"preference"}))
+        .await
+        .unwrap();
+    assert!(!failed);
+    assert_eq!(result, json!({"status":"committed","saved":true}));
+    let requests = server.received_requests().await.unwrap();
+    let calls: Vec<Value> = requests
+        .iter()
+        .filter_map(|r| serde_json::from_slice::<Value>(&r.body).ok())
+        .filter(|v| v["method"] == "tools/call")
+        .collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["params"]["arguments"]["operationId"], operation);
+    // A read/task-only connection cannot inherit the broader save policy.
+    assert!(MemoryClient::connect_tasks(
+        &format!("{}/mcp", server.uri()),
+        "synthetic-private-token",
+        b.clone(),
+        &allowed,
+        &["memory_search".into()]
+    )
+    .await
+    .is_err());
+    ctx.as_object_mut()
+        .unwrap()
+        .remove("memory_operation_version");
+    let old = fixture(ctx, 200, json!({})).await;
+    assert!(MemoryClient::connect_assistant(
+        &format!("{}/mcp", old.uri()),
+        "synthetic-private-token",
+        b,
+        &allowed,
+        &["memory_search".into()],
+        true
+    )
+    .await
+    .is_err());
 }
