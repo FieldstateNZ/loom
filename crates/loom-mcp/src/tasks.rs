@@ -78,7 +78,10 @@ fn decoded(value: Value) -> Result<Value, Error> {
 impl MemoryClient {
     /// Reads actual category metadata. The model cannot choose the workspace.
     pub async fn task_category(&self, slug: &str, id: Uuid) -> Result<TaskCategory, Error> {
-        if self.mode != Mode::Tasks || slug.is_empty() || slug.len() > 100 {
+        if !matches!(self.mode, Mode::Tasks | Mode::TasksAndMemory)
+            || slug.is_empty()
+            || slug.len() > 100
+        {
             return Err(Error::Configuration);
         }
         let (value, error) = self
@@ -133,7 +136,7 @@ impl MemoryClient {
         category: Uuid,
         input: &TaskInput,
     ) -> Result<CaptureReceipt, Error> {
-        if self.mode != Mode::Tasks {
+        if !matches!(self.mode, Mode::Tasks | Mode::TasksAndMemory) {
             return Err(Error::Tool);
         }
         TaskInput::parse(&serde_json::to_value(input).map_err(|_| Error::Tool)?)?;

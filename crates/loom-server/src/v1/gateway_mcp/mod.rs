@@ -28,6 +28,14 @@ struct Gateway {
     binding: Binding,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     task_capture: Option<TaskPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory_write: Option<MemoryPolicy>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MemoryPolicy {
+    provenance: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -64,6 +72,7 @@ pub(super) async fn prepare(
 ) -> Result<Prepared, ApiError> {
     if request.name != "lucidbrain"
         || (request.allowed_tools.is_empty() && !request.propose_tasks)
+        || (request.remember_memories && !request.propose_tasks)
         || request.allowed_tools.len() > 2
         || !options.tools.is_empty()
         || !options.mcp_servers.is_empty()
@@ -97,11 +106,18 @@ pub(super) async fn prepare(
     if !policy.enabled
         || policy.gateway.kind != "lucidbrain_memory"
         || policy.allowed_tools.is_empty()
-        || policy.allowed_tools.len() > if request.propose_tasks { 5 } else { 2 }
+        || policy.allowed_tools.len()
+            > if request.remember_memories {
+                6
+            } else if request.propose_tasks {
+                5
+            } else {
+                2
+            }
         || policy
             .allowed_tools
             .iter()
-            .any(|name| !private_tool(name, request.propose_tasks))
+            .any(|name| !private_tool(name, request.propose_tasks, request.remember_memories))
     {
         return Err(ApiError::unprocessable(
             "gateway_mcp_policy",
@@ -121,6 +137,19 @@ pub(super) async fn prepare(
             "task proposals require explicit real-world application and operator provenance",
         ));
     }
+    if request.remember_memories
+        && (request.provenance.as_deref() != Some("real_world")
+            || policy
+                .gateway
+                .memory_write
+                .as_ref()
+                .is_none_or(|p| p.provenance != "real_world"))
+    {
+        return Err(ApiError::unprocessable(
+            "gateway_memory_policy",
+            "memory saves require explicit real-world application and operator provenance",
+        ));
+    }
     policy.allowed_tools.sort();
     policy.allowed_tools.dedup();
     if policy.gateway.binding != request.expected_binding {
@@ -133,12 +162,13 @@ pub(super) async fn prepare(
     requested.dedup();
     let (token, lease) = crate::private_mcp::authorization(state, &registered).await?;
     let client = if request.propose_tasks {
-        MemoryClient::connect_tasks(
+        MemoryClient::connect_assistant(
             &registered.url,
             &token,
             policy.gateway.binding.clone(),
             &policy.allowed_tools,
             &requested,
+            request.remember_memories,
         )
         .await
     } else {
@@ -191,8 +221,9 @@ pub(super) async fn prepare(
     })
 }
 
-fn private_tool(name: &str, tasks: bool) -> bool {
+fn private_tool(name: &str, tasks: bool, remember: bool) -> bool {
     loom_mcp::is_memory_read(name)
+        || (remember && name == "memory_remember")
         || (tasks
             && matches!(
                 name,
@@ -227,7 +258,17 @@ pub(super) async fn receipt_client(
         || a.principal_id != b.principal_id
         || a.workspace_id != b.workspace_id
         || a.agent_definition_id != b.agent_definition_id
-        || policy.allowed_tools.iter().any(|n| !private_tool(n, true))
+        || policy.allowed_tools.iter().any(|n| {
+            !private_tool(
+                n,
+                true,
+                policy
+                    .gateway
+                    .memory_write
+                    .as_ref()
+                    .is_some_and(|p| p.provenance == "real_world"),
+            )
+        })
     {
         return Err(ApiError::unavailable(
             "task reconciliation identity or policy changed",

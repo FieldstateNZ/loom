@@ -35,11 +35,13 @@ pub use tasks::{CaptureReceipt, TaskCategory, TaskInput};
 enum Mode {
     Memory,
     Tasks,
+    TasksAndMemory,
     Receipts,
 }
 impl Mode {
     fn permits(self, name: &str) -> bool {
         is_memory_read(name)
+            || (matches!(self, Self::TasksAndMemory | Self::Receipts) && name == "memory_remember")
             || (self != Self::Memory
                 && matches!(
                     name,
@@ -92,6 +94,7 @@ struct Context {
     allowed_tools: Option<Vec<String>>,
     transport_mode: String,
     capture_operation_version: Option<u32>,
+    memory_operation_version: Option<u32>,
 }
 
 /// Only the two source-reviewed LucidBrain read tools are currently executable.
@@ -144,22 +147,53 @@ impl MemoryClient {
         registered_tools: &[String],
         memory_tools: &[String],
     ) -> Result<Self, Error> {
+        Self::connect_assistant(
+            endpoint,
+            token,
+            binding,
+            registered_tools,
+            memory_tools,
+            false,
+        )
+        .await
+    }
+
+    /// Connects the personal assistant with an explicit real-world save opt-in.
+    /// The gateway checks application and operator provenance before calling.
+    pub async fn connect_assistant(
+        endpoint: &str,
+        token: &str,
+        binding: Binding,
+        registered_tools: &[String],
+        memory_tools: &[String],
+        remember: bool,
+    ) -> Result<Self, Error> {
         if memory_tools.iter().any(|n| !is_memory_read(n)) {
             return Err(Error::Configuration);
         }
         let mut required = memory_tools.to_vec();
         required
             .extend(["list_categories", "capture_item", "get_capture_operation"].map(String::from));
+        if remember {
+            required.push("memory_remember".into());
+        }
         let mut client = Self::connect_mode(
             endpoint,
             token,
             binding,
             registered_tools,
             &required,
-            Mode::Tasks,
+            if remember {
+                Mode::TasksAndMemory
+            } else {
+                Mode::Tasks
+            },
         )
         .await?;
         client.tools.retain(|t| is_memory_read(&t.name));
+        if remember {
+            client.tools.push(remember_tool());
+        }
         client.tools.push(tasks::proposal_tool());
         Ok(client)
     }
@@ -262,7 +296,7 @@ impl MemoryClient {
             .map_err(|_| Error::Transport)?
             .map_err(|_| Error::Transport)?;
         if listed.next_cursor.is_some()
-            || listed.tools.len() > if mode == Mode::Memory { 2 } else { 5 }
+            || listed.tools.len() > if mode == Mode::Memory { 2 } else { 6 }
         {
             return Err(Error::Binding);
         }
@@ -312,7 +346,7 @@ impl MemoryClient {
         if !self.tools.iter().any(|t| t.name == name) {
             return Err(Error::Tool);
         }
-        if name == "propose_task" && self.mode == Mode::Tasks {
+        if name == "propose_task" && matches!(self.mode, Mode::Tasks | Mode::TasksAndMemory) {
             TaskInput::parse(input).map(|_| ())
         } else {
             arguments::validate(name, input)
@@ -328,6 +362,47 @@ impl MemoryClient {
             return Err(Error::Tool);
         }
         self.call_private(name, input).await
+    }
+
+    /// Saves once using a gateway-derived operation ID, absent from model input.
+    pub async fn remember(&self, operation: &str, input: &Value) -> Result<(Value, bool), Error> {
+        if self.mode != Mode::TasksAndMemory
+            || operation.len() != 64
+            || !operation.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(Error::Tool);
+        }
+        self.validate("memory_remember", input)?;
+        let mut args = input.as_object().cloned().ok_or(Error::Tool)?;
+        args.insert("operationId".into(), Value::String(operation.to_owned()));
+        let (value, failed) = self
+            .call_private("memory_remember", &Value::Object(args))
+            .await?;
+        if failed {
+            return Ok((value, true));
+        }
+        let parts = value["content"].as_array().ok_or(Error::Transport)?;
+        if parts.len() != 1 {
+            return Err(Error::Transport);
+        }
+        let receipt: Value =
+            serde_json::from_str(parts[0]["text"].as_str().ok_or(Error::Transport)?)
+                .map_err(|_| Error::Transport)?;
+        if receipt["status"] != "committed"
+            || receipt["provenance"] != "real_world"
+            || receipt["operationId"] != operation
+            || receipt["workspaceId"] != self.binding.workspace_id.to_string()
+            || receipt["id"]
+                .as_str()
+                .and_then(|id| Uuid::parse_str(id).ok())
+                .is_none()
+        {
+            return Err(Error::Binding);
+        }
+        Ok((
+            serde_json::json!({"status":"committed","saved":true}),
+            false,
+        ))
     }
 
     async fn call_private(&self, name: &str, input: &Value) -> Result<(Value, bool), Error> {
@@ -353,7 +428,10 @@ impl MemoryClient {
             return Err(Error::Transport);
         };
         if result.is_error == Some(true) {
-            return Ok((serde_json::json!({"error":"Memory read failed"}), true));
+            return Ok((
+                serde_json::json!({"error":"Memory operation was not confirmed; do not claim it succeeded"}),
+                true,
+            ));
         }
         let value = serde_json::to_value(result).map_err(|_| Error::Transport)?;
         if value.to_string().len() > 1024 * 1024
@@ -406,9 +484,12 @@ async fn attest(
     if mode != Mode::Memory && ctx.capture_operation_version != Some(1) {
         return Err(Error::Binding);
     }
+    if mode == Mode::TasksAndMemory && ctx.memory_operation_version != Some(1) {
+        return Err(Error::Binding);
+    }
     let tools = ctx.allowed_tools.ok_or(Error::Binding)?;
     if tools.is_empty()
-        || tools.len() > if mode == Mode::Memory { 2 } else { 5 }
+        || tools.len() > if mode == Mode::Memory { 2 } else { 6 }
         || tools.iter().any(|n| !mode.permits(n))
     {
         return Err(Error::Binding);
@@ -433,4 +514,16 @@ fn checked_endpoint(value: &str) -> Result<Url, Error> {
         return Err(Error::Configuration);
     }
     Ok(url)
+}
+
+fn remember_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "memory_remember".into(),
+        description: Some("Save a real-world preference, fact or decision the user explicitly asks you to remember for future conversations. Never store fictional/role-play facts. Call this tool before saying you saved anything. A failed or interrupted call is unconfirmed; do not retry with a new tool call or claim success.".into()),
+        input_schema: serde_json::json!({"type":"object","properties":{
+            "content":{"type":"string","minLength":1,"maxLength":4000},
+            "type":{"type":"string","enum":["note","fact","decision","preference","insight"]},
+            "tags":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":100}},
+            "pinned":{"type":"boolean"}},"required":["content"],"additionalProperties":false}), cache: None,
+    }
 }

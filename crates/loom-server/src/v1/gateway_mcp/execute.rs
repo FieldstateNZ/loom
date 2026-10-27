@@ -20,6 +20,7 @@ use loom_provider::{Provider, StopReason, TurnEvent, TurnEventKind};
 use loom_store::ConversationStore;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
+use sha2::Digest;
 use std::{
     collections::{BTreeSet, VecDeque},
     convert::Infallible,
@@ -45,6 +46,7 @@ struct Run {
     done: bool,
     pending: VecDeque<(String, String, Value)>,
     proposed: bool,
+    remembered: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -95,6 +97,7 @@ pub(crate) async fn execute(
         done: false,
         pending: VecDeque::new(),
         proposed: false,
+        remembered: false,
     };
     let mut response = if streaming {
         run.events
@@ -219,6 +222,20 @@ impl Run {
                     json!({"status":"requires_application_approval","action_id":data["id"],"created":false}),
                     false,
                 )
+            } else if name == "memory_remember" {
+                self.remembered = true;
+                let operation = hex::encode(sha2::Sha256::digest(
+                    serde_json::to_vec(&(
+                        "tandem_memory_v1",
+                        self.ctx.tenant_id,
+                        self.conversation.id,
+                        &id,
+                    ))
+                    .map_err(|_| ApiError::internal())?,
+                ));
+                self.prepared.client.remember(&operation, &input).await.map_err(|_| {
+                    ApiError::unavailable("memory save outcome is unconfirmed; do not claim success or retry as a fresh save")
+                })?
             } else {
                 self.prepared
                     .client
@@ -329,6 +346,18 @@ impl Run {
             return Err(ApiError::unprocessable(
                 "gateway_action_limit",
                 "only one task may be proposed in a turn",
+            ));
+        }
+        if calls
+            .iter()
+            .filter(|(_, name, _)| name == "memory_remember")
+            .count()
+            + usize::from(self.remembered)
+            > 1
+        {
+            return Err(ApiError::unprocessable(
+                "gateway_memory_limit",
+                "only one memory save may be attempted in a turn",
             ));
         }
         // Validate the whole set before executing any call. Repeated IDs cannot

@@ -5,6 +5,7 @@ use serde_json::Value;
 pub(super) fn validate(name: &str, input: &Value) -> Result<(), Error> {
     let values = input.as_object().ok_or(Error::Tool)?;
     let keys: &[&str] = match name {
+        "memory_remember" => &["content", "type", "tags", "pinned"],
         "memory_recall" => &["query", "type", "tags", "limit", "includeShared"],
         "memory_search" => &[
             "type", "tags", "pinned", "vault", "search", "limit", "page", "scope", "sort",
@@ -53,7 +54,22 @@ pub(super) fn validate(name: &str, input: &Value) -> Result<(), Error> {
     {
         return Err(Error::Tool);
     }
-    if name == "memory_recall" {
+    if name == "memory_remember" {
+        if !values.contains_key("content")
+            || !text("content", 4000)
+            || values.get("tags").is_some_and(|v| {
+                v.as_array().is_none_or(|tags| {
+                    tags.len() > 20
+                        || tags.iter().any(|t| {
+                            t.as_str()
+                                .is_none_or(|s| s.trim().is_empty() || s.len() > 100)
+                        })
+                })
+            })
+        {
+            return Err(Error::Tool);
+        }
+    } else if name == "memory_recall" {
         if !values.contains_key("query")
             || !text("query", 2000)
             || values.get("tags").is_some_and(|v| {
@@ -81,6 +97,10 @@ mod tests {
     fn reviewed_arguments_and_bounds() {
         for (name, args) in [
             (
+                "memory_remember",
+                json!({"content":"I prefer blue tea", "type":"preference", "tags":["tea"]}),
+            ),
+            (
                 "memory_recall",
                 json!({"query":"What tea do I prefer?","limit":20,"tags":["preference"]}),
             ),
@@ -92,6 +112,21 @@ mod tests {
             assert!(validate(name, &args).is_ok());
         }
         for (name, args) in [
+            (
+                "memory_remember",
+                json!({"content":"tea", "source":"real_world"}),
+            ),
+            (
+                "memory_remember",
+                json!({"content":"tea", "operationId":"inference-chosen"}),
+            ),
+            (
+                "memory_remember",
+                json!({"content":"tea", "workspaceId":"other"}),
+            ),
+            ("memory_remember", json!({"content":"   "})),
+            ("memory_remember", json!({"content":"x".repeat(4001)})),
+            ("memory_remember", json!({"content":"tea", "tags":[""]})),
             ("capture_item", json!({"title":"No writes"})),
             ("memory_recall", json!({})),
             ("memory_search", json!({"workspaceId":"other"})),
