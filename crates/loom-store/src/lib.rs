@@ -42,8 +42,10 @@ pub use model::{
     NewUsageEvent, NewVirtualKey, OutboxEntry, ProviderCredential, RateLimit, RollupGroup, Tenant,
     UsageEvent, UsageRollup, UsageRollupRow, VirtualKey,
 };
+pub use model::{NewPrivateAccount, PrivateAccount};
 pub use pg::{McpCredentialLease, PgStore};
 pub use pricing::Pricer;
+pub use store::PrivateAccountStore;
 pub use store::{
     AgentStore, BatchStore, BudgetStore, ConversationStore, CredentialStore, KeyStore,
     McpServerStore, OutboxStore, PendingToolCallStore, PricingStore, ResolveOutcome,

@@ -12,6 +12,7 @@ pub use mcp_private::McpCredentialLease;
 mod outbox;
 mod pending_tool_call;
 mod pricing;
+mod private_account;
 mod session;
 mod session_event;
 mod tenant;

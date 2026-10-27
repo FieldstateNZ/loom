@@ -19,6 +19,7 @@ mod budget;
 mod credential;
 mod key;
 mod mcp;
+mod private_account;
 mod rate_limit;
 mod tenant;
 mod usage;
@@ -38,6 +39,10 @@ pub(crate) use usage::*;
 /// router applies).
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/admin/private-accounts/{namespace}",
+            put(private_account::provision).layer(axum::extract::DefaultBodyLimit::max(8192)),
+        )
         .route("/admin/tenants", post(tenant::create_tenant))
         .route("/admin/tenants/{id}", get(tenant::get_tenant))
         .route("/admin/tenants/{id}/keys", post(key::create_key))
