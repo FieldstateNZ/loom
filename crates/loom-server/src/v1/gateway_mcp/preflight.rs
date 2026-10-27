@@ -30,7 +30,7 @@ pub(crate) async fn preflight(
         if owner.status!="active" {return Err(ApiError::unavailable("private memory owner is unavailable"));}
         let before=state.store().get_mcp_server(tenant,name).await.map_err(ApiError::from_store)?
             .ok_or_else(||ApiError::not_found("private memory registration not found"))?;
-        let request=GatewayMcpRequest{name:name.to_owned(),allowed_tools:vec!["memory_search".to_owned()],expected_binding:input.expected_binding.clone(),propose_tasks:true,provenance:Some("real_world".to_owned())};
+        let request=GatewayMcpRequest{name:name.to_owned(),allowed_tools:vec!["memory_search".to_owned()],expected_binding:input.expected_binding.clone(),propose_tasks:true,remember_memories:before.tool_configuration.as_ref().is_some_and(|p| p["gateway"]["memory_write"]["provenance"] == "real_world"),provenance:Some("real_world".to_owned())};
         let prepared=prepare(state,tenant,&request,&mut ConversationOptions::default()).await?;
         // Hold the actual client's private authorization lease (where enabled)
         // while checking the snapshot. Concurrent static registration changes

@@ -2119,6 +2119,10 @@
               "null"
             ],
             "description": "Host-owned context provenance. Task proposals require `real_world` in\nboth this request and the operator registration."
+          },
+          "remember_memories": {
+            "type": "boolean",
+            "description": "Enable scoped saves in the real-world personal assistant profile.\nRequires task profile and an independent operator memory-write opt-in."
           }
         },
         "additionalProperties": false
@@ -2129,6 +2133,7 @@
         "required": [
           "servers",
           "gateway_memory_version",
+          "gateway_memory_write_version",
           "gateway_action_version"
         ],
         "properties": {
@@ -2142,6 +2147,12 @@
             "type": "integer",
             "format": "int32",
             "description": "Version 1 supports the explicit, identity-bound `gateway_mcp` read path.\nOlder servers omit this field; clients must refuse silent downgrade.",
+            "minimum": 0
+          },
+          "gateway_memory_write_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Opt-in real-world memory save contract.",
             "minimum": 0
           },
           "servers": {

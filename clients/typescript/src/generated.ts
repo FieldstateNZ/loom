@@ -945,6 +945,11 @@ export interface components {
              *     both this request and the operator registration.
              */
             provenance?: string | null;
+            /**
+             * @description Enable scoped saves in the real-world personal assistant profile.
+             *     Requires task profile and an independent operator memory-write opt-in.
+             */
+            remember_memories?: boolean;
         };
         /**
          * @description The `/v1/mcp-servers` response: the tenant's registered MCP server names.
@@ -967,6 +972,11 @@ export interface components {
              *     Older servers omit this field; clients must refuse silent downgrade.
              */
             gateway_memory_version: number;
+            /**
+             * Format: int32
+             * @description Opt-in real-world memory save contract.
+             */
+            gateway_memory_write_version: number;
             /** @description The tenant's registered MCP server names, in store order (by name). */
             servers: string[];
         };

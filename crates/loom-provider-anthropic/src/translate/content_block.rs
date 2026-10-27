@@ -58,7 +58,16 @@ pub(super) fn part_to_block(
             let mut obj = Map::new();
             obj.insert("type".into(), json!("tool_result"));
             obj.insert("tool_use_id".into(), json!(tool_use_id));
-            obj.insert("content".into(), content.clone());
+            // Loom permits opaque JSON outputs (including MCP envelopes and
+            // gateway receipts). Claude accepts text or native content blocks,
+            // not a JSON object/scalar in this field. Preserve native values
+            // and encode structured outputs as JSON text for the next pass.
+            let native_content = if content.is_string() || content.is_array() {
+                content.clone()
+            } else {
+                Value::String(content.to_string())
+            };
+            obj.insert("content".into(), native_content);
             if let Some(is_error) = is_error {
                 obj.insert("is_error".into(), json!(is_error));
             }

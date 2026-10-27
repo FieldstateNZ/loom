@@ -21,6 +21,10 @@ pub struct GatewayMcpRequest {
     /// Offer host-owned task proposals. Never grants permission to dispatch.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub propose_tasks: bool,
+    /// Enable scoped saves in the real-world personal assistant profile.
+    /// Requires task profile and an independent operator memory-write opt-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remember_memories: bool,
     /// Host-owned context provenance. Task proposals require `real_world` in
     /// both this request and the operator registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
