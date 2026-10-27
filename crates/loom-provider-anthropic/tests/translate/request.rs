@@ -93,3 +93,60 @@ fn request_defaults_max_tokens_when_unset() {
     // With no tools offered, the field is omitted entirely.
     assert!(request.get("tools").is_none());
 }
+
+#[test]
+fn structured_gateway_tool_results_are_json_text_in_anthropic_requests() {
+    use loom_core::{ContentPart, Message, Role};
+    for value in [
+        json!({"status":"committed","saved":true}),
+        json!({"content":[{"type":"text","text":"blue tea"}],"isError":false}),
+        json!(42),
+        json!(true),
+        json!(null),
+    ] {
+        let mut conversation = multi_turn();
+        conversation.messages[2] = Message::new(
+            Role::User,
+            vec![ContentPart::ToolResult {
+                tool_use_id: "toolu_1".into(),
+                content: value.clone(),
+                is_error: Some(false),
+                cache: None,
+            }],
+        );
+        let request = translate::translate_request(&conversation, &ConversationOptions::new());
+        let result = &request["messages"][2]["content"][0];
+        let text = result["content"]
+            .as_str()
+            .expect("Claude requires text or native content blocks");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(text).unwrap(),
+            value
+        );
+        assert_eq!(result["tool_use_id"], "toolu_1");
+        assert_eq!(result["is_error"], false);
+    }
+}
+
+#[test]
+fn native_anthropic_tool_result_text_and_blocks_are_preserved() {
+    use loom_core::{ContentPart, Message, Role};
+    for value in [
+        json!("blue tea"),
+        json!([{"type":"text","text":"blue tea"}]),
+    ] {
+        let mut conversation = multi_turn();
+        conversation.messages[2] = Message::new(
+            Role::User,
+            vec![ContentPart::ToolResult {
+                tool_use_id: "toolu_1".into(),
+                content: value.clone(),
+                is_error: Some(true),
+                cache: None,
+            }],
+        );
+        let request = translate::translate_request(&conversation, &ConversationOptions::new());
+        assert_eq!(request["messages"][2]["content"][0]["content"], value);
+        assert_eq!(request["messages"][2]["content"][0]["is_error"], true);
+    }
+}
