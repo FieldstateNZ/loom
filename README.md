@@ -32,6 +32,8 @@ dropped.
 
 Anthropic is the first adapter, including its managed capabilities.
 
+For Tandem hosting, see the proposed [AWS pilot architecture, costs and release gates](docs/aws/README.md). It separates the reviewed OpenAI/private-MCP application path from the current deployed baseline; it does not provision infrastructure.
+
 ```
                  ┌──────────────────────────────────────────────┐
    client  ─────▶│  loom-server (axum)   /v1 conversations, SSE  │

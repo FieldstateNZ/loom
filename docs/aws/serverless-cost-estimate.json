@@ -1,0 +1,388 @@
+{
+  "currency": "USD",
+  "region": "ap-southeast-2",
+  "decision": "provisional comparison; none deployed/qualified/approved",
+  "scenarios": [
+    {
+      "candidate": "lightsail_512m_candidate",
+      "monthly_turns": 0,
+      "assumed_total_lambda_gb_seconds": "0",
+      "assumed_total_function_invocations": "0",
+      "aurora_awake_hours": null,
+      "database_base_usd": "4.30",
+      "application_components_usd": {
+        "lambda_duration": "0.00",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.00",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "5.05",
+      "unrounded_total_usd": "5.0500000000"
+    },
+    {
+      "candidate": "lightsail_1g_candidate",
+      "monthly_turns": 0,
+      "assumed_total_lambda_gb_seconds": "0",
+      "assumed_total_function_invocations": "0",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.80",
+      "application_components_usd": {
+        "lambda_duration": "0.00",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.00",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "6.55",
+      "unrounded_total_usd": "6.5500000000"
+    },
+    {
+      "candidate": "ec2_t4g_nano_candidate",
+      "monthly_turns": 0,
+      "assumed_total_lambda_gb_seconds": "0",
+      "assumed_total_function_invocations": "0",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.41",
+      "application_components_usd": {
+        "lambda_duration": "0.00",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.00",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "6.16",
+      "unrounded_total_usd": "6.1550000000"
+    },
+    {
+      "candidate": "ec2_t4g_micro_candidate",
+      "monthly_turns": 0,
+      "assumed_total_lambda_gb_seconds": "0",
+      "assumed_total_function_invocations": "0",
+      "aurora_awake_hours": null,
+      "database_base_usd": "9.27",
+      "application_components_usd": {
+        "lambda_duration": "0.00",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.00",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "10.02",
+      "unrounded_total_usd": "10.0240000000"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 0,
+      "assumed_total_lambda_gb_seconds": "0",
+      "assumed_total_function_invocations": "0",
+      "aurora_awake_hours": 0,
+      "database_base_usd": "1.10",
+      "application_components_usd": {
+        "lambda_duration": "0.00",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.00",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "1.85",
+      "unrounded_total_usd": "1.8500000000"
+    },
+    {
+      "candidate": "lightsail_512m_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": null,
+      "database_base_usd": "4.30",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "5.57",
+      "unrounded_total_usd": "5.5727305600"
+    },
+    {
+      "candidate": "lightsail_1g_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.80",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "7.07",
+      "unrounded_total_usd": "7.0727305600"
+    },
+    {
+      "candidate": "ec2_t4g_nano_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.41",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "6.68",
+      "unrounded_total_usd": "6.6777305600"
+    },
+    {
+      "candidate": "ec2_t4g_micro_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": null,
+      "database_base_usd": "9.27",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "10.55",
+      "unrounded_total_usd": "10.5467305600"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": 20,
+      "database_base_usd": "3.10",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "4.37",
+      "unrounded_total_usd": "4.3727305600"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": 40,
+      "database_base_usd": "5.10",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "6.37",
+      "unrounded_total_usd": "6.3727305600"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": 100,
+      "database_base_usd": "11.10",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "12.37",
+      "unrounded_total_usd": "12.3727305600"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 600,
+      "assumed_total_lambda_gb_seconds": "38400",
+      "assumed_total_function_invocations": "7200",
+      "aurora_awake_hours": 730,
+      "database_base_usd": "74.10",
+      "application_components_usd": {
+        "lambda_duration": "0.51",
+        "lambda_requests": "0.00",
+        "http_api_requests": "0.01",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "75.37",
+      "unrounded_total_usd": "75.3727305600"
+    },
+    {
+      "candidate": "lightsail_512m_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": null,
+      "database_base_usd": "4.30",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "7.14",
+      "unrounded_total_usd": "7.1409222400"
+    },
+    {
+      "candidate": "lightsail_1g_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.80",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "8.64",
+      "unrounded_total_usd": "8.6409222400"
+    },
+    {
+      "candidate": "ec2_t4g_nano_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": null,
+      "database_base_usd": "5.41",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "8.25",
+      "unrounded_total_usd": "8.2459222400"
+    },
+    {
+      "candidate": "ec2_t4g_micro_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": null,
+      "database_base_usd": "9.27",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "12.11",
+      "unrounded_total_usd": "12.1149222400"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": 20,
+      "database_base_usd": "3.10",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "5.94",
+      "unrounded_total_usd": "5.9409222400"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": 40,
+      "database_base_usd": "5.10",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "7.94",
+      "unrounded_total_usd": "7.9409222400"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": 100,
+      "database_base_usd": "11.10",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "13.94",
+      "unrounded_total_usd": "13.9409222400"
+    },
+    {
+      "candidate": "aurora_pausing_candidate",
+      "monthly_turns": 2400,
+      "assumed_total_lambda_gb_seconds": "153600",
+      "assumed_total_function_invocations": "28800",
+      "aurora_awake_hours": 730,
+      "database_base_usd": "74.10",
+      "application_components_usd": {
+        "lambda_duration": "2.05",
+        "lambda_requests": "0.01",
+        "http_api_requests": "0.04",
+        "other_application_allowance": "0.50"
+      },
+      "backup_and_database_io_allowance_usd": ".25",
+      "total_usd": "76.94",
+      "unrounded_total_usd": "76.9409222400"
+    }
+  ],
+  "assumptions": [
+    "730 hours for EC2 calculations; Lightsail published monthly plan maximum.",
+    "One shared PostgreSQL instance, separate Loom/LucidBrain databases and roles.",
+    "Aurora Standard PostgreSQL ServerlessV2, 10 GiB, 0.5 ACU while awake, 0 when paused; 0.20 per ACU-hour.",
+    "Aurora awake hours include idle-tail, wake and maintenance time, not just model/request duration.",
+    "64 GB-seconds per user turn aggregated across all nested/waiting application functions; 12 invokes and 12 API calls per turn, not measured.",
+    "0.50 monthly application allowance: ECR .10, logical backups .05, logs .05, one alarm .10, DynamoDB/control .10, transfer .10.",
+    "0.25 monthly DB backup/I/O allowance is a planning quantity, not an AWS price guarantee.",
+    "No NAT gateway, load balancer, public IPv4, RDS Proxy, provisioned concurrency or periodic warmers. Networking/AMI/encryption compatibility remains unqualified.",
+    "Lightsail includes an additional 8 GiB encrypted independently retained data disk at 0.10/GiB-month; bundled disk remains the OS volume.",
+    "EC2 assumes a compatible 8 GiB non-ECS root + 8 GiB retained encrypted data; no CPU surplus-credit charges (standard mode).",
+    "Application idle Lambda compute is zero; retained storage/operational allowances persist.",
+    "No free tier, trial, credit, commitments or discounts included."
+  ],
+  "excluded": [
+    "Claude/OpenAI usage",
+    "tax",
+    "Labour and operations",
+    "Usage/storage/backup/I/O above the stated quantities",
+    "Additional networking or encrypted disk required by qualification"
+  ],
+  "not_a_cap": true,
+  "account_eligibility_verified": false,
+  "runtime_qualified": false
+}

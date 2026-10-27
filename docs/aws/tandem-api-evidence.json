@@ -1,0 +1,46 @@
+{
+  "verified_at": "2026-10-26T20:02:47.057Z",
+  "loom_commit": "37f4e4feb03c8615d434d0de7ea0f1a7c77d285d",
+  "lucidbrain_commit": "896e52b5d7d696cff9d55c89af36749e22946b91",
+  "environment": "Real Loom binary/PostgreSQL and LucidBrain Express/MCP/PostgreSQL; only OpenAI Responses simulated; intentional response-loss proxy",
+  "model_requests": 10,
+  "actual_items": 3,
+  "checks": [
+    "Tandem HTTP authentication, exact approval digest and pre-dispatch cancellation prevent unintended writes",
+    "Tandem confirmation forwards approval and one actual write; repeated confirmation does not retry its unknown outcome",
+    "real Loom deletion refusal restores Tandem history and action recovery access",
+    "Tandem cancellation after dispatch preserves uncertainty and refuses a new write attempt",
+    "a real model/tool loop persists a proposal without creating a task",
+    "dispatch without approval and a changed approval digest are denied",
+    "application approval alone performs no task write",
+    "cancellation before dispatch prevents an actual LucidBrain item",
+    "a deliberately lost committed MCP reply remains unconfirmed in Loom",
+    "an actual Loom process restart preserves the unconfirmed action and approval",
+    "explicit retry reuses the original operation ID and returns one actual task",
+    "replayed completed dispatch cannot duplicate the task",
+    "cancellation after dispatch records intent and refuses another write attempt",
+    "read-only reconciliation survives another process restart and real credential replacement with write permission removed",
+    "Tandem SQLite/HTTP restart retains the original task, and read-only reconciliation works after credential replacement and disabling proposals",
+    "Tandem deletion succeeds once a committed result resolves the unknown action",
+    "the public committed result matches the actual LucidBrain row despite cancellation after dispatch",
+    "another tenant cannot read the proposal or receipt",
+    "action decisions, dispatch, retries and reconciliation perform no model inference and never forward MCP secrets"
+  ],
+  "tandem_http_api": true,
+  "tandem_source_sha256": {
+    "backend/server.mjs": "0559c943ae9b73348ae3cf58d30c8fc490e6972c3d572bd828b9a81be1f5e33e",
+    "backend/src/application.mjs": "291f9b664761788c16e3785555251168d5092acce101a40ab2989d01c6121b75",
+    "backend/src/domain.mjs": "4aee3744ee00101b663576c52a6435f551138f83f7c361a9d2c5cb84d1fad7e8",
+    "backend/src/loom.mjs": "e54b27f8e68d5fe4f89734b6043ed5e63230afc9b5c79fbe23ea89fa84df0433",
+    "backend/src/loom-actions.mjs": "b78c5988729bc066a3a081c1e3842d5d895fdb80dac4fdb6b8b02cb10e07687b",
+    "backend/src/runtime.mjs": "5a8d8ad42e3ae2dfb6a8683ea3696e245e2e08fee706d0e4b077336adb54b45e",
+    "Scripts/test-approved-action-integration.mjs": "0304acba82e9d4d45b0dcd86f6111845947089c9532c87bc1eaf72eed7d4f24b"
+  },
+  "not_verified": [
+    "Tandem mobile approval controls and Cognito/AWS route execution",
+    "Live model behavior or embeddings",
+    "Production identity provisioning or AWS hosting",
+    "An authoritative no-effect outcome after a canceled dispatch has no visible receipt",
+    "Memory-write approval/idempotency"
+  ]
+}

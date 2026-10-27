@@ -1,0 +1,110 @@
+{
+  "inspected_at": "2026-10-26T18:40:21.193695+00:00",
+  "sources": [
+    {
+      "repository": "FieldstateNZ/infrastructure",
+      "revision": "b753b5fe792c11439439c308e9a8d08bfe4f53ab",
+      "evidence": [
+        "README.md",
+        "applications/README.md",
+        "charts/application/templates/deployment.yaml"
+      ],
+      "finding": "Current source describes Lucentroot k3s, Argo CD application registrations, shared workload chart, Tailscale operator ingress and OpenBao/External Secrets. This is not evidence of an AWS deployment."
+    },
+    {
+      "repository": "FieldstateNZ/saas-fabric",
+      "revision": "380b6e42ab8835e6385b062ab9f5849ed8f1bbf7",
+      "evidence": [
+        "README.md",
+        "crates/fabric-deployment-kubernetes/docs/README.md",
+        "crates/fabric-fga-check/docs/README.md",
+        "crates/fabric-api/Cargo.toml"
+      ],
+      "finding": "Separate control/runtime planes, Keycloak desired-state reconciliation, Kubernetes deployment observation and ConfigMap publication. The FGA check adapter exists but is not wired into fabric-api. Do not substitute this data API for Loom execution storage or LucidBrain application storage."
+    },
+    {
+      "repository": "FieldstateNZ/saas-fabric-platform",
+      "revision": "66b5c3693e3116c249fd774eface5288e8fd3105",
+      "evidence": [
+        "README.md",
+        "environments/production/kustomization.yaml",
+        "environments/production/config/platform.yaml",
+        "environments/production/config/openbao.yaml"
+      ],
+      "finding": "Shared Kubernetes GitOps owns Envoy, operator Tailscale, CloudNativePG, OpenBao, Keycloak and observability. Production configuration targets AKS/managed-csi and is not an AWS foundation. Cloud hosting ownership is delegated to saas-fabric-hosting."
+    },
+    {
+      "repository": "FieldstateNZ/saas-fabric-clients",
+      "revision": "b26f5985d5be34bd450745183f62568d5bc86ae7",
+      "evidence": [
+        "README.md"
+      ],
+      "finding": "Client desired-state data, not application code, deployment manifests or cloud infrastructure. No client configuration was changed."
+    }
+  ],
+  "unavailable_sources": [
+    {
+      "repository": "FieldstateNZ/saas-fabric-hosting",
+      "observation": "Referenced by platform/client READMEs; both Git clone and connected GitHub repository read returned not found/unavailable in this session. This does not establish whether the repository exists or is deployed."
+    }
+  ],
+  "initial_scope": "Initial source inventory for Loom issue 47; no cloud state, costed architecture or deployment verification",
+  "initial_next_work": [
+    "Inspect runtime and Helm deployment requirements, workers, connection budgets and current OASP scope",
+    "Compare an AWS container recommendation with the shared Kubernetes ownership model and explicit low-cost pilot assumptions",
+    "Verify current AWS regional pricing, TLS/ingress, database persistence/backups, secret rotation, migration and rollback design",
+    "Produce the issue-47 documentation PR and dependency-ordered backlog before proposing infrastructure activation"
+  ],
+  "scope": "Pinned source evidence for the AWS design. No current cloud state or deployment proof.",
+  "design_reviewed_at": "2026-10-26T20:32:58.046938+00:00",
+  "design_base": {
+    "repository": "FieldstateNZ/loom",
+    "revision": "58c6ab6e696083a174e7548a2aa099b1b14dcffd"
+  },
+  "additional_sources": [
+    {
+      "repository": "FieldstateNZ/loom",
+      "revision": "37f4e4feb03c8615d434d0de7ea0f1a7c77d285d",
+      "evidence": [
+        "Dockerfile",
+        "deploy/chart/loom/values.yaml",
+        "crates/loom-server/src/config.rs",
+        "crates/loom-server/src/main.rs",
+        "crates/loom-server/src/state.rs",
+        "crates/loom-server/src/provider.rs",
+        "crates/loom-server/src/batch/poll.rs",
+        "crates/loom-server/src/v1/actions.rs",
+        "crates/loom-store/src/pg/mod.rs"
+      ],
+      "finding": "Draft OpenAI/private-memory/approved-action release set; single-replica limits and migration-only gaps recorded."
+    },
+    {
+      "repository": "FieldstateNZ/lucidbrain",
+      "revision": "896e52b5d7d696cff9d55c89af36749e22946b91",
+      "evidence": [
+        "Dockerfile",
+        "docker-entrypoint.sh",
+        "lib/db/src/index.ts",
+        "lib/db/src/run-migrations.ts",
+        "lib/db/migrations/0001_initial.sql",
+        "lib/db/migrations/0025_capture_operations.sql",
+        "tests/helpers/db.ts",
+        "artifacts/api-server/src/index.ts",
+        "artifacts/api-server/src/lib/boot-validation.ts",
+        "artifacts/api-server/src/lib/managed-agents/reconcile.ts"
+      ],
+      "finding": "Production schema requires vector extension; test fixture does not prove the migration chain. Startup migration/reconciler and shutdown require controlled deployment work."
+    },
+    {
+      "repository": "oasp-dev/oasp-standard",
+      "revision": "bfbd259e6aa7561d56d3b8c7773fa8a43b50ebdb",
+      "evidence": [
+        "docs/spec/conversation-and-session.md",
+        "docs/spec/adapters.md",
+        "docs/spec/interactions.md",
+        "packages/conformance/src/adapter/agent-provider.types.ts"
+      ],
+      "finding": "Conversation/session/version/resource/vault and event invariants exceed the current owned-v1 Tandem path; no full conformance claim."
+    }
+  ]
+}
