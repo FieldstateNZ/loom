@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, unquote
 
 root = Path(__file__).resolve().parent
 subprocess.run([sys.executable, str(root / 'cost-model.py'), '--check'], check=True)
+subprocess.run([sys.executable, str(root / 'serverless-cost-model.py'), '--check'], check=True)
 for path in root.glob('*.md'):
     for target in re.findall(r'\]\(([^)]+)\)', path.read_text()):
         url = urlsplit(target)

@@ -1,3 +1,5 @@
+> Historical ECS design scope. The current choice is [serverless first](README.md); these earlier observations remain dated reference evidence.
+
 # Reproducible validation and evidence plan
 
 A release is not “AWS verified” because containers compile, an API test passes or a cost model balances. Record immutable source/images/IaC, input secret-version references (no values), DB engine/extension versions and observed results for each gate. All steps below are **required future validation**, except the explicitly recorded local checks.

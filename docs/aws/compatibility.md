@@ -1,3 +1,5 @@
+> Historical ECS design scope. The current choice is [serverless first](README.md); these earlier observations remain dated reference evidence.
+
 # Compatibility and evidence matrix
 
 Part of the [AWS decision](README.md), 27 October 2026. **Local verified** means the specified scope, not live AWS operation or a production-quality assistant. Source references below are immutable; draft branches must land or be explicitly selected before release.

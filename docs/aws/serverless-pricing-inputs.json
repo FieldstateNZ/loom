@@ -1,0 +1,79 @@
+{
+  "observed_at": "2026-10-27T22:22:35.473179+00:00",
+  "currency": "USD",
+  "region": "ap-southeast-2",
+  "no_discounts_or_free_tiers_assumed": true,
+  "rates": {
+    "lambda_arm_gb_second": {
+      "usd": "0.0000133334",
+      "sku": "KDEJ26SV7QK2N7DW",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/ap-southeast-2/index.json",
+      "publication_date": "2026-10-22T18:39:59Z"
+    },
+    "lambda_request": {
+      "usd": "0.0000002",
+      "sku": "92KS5FMQEEJ39ACN",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/ap-southeast-2/index.json",
+      "publication_date": "2026-10-22T18:39:59Z"
+    },
+    "http_api_request": {
+      "usd": "0.00000129",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonApiGateway/current/ap-southeast-2/index.json",
+      "basis": "Previously inspected Sydney HTTP API tier-1 rate; refresh before deployment."
+    },
+    "gp3_gib_month": {
+      "usd": "0.096",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.json",
+      "basis": "Previously inspected Sydney gp3 rate; refresh before deployment."
+    },
+    "aurora_pg_acu_hour": {
+      "usd": "0.20",
+      "sku": "3MW3G86AF3TVY6RQ",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json",
+      "publication_date": "2026-10-26T21:47:16Z",
+      "billing_family": "ServerlessV2; do not substitute older Serverless v1 SKU"
+    },
+    "aurora_pg_gib_month": {
+      "usd": "0.11",
+      "sku": "CUSYT24XFTQD6BE8",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json",
+      "publication_date": "2026-10-26T21:47:16Z"
+    },
+    "lightsail_512m_month": {
+      "usd": "3.50",
+      "source_url": "https://aws.amazon.com/lightsail/pricing/",
+      "basis": "Published Linux IPv6-only 512 MB / 20 GB plan; monthly maximum, not hourly rate multiplied by a fixed 730h."
+    },
+    "lightsail_1g_month": {
+      "usd": "5.00",
+      "sku": "STYZR38FC6J3GGXB",
+      "source_url": "https://aws.amazon.com/lightsail/pricing/",
+      "regional_price_list": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonLightsail/current/ap-southeast-2/index.json",
+      "basis": "Published Linux IPv6-only 1 GB / 40 GB monthly plan; regional hourly SKU also inspected."
+    },
+    "ec2_t4g_small_hour": {
+      "usd": "0.0212000000",
+      "sku": "EG26BW4WNM66NNWJ",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv"
+    },
+    "ec2_t4g_micro_hour": {
+      "usd": "0.0106000000",
+      "sku": "M8FBDHTR3FRERVEF",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv"
+    },
+    "ec2_t4g_nano_hour": {
+      "usd": "0.0053000000",
+      "sku": "T3DQ57EBRN9G225U",
+      "effective_date": "2026-10-01",
+      "source_url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-southeast-2/index.csv"
+    },
+    "lightsail_disk_gib_month": {
+      "usd": "0.10",
+      "source_url": "https://aws.amazon.com/lightsail/features/highly-available-storage/",
+      "regional_sku": "FCVDYAUNK2PACSVG",
+      "basis": "Encrypted independently retained attached disk; minimum 8 GiB."
+    }
+  }
+}
