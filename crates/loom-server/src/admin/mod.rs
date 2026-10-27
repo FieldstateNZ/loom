@@ -59,6 +59,10 @@ pub fn router() -> Router<AppState> {
             put(mcp::put_private_credential),
         )
         .route(
+            "/admin/tenants/{id}/mcp-servers/{name}/preflight",
+            post(mcp::preflight).layer(axum::extract::DefaultBodyLimit::max(2048)),
+        )
+        .route(
             "/admin/tenants/{id}/budget",
             put(budget::put_tenant_budget).delete(budget::delete_tenant_budget),
         )
