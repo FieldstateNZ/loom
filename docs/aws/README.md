@@ -4,21 +4,23 @@ Design for [Loom #47](https://github.com/FieldstateNZ/loom/issues/47), dated **2
 
 ## Decision
 
-Use **Amazon ECS**, starting with a **scheduled single-EC2 development pilot**, then move to private Fargate application services and managed PostgreSQL when availability and budget justify it. Keep the existing Tandem Cognito → HTTP API → Lambda → DynamoDB entry point. OpenAI remains the intended inference provider; AWS hosting does not select Bedrock.
+Use **Amazon ECS**, starting with a **scheduled single-EC2 development pilot**, then move to private Fargate application services and managed PostgreSQL when availability and budget justify it. Keep the existing Tandem Cognito → HTTP API → Lambda → DynamoDB entry point. Brett’s latest choice is Claude for Riley’s reasoning and OpenAI for communication; AWS hosting does not select Bedrock.
 
 The budget exception is deliberate: issue #47 asked for an ECS/Fargate-versus-EKS recommendation, but Brett subsequently said even USD 10–30/month before AI is expensive for a few testers. An always-on Fargate/RDS environment does not meet that intent. ECS on EC2 reuses the ECS deployment model without a Kubernetes control plane, NAT gateway, load balancer or managed database in the first development tier. This is a testing tier on the route to the full application, not a substitute for an always-available daily assistant.
 
 | Configuration | Estimated monthly infrastructure | Meaning |
 | --- | ---: | --- |
-| Recommended development pilot: 4 GB `t4g.medium`, **40 total running hours** | **USD 9.65** | Host stopped outside agreed test windows; persistent data, DNS and IPv4 retained |
-| Same pilot running 730 hours | **USD 38.91** | Still one host/AZ and self-managed PostgreSQL; no HA claim |
+| Recommended development pilot: 4 GB `t4g.medium`, **40 total running hours** | **USD 11.76** | Host stopped outside agreed test windows; persistent data, DNS and IPv4 retained |
+| Same pilot running 730 hours | **USD 41.02** | Still one host/AZ and self-managed PostgreSQL; no HA claim |
 | Managed private-network reference | **USD 257.77** | Fargate, Multi-AZ RDS, two ALBs, two NAT gateways; future reference, not approved sizing or spend |
 
-Figures are calculated by [cost-model.py](cost-model.py) from [public AWS rate snapshots](pricing-inputs.json), including SKU/effective date. [Full line items](cost-estimate.json) distinguish published rates from planning allowances. Reproduce with `python3 docs/aws/cost-model.py --check`. No free credits, reservations, Savings Plans or AI charges are assumed. Taxes, domain registration, character production/distribution and operating time are excluded. Extra usage, storage, telemetry and transfer remain variable. Suggested pilot review envelope: **USD 12/month before AI**, including about USD 2.35 headroom; it is a recommendation, not an approved budget or a billing cap.
+Figures are calculated by [cost-model.py](cost-model.py) from [public AWS rate snapshots](pricing-inputs.json), including SKU/effective date. [Full line items](cost-estimate.json) distinguish published rates from planning allowances. Reproduce with `python3 docs/aws/cost-model.py --check`. No free credits, reservations, Savings Plans or AI charges are assumed. Taxes, domain registration, character production/distribution and operating time are excluded. Extra usage, storage, telemetry and transfer remain variable. Suggested pilot review envelope: **USD 12/month before AI**, now leaving only about USD 0.24 headroom after correcting the AMI root disk; it is a recommendation, not an approved budget or a billing cap.
 
-Stopping compute does **not** remove EBS, snapshots, retained IPv4 or DNS charges. One retained IPv4 alone is USD 3.65 for a 730-hour month. The pilot assumes 24 GB gp3 (8 root + 16 data), 2 GB retained images, 2 GB logical backups, 2 GB snapshot data, 0.1 GB logs, three alarms, one custom metric, 100 logical chat turns and at most 5,000 total HTTP requests/month. The latter serverless/control/transfer amounts are explicit allowances, not per-service price quotes. Maintenance, startup and backup running time must fit the 40-hour total.
+Stopping compute does **not** remove EBS, snapshots, retained IPv4 or DNS charges. One retained IPv4 alone is USD 3.65 for a 730-hour month. The pilot assumes 46 GB gp3 (30 root + 16 data), 2 GB retained images, 2 GB logical backups, 2 GB snapshot data, 0.1 GB logs, three alarms, one custom metric, 100 logical chat turns and at most 5,000 total HTTP requests/month. The latter serverless/control/transfer amounts are explicit allowances, not per-service price quotes. Maintenance, startup and backup running time must fit the 40-hour total.
 
 [EKS](https://aws.amazon.com/eks/pricing/) adds USD 73/month for a standard-support cluster before nodes. [Lightsail](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html) is simpler for a fixed-price VM, but its 4 GB IPv4 plan is USD 24/month before backup/operations and does not provide this ECS delivery path. A 2 GB VM is not selected: the combined production images and memory envelope have not been qualified there. Do not introduce Spot for the only PostgreSQL host.
+
+The original estimate used an 8 GB root disk. The selected [ECS-optimized AL2023 AMI documents a 30 GiB root disk](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html). The corrected calculation uses 46 GB total provisioned storage and the same dated rates, increasing both pilot scenarios by USD 2.112/month. No budget or resources were activated. The earlier USD 12 review envelope now has little headroom and requires a fresh decision; it is not an approved cap.
 
 ## Evidence and shared-platform boundary
 
@@ -32,6 +34,8 @@ The pinned [source inventory](source-evidence.json) records the inspected reposi
 - Reuse environment isolation, immutable images, secret references, deployment approvals and telemetry boundaries. Do not install a second Argo CD, Keycloak, OpenBao, Kubernetes cluster or SaaS control plane merely to run Tandem. ECS is an explicit application-hosting exception; shared-platform owners must be able to consume its deployment/health outputs. No fabricated Fabric registration adapter is claimed.
 
 [Actual Tandem API evidence](tandem-api-evidence.json): 19 combined service checks, three synthetic tasks, only model Responses simulated. Tandem also passes 48 backend/infrastructure tests and 14 private-memory checks. Those tests use real services/databases, but **LucidBrain uses its hand-built test schema, not its complete production migration chain or pgvector**. Full image startup/migrations are therefore an independent deployment gate.
+
+Current implementation has moved beyond that dated source survey: migration/runtime separation is in Loom #52 and LucidBrain #132, private account/renewal in LucidBrain #133/#134 and Loom #53/#54, and native/preflight/speech/bootstrap work in Tandem #1–#4. Those review branches and their scoped local evidence do not imply AWS activation. The original compatibility observations below remain pinned to their inspected revisions.
 
 ## Pilot topology and network
 
@@ -136,7 +140,7 @@ For the managed path, preserve the same application contracts and move to separa
 
 ## Decisions that genuinely need Brett before activation
 
-1. **Availability versus cost:** recommend the scheduled development tier within a proposed USD 12/month infrastructure envelope, with explicit off hours. If the pilot must answer any time, the same host estimate is USD 38.91; managed availability costs more. No amount or schedule is approved by this document.
+1. **Availability versus cost:** recommend the scheduled development tier within a proposed USD 12/month infrastructure envelope, with explicit off hours. If the pilot must answer any time, the same host estimate is USD 41.02; managed availability costs more. No amount or schedule is approved by this document.
 2. **Owned hostname and hosting responsibility:** use a subdomain of an existing controlled Fieldstate domain; confirm DNS authority and the existing AWS hosting repository/account boundary before creating resources. Do not buy a domain or duplicate a platform to avoid this check.
 
 These do not block API/UI work, local image/migration qualification, infrastructure synthesis or release-script preparation. Live AI testing remains explicitly deferred by the user; do not request or populate a key merely to finish the AWS design.
@@ -145,4 +149,4 @@ These do not block API/UI work, local image/migration qualification, infrastruct
 
 AWS public price catalogues retrieved on 27 October contain Sydney EC2, ECS/Fargate ARM, RDS PostgreSQL, EBS, ELB, S3, Lambda, DynamoDB, CloudWatch and ECR offerings; the rate snapshots retain publication dates. This establishes regional products/prices, not current account quotas, exact engine/extension support, ARM image compatibility or spare capacity. Those read-only checks remain mandatory with a fresh AWS session before activation. OpenAI model availability is a separate live-provider qualification.
 
-The 4 GB host is a proposed resource budget, not a measured claim: budget approximately 1,280 MiB PostgreSQL, 640 MiB LucidBrain, 384 MiB Loom, 512 MiB relay, 96 MiB proxy and 192 MiB backup, with 768 MiB reserved for host/ECS. Their ceilings total 3,872 MiB, leaving 224 MiB; not all should peak together. Test startup, migrations and concurrent backup/load. If observed headroom is insufficient, reduce concurrency or re-cost larger compute before enabling it; do not silently use swap as proof of capacity. Build images in CI, bound local image/log retention and verify the 24 GB disk assumption.
+The 4 GB host is a proposed resource budget, not a measured claim: budget approximately 1,280 MiB PostgreSQL, 640 MiB LucidBrain, 384 MiB Loom, 512 MiB relay, 96 MiB proxy and 192 MiB backup, with 768 MiB reserved for host/ECS. Their ceilings total 3,872 MiB, leaving 224 MiB; not all should peak together. Test startup, migrations and concurrent backup/load. If observed headroom is insufficient, reduce concurrency or re-cost larger compute before enabling it; do not silently use swap as proof of capacity. Build images in CI, bound local image/log retention and verify the corrected 46 GB disk assumption.

@@ -14,10 +14,10 @@
           "usd": "1.6960000000"
         },
         {
-          "item": "Encrypted gp3: 8 GB root + 16 GB data",
+          "item": "Encrypted gp3: 30 GB root + 16 GB data",
           "rate": "gp3_gb_month",
-          "quantity": "24",
-          "usd": "2.3040000000"
+          "quantity": "46",
+          "usd": "4.4160000000"
         },
         {
           "item": "One retained IPv4, including stopped hours",
@@ -92,8 +92,8 @@
           "basis": "1 GB planning allowance; retained separate from OpenAI inference. Not an AWS transfer quote."
         }
       ],
-      "total_usd_unrounded": "9.65030000000",
-      "total_usd": "9.65",
+      "total_usd_unrounded": "11.76230000000",
+      "total_usd": "11.76",
       "availability": "40 total running hours/month, including startup, backups and maintenance; unavailable between test windows"
     },
     {
@@ -106,10 +106,10 @@
           "usd": "30.9520000000"
         },
         {
-          "item": "Encrypted gp3: 8 GB root + 16 GB data",
+          "item": "Encrypted gp3: 30 GB root + 16 GB data",
           "rate": "gp3_gb_month",
-          "quantity": "24",
-          "usd": "2.3040000000"
+          "quantity": "46",
+          "usd": "4.4160000000"
         },
         {
           "item": "One retained IPv4, including stopped hours",
@@ -184,8 +184,8 @@
           "basis": "1 GB planning allowance; retained separate from OpenAI inference. Not an AWS transfer quote."
         }
       ],
-      "total_usd_unrounded": "38.90630000000",
-      "total_usd": "38.91",
+      "total_usd_unrounded": "41.01830000000",
+      "total_usd": "41.02",
       "availability": "730 running hours/month; single-host, single-AZ, still not a highly available production tier"
     },
     {

@@ -36,7 +36,7 @@ Deploy only after the infrastructure decision is reviewed. Record CloudFormation
 
 ## 5. Live provider and phone release gate, explicitly deferred
 
-When Brett authorises private live credentials, run the same path against the **intended OpenAI provider**, without mock assertions standing in for actual behavior. Record selected available model, response/tool quality, time-to-first-visible-result, end-to-end latency, reported/billed usage differences, voice recognition/playback/interrupt and rendering behavior on the actual iPhone. Enable embeddings only as a separate deliberate test with verified vector migration/model dimensions.
+When Brett authorises private live credentials, run the same path against the **selected Claude reasoning and OpenAI communication providers**, without mock assertions standing in for actual behavior. Record selected available model, response/tool quality, time-to-first-visible-result, end-to-end latency, reported/billed usage differences, voice recognition/playback/interrupt and rendering behavior on the actual iPhone. Enable embeddings only as a separate deliberate test with verified vector migration/model dimensions.
 
 Exercise the signed release candidate on cellular and after app/phone restart, token refresh and account switching. Show full proposal title/detail/category/expiry; only a committed receipt allows spoken success. Reconnect must preserve event order and original task identity, and a new conversation must not silently lose unresolved actions. Complete the user's five first-integration targets: conversation, permitted memory, one confirmed task with visible streamed result, fresh-session retention and server-side denial, plus tested failure/cancel/retry behavior.
 

@@ -27,7 +27,7 @@ def estimate():
         return {'name': name, 'items': lines, 'total_usd_unrounded': str(total),
                 'total_usd': str(total.quantize(D('.01'), rounding=ROUND_HALF_UP)), **extra}
     common = [
-        line('Encrypted gp3: 8 GB root + 16 GB data', 'gp3_gb_month', 24),
+        line('Encrypted gp3: 30 GB root + 16 GB data', 'gp3_gb_month', 46),
         line('One retained IPv4, including stopped hours', 'ipv4_hour', 730),
         line('One public DNS hosted zone', 'hosted_zone_month', 1),
         line('Private image retention', 'ecr_gb_month', 2),
