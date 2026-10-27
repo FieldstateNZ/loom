@@ -681,7 +681,7 @@ async fn runaway_read_loop_is_bounded_and_not_automatically_retried() {
 // Private renewal fixtures contain synthetic credentials only. The API and
 // PostgreSQL below are real; upstream renewal/AI/MCP peers are protocol doubles.
 impl Fixture {
-    async fn install_private(&self) -> Value {
+    async fn private_input(&self) -> Value {
         let now = chrono::Utc::now();
         let external = json!({"schema_version":1,"account_id":Uuid::new_v4(),"issuer":"https://cognito.invalid/pool","subject":"opaque-private-subject","user_id":Uuid::new_v4(),"default_category_id":Uuid::new_v4()});
         let input = json!({"client_id":format!("lb_agent_tandem_{}",Uuid::new_v4().simple()),"binding":self.binding,"external_account":external,
@@ -704,6 +704,10 @@ impl Fixture {
             .with_priority(1)
             .mount(&self.mcp)
             .await;
+        input
+    }
+    async fn install_private(&self) -> Value {
+        let input = self.private_input().await;
         let url = format!(
             "/admin/tenants/{}/mcp-servers/lucidbrain/private-credential",
             self.tenant
@@ -1062,4 +1066,31 @@ async fn private_renewal_uses_shared_admission_to_preserve_query_capacity() {
     assert_eq!(call(&f.app, "GET", "/readyz", ADMIN, None).await.0, 200);
     assert_eq!(f.model_calls().await, 0);
     drop(held);
+}
+
+#[tokio::test]
+async fn private_install_leaves_a_grace_window_for_preexisting_static_clients() {
+    let f = Fixture::new("normal").await;
+    let mut input = f.private_input().await;
+    input["access_expires_at"] = json!(chrono::Utc::now() + chrono::Duration::seconds(180));
+    let status = call(
+        &f.app,
+        "PUT",
+        &format!(
+            "/admin/tenants/{}/mcp-servers/lucidbrain/private-credential",
+            f.tenant
+        ),
+        ADMIN,
+        Some(input),
+    )
+    .await
+    .0;
+    assert_eq!(status, 503);
+    assert!(!f
+        .state
+        .store()
+        .has_private_mcp_credential(Uuid::parse_str(&f.tenant).unwrap(), "lucidbrain")
+        .await
+        .unwrap());
+    assert_eq!(f.model_calls().await, 0);
 }

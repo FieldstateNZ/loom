@@ -294,7 +294,7 @@ pub(crate) async fn install(
         || !token(&credential.access_token)
         || !token(&credential.refresh_token)
         || scopes(&credential.scope).is_none()
-        || credential.access_expires_at <= now + chrono::Duration::seconds(HORIZON)
+        || credential.access_expires_at <= now + chrono::Duration::seconds(2 * HORIZON)
         || credential.refresh_expires_at <= credential.access_expires_at
     {
         return Err(unavailable());
@@ -328,7 +328,7 @@ pub(crate) async fn install(
             .map_err(|_| unavailable())?,
     )
     .await?;
-    if credential.access_expires_at<=Utc::now()+chrono::Duration::seconds(HORIZON) || context["schema_version"]!=1 || context["kind"]!="workspace_assistant" || context["recoverable_refresh_version"]!=1
+    if credential.access_expires_at<=Utc::now()+chrono::Duration::seconds(2 * HORIZON) || context["schema_version"]!=1 || context["kind"]!="workspace_assistant" || context["recoverable_refresh_version"]!=1
         || serde_json::from_value::<Binding>(serde_json::json!({"principal_id":context["principal_id"],"workspace_id":context["workspace_id"],"agent_definition_id":context["agent_definition_id"],"credential_id":context["credential_id"]})).map_err(|_| unavailable())?!=credential.binding
         || serde_json::from_value::<ExternalAccount>(context["external_account"].clone()).map_err(|_| unavailable())?!=credential.external_account
         || sorted_tools(&context["allowed_tools"])? != sorted_tools(&cfg["allowed_tools"])? {

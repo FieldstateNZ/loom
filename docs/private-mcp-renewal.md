@@ -20,7 +20,10 @@ endpoint only accepts HTTPS `/mcp` or exact loopback HTTP for local checks. Its
 OAuth endpoint is derived from the same origin as `/api/v1/oauth/token`, with no
 redirects. It verifies the actual authenticated MCP context, negotiated renewal
 version 1, identity, external account and registered finite tool set. Initial
-access must have more than 120 seconds left. The response is metadata only.
+access must have more than 240 seconds left. This leaves over 120 seconds before
+proactive renewal can begin, allowing preexisting bounded static-client runs to
+finish during the opt-in transition. Stalled old streams still cannot dispatch
+a new tool after the existing 60-second execution deadline. The response is metadata only.
 An identical unrotated installation retry is idempotent; it cannot reset a
 pending/rotated generation.
 
