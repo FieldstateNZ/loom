@@ -198,10 +198,15 @@ pub(crate) async fn resolve_mcp_servers(
         // Inject the decrypted token server-side, replacing anything the client
         // sent for this named reference. Done before the field moves below so
         // the whole row is still borrowable here.
-        if registered
-            .tool_configuration
-            .as_ref()
-            .is_some_and(|c| c.get("gateway").is_some())
+        if state
+            .store()
+            .has_private_mcp_credential(tenant_id, &registered.name)
+            .await
+            .map_err(ApiError::from_store)?
+            || registered
+                .tool_configuration
+                .as_ref()
+                .is_some_and(|c| c.get("gateway").is_some())
         {
             return Err(ApiError::unprocessable(
                 "mcp_gateway_required",

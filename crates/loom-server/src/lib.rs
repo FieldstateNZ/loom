@@ -60,6 +60,7 @@ pub mod crypto;
 pub mod error;
 pub mod extract;
 pub mod keys;
+mod private_mcp;
 pub mod provider;
 pub mod rate_limit;
 pub mod state;

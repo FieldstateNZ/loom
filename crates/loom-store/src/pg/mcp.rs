@@ -11,6 +11,16 @@ use crate::store::McpServerStore;
 #[async_trait]
 impl McpServerStore for PgStore {
     async fn upsert_mcp_server(&self, new: NewMcpServer) -> Result<McpServer> {
+        let mut lease = self
+            .lease_mcp_credential(new.tenant_id, &new.name, true)
+            .await?
+            .ok_or(sqlx::Error::Protocol("MCP registration is busy".into()))?;
+        if lease.load().await?.is_some() {
+            return Err(sqlx::Error::Protocol(
+                "private MCP registration requires controlled replacement".into(),
+            )
+            .into());
+        }
         let id = Uuid::new_v4();
         let row = sqlx::query!(
             r#"
@@ -37,7 +47,7 @@ impl McpServerStore for PgStore {
             new.nonce,
             new.tool_configuration,
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *lease.connection)
         .await?;
         Ok(McpServer {
             id: row.id,
@@ -110,12 +120,16 @@ impl McpServerStore for PgStore {
     }
 
     async fn delete_mcp_server(&self, tenant_id: Uuid, name: &str) -> Result<bool> {
+        let mut lease = self
+            .lease_mcp_credential(tenant_id, name, true)
+            .await?
+            .ok_or(sqlx::Error::Protocol("MCP registration is busy".into()))?;
         let result = sqlx::query!(
             r#"DELETE FROM mcp_servers WHERE tenant_id = $1 AND name = $2"#,
             tenant_id,
             name,
         )
-        .execute(&self.pool)
+        .execute(&mut *lease.connection)
         .await?;
         Ok(result.rows_affected() > 0)
     }

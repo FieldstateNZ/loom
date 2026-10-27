@@ -677,3 +677,389 @@ async fn runaway_read_loop_is_bounded_and_not_automatically_retried() {
     );
     assert_eq!(f.model_calls().await, 4);
 }
+
+// Private renewal fixtures contain synthetic credentials only. The API and
+// PostgreSQL below are real; upstream renewal/AI/MCP peers are protocol doubles.
+impl Fixture {
+    async fn install_private(&self) -> Value {
+        let now = chrono::Utc::now();
+        let external = json!({"schema_version":1,"account_id":Uuid::new_v4(),"issuer":"https://cognito.invalid/pool","subject":"opaque-private-subject","user_id":Uuid::new_v4(),"default_category_id":Uuid::new_v4()});
+        let input = json!({"client_id":format!("lb_agent_tandem_{}",Uuid::new_v4().simple()),"binding":self.binding,"external_account":external,
+            "access_token":"a".repeat(64),"refresh_token":"b".repeat(64),"scope":"read write",
+            "access_expires_at":now+chrono::Duration::hours(1),"refresh_expires_at":now+chrono::Duration::days(30)});
+        let mut context = self.binding.clone();
+        for (key, value) in [
+            ("schema_version", json!(1)),
+            ("kind", json!("workspace_assistant")),
+            ("allowed_tools", json!(["memory_search"])),
+            ("transport_mode", json!("stateless")),
+            ("recoverable_refresh_version", json!(1)),
+            ("external_account", external),
+        ] {
+            context[key] = value;
+        }
+        Mock::given(method("GET"))
+            .and(path("/mcp/context"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(context))
+            .with_priority(1)
+            .mount(&self.mcp)
+            .await;
+        let url = format!(
+            "/admin/tenants/{}/mcp-servers/lucidbrain/private-credential",
+            self.tenant
+        );
+        let result = json_call(&self.app, "PUT", &url, ADMIN, input.clone()).await;
+        assert_eq!(
+            result,
+            json!({"installed":true,"private_credential_version":1})
+        );
+        // Identical initial replay has no new generation and returns no secret.
+        assert_eq!(
+            json_call(&self.app, "PUT", &url, ADMIN, input.clone()).await,
+            result
+        );
+        input
+    }
+    async fn private_state(&self) -> Value {
+        let (id,cipher,nonce):(Uuid,Vec<u8>,Vec<u8>)=sqlx::query_as("SELECT s.id,c.ciphertext,c.nonce FROM mcp_private_credentials c JOIN mcp_servers s ON s.id=c.server_id WHERE s.tenant_id=$1 AND s.name='lucidbrain'").bind(Uuid::parse_str(&self.tenant).unwrap()).fetch_one(self.state.store().pool()).await.unwrap();
+        let aad = format!("loom:private-mcp:v1:{}:{id}:lucidbrain", self.tenant);
+        parsed(
+            &self
+                .state
+                .crypto()
+                .decrypt(&nonce, &cipher, aad.as_bytes())
+                .unwrap(),
+        )
+    }
+    async fn expire_private_access(&self) {
+        let mut value = self.private_state().await;
+        value["credential"]["access_expires_at"] =
+            json!(chrono::Utc::now() + chrono::Duration::seconds(30));
+        let id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM mcp_servers WHERE tenant_id=$1 AND name='lucidbrain'",
+        )
+        .bind(Uuid::parse_str(&self.tenant).unwrap())
+        .fetch_one(self.state.store().pool())
+        .await
+        .unwrap();
+        let aad = format!("loom:private-mcp:v1:{}:{id}:lucidbrain", self.tenant);
+        let sealed = self
+            .state
+            .crypto()
+            .encrypt(&serde_json::to_vec(&value).unwrap(), aad.as_bytes())
+            .unwrap();
+        sqlx::query("UPDATE mcp_private_credentials SET ciphertext=$2,nonce=$3 WHERE server_id=$1")
+            .bind(id)
+            .bind(sealed.ciphertext)
+            .bind(sealed.nonce)
+            .execute(self.state.store().pool())
+            .await
+            .unwrap();
+    }
+    async fn renewal_peer(&self, input: Value, lose_first: bool, wrong_account: bool) {
+        use std::sync::{Arc, Mutex};
+        let committed = Arc::new(Mutex::new(None::<Value>));
+        Mock::given(method("POST")).and(path("/api/v1/oauth/token")).respond_with(move |r:&MockRequest|{
+            let body:Value=serde_json::from_slice(&r.body).unwrap();
+            assert_eq!(body["grant_type"],"urn:fieldstate:params:oauth:grant-type:recoverable-refresh-v1");
+            assert_eq!(body["client_id"],input["client_id"]);
+            assert_eq!(body["refresh_token"],input["refresh_token"]);
+            assert_eq!(body["credential_id"],input["binding"]["credential_id"]);
+            let mut pair=committed.lock().unwrap();
+            let first=pair.is_none();
+            if first {
+                let now=chrono::Utc::now();
+                let mut external=input["external_account"].clone();
+                if wrong_account {external["subject"]=json!("different-owner");}
+                *pair=Some(json!({"grant_version":1,"operation_id":body["operation_id"],"client_id":input["client_id"],"credential_id":input["binding"]["credential_id"],"token_type":"Bearer",
+                    "access_token":"c".repeat(64),"refresh_token":"d".repeat(64),"expires_in":3600,"access_expires_at":now+chrono::Duration::hours(1),"refresh_expires_at":now+chrono::Duration::days(30),"recovery_expires_at":now+chrono::Duration::minutes(10),"scope":"write read","state":"active","binding":input["binding"],"external_account":external}));
+            }
+            assert_eq!(body["operation_id"],pair.as_ref().unwrap()["operation_id"],"unknown result must reuse the original operation");
+            let mut replay=pair.as_ref().unwrap().clone();
+            let expires=chrono::DateTime::parse_from_rfc3339(replay["access_expires_at"].as_str().unwrap()).unwrap();
+            replay["expires_in"]=json!((expires.with_timezone(&chrono::Utc)-chrono::Utc::now()).num_seconds().max(0));
+            let response=ResponseTemplate::new(200).set_body_json(replay);
+            if first && lose_first {response.set_delay(std::time::Duration::from_secs(6))} else {response}
+        }).mount(&self.mcp).await;
+    }
+}
+
+#[tokio::test]
+async fn private_renewal_recovers_unknown_reply_after_gateway_restart_and_never_leaks_pair() {
+    let f = Fixture::new("normal").await;
+    let input = f.install_private().await;
+    f.expire_private_access().await;
+    f.renewal_peer(input, true, false).await;
+    let id = f.conversation().await;
+    let url = format!("/v1/conversations/{id}/turns");
+    assert_eq!(
+        call(&f.app, "POST", &url, &f.key, Some(f.turn(false)))
+            .await
+            .0,
+        503
+    );
+    let pending = f.private_state().await;
+    assert!(pending["pending"].is_string());
+    assert_eq!(pending["credential"]["refresh_token"], "b".repeat(64));
+    assert_eq!(f.model_calls().await, 0);
+    assert_eq!(f.tool_calls().await, 0);
+    assert_eq!(
+        f.history(&id).await["messages"].as_array().unwrap().len(),
+        0
+    );
+    let restarted = build_router(AppState::new(
+        f.state.store().clone(),
+        Crypto::new([0x61; 32]),
+        KeyHasher::new(b"synthetic-gateway-pepper".to_vec()),
+        ADMIN.into(),
+    ));
+    let (status, body) = call(&restarted, "POST", &url, &f.key, Some(f.turn(false))).await;
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let state = f.private_state().await;
+    assert!(state["pending"].is_null());
+    assert_eq!(state["credential"]["access_token"], "c".repeat(64));
+    assert_eq!(state["credential"]["refresh_token"], "d".repeat(64));
+    let requests = f.mcp.received_requests().await.unwrap();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.url.path() == "/api/v1/oauth/token")
+            .count(),
+        2
+    );
+    let tool_request = requests
+        .iter()
+        .find(|r| String::from_utf8_lossy(&r.body).contains("tools/call"))
+        .unwrap();
+    assert_eq!(
+        tool_request
+            .headers
+            .get("authorization")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        format!("Bearer {}", "c".repeat(64))
+    );
+    for request in f.model.received_requests().await.unwrap() {
+        for secret in ["a", "b", "c", "d"] {
+            assert!(!String::from_utf8_lossy(&request.body).contains(&secret.repeat(64)));
+        }
+    }
+    let (status, body) = call_api_registry(&f).await;
+    assert_eq!(status, 200);
+    assert!(!String::from_utf8_lossy(&body).contains(&"d".repeat(64)));
+    // A legacy PUT may not silently remove private renewal or its pending state.
+    let status = call(
+        &f.app,
+        "PUT",
+        &format!("/admin/tenants/{}/mcp-servers/lucidbrain", f.tenant),
+        ADMIN,
+        Some(json!({"url":format!("{}/mcp",f.mcp.uri()),"authorization_token":"replacement"})),
+    )
+    .await
+    .0;
+    assert!(!status.is_success());
+}
+async fn call_api_registry(f: &Fixture) -> (StatusCode, Vec<u8>) {
+    call(
+        &f.app,
+        "GET",
+        &format!("/admin/tenants/{}/mcp-servers", f.tenant),
+        ADMIN,
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn private_renewal_identity_mismatch_retains_pending_and_refuses_inference() {
+    let f = Fixture::new("normal").await;
+    let input = f.install_private().await;
+    f.expire_private_access().await;
+    f.renewal_peer(input, false, true).await;
+    let id = f.conversation().await;
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{id}/turns"),
+            &f.key,
+            Some(f.turn(false))
+        )
+        .await
+        .0,
+        503
+    );
+    let pending = f.private_state().await;
+    assert!(pending["pending"].is_string());
+    assert_eq!(pending["credential"]["refresh_token"], "b".repeat(64));
+    assert_eq!(f.model_calls().await, 0);
+    assert_eq!(f.tool_calls().await, 0);
+}
+
+#[tokio::test]
+async fn private_renewal_waits_for_active_client_drop_before_rotating() {
+    let f = Fixture::new("normal").await;
+    let input = f.install_private().await;
+    let id = f.conversation().await;
+    let held = request(
+        &f.app,
+        "POST",
+        &format!("/v1/conversations/{id}/turns"),
+        &f.key,
+        Some(f.turn(true)),
+    )
+    .await;
+    assert_eq!(held.status(), 200);
+    // Simulate the clock approaching expiry while the original client lives.
+    f.expire_private_access().await;
+    f.renewal_peer(input, false, false).await;
+    let other = f.conversation().await;
+    let url = format!("/v1/conversations/{other}/turns");
+    assert_eq!(
+        call(&f.app, "POST", &url, &f.key, Some(f.turn(false)))
+            .await
+            .0,
+        503
+    );
+    assert!(f.private_state().await["pending"].is_null());
+    assert!(!f
+        .mcp
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .any(|r| r.url.path() == "/api/v1/oauth/token"));
+    drop(held);
+    // Observe asynchronous connection cleanup, without retrying a user action.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let lease = f
+                .state
+                .store()
+                .lease_mcp_credential(Uuid::parse_str(&f.tenant).unwrap(), "lucidbrain", true)
+                .await
+                .unwrap();
+            if let Some(lease) = lease {
+                lease.release().await.unwrap();
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        call(&f.app, "POST", &url, &f.key, Some(f.turn(false)))
+            .await
+            .0,
+        200
+    );
+}
+
+#[tokio::test]
+async fn private_renewal_pending_commit_failure_sends_no_refresh_request() {
+    let f = Fixture::new("normal").await;
+    let input = f.install_private().await;
+    f.expire_private_access().await;
+    f.renewal_peer(input, false, false).await;
+    sqlx::raw_sql("CREATE FUNCTION reject_private_save() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic credential save failure'; END $$; CREATE TRIGGER reject_private_save BEFORE UPDATE ON mcp_private_credentials FOR EACH ROW EXECUTE FUNCTION reject_private_save();").execute(f.state.store().pool()).await.unwrap();
+    let id = f.conversation().await;
+    assert_eq!(
+        call(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{id}/turns"),
+            &f.key,
+            Some(f.turn(false))
+        )
+        .await
+        .0,
+        503
+    );
+    assert!(f.private_state().await["pending"].is_null());
+    assert!(!f
+        .mcp
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .any(|r| r.url.path() == "/api/v1/oauth/token"));
+    assert_eq!(f.model_calls().await, 0);
+}
+
+#[tokio::test]
+async fn private_renewal_local_success_commit_failure_recovers_original_pair() {
+    let f = Fixture::new("normal").await;
+    let input = f.install_private().await;
+    f.expire_private_access().await;
+    f.renewal_peer(input, false, false).await;
+    sqlx::raw_sql("CREATE FUNCTION reject_private_success() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.revision=3 THEN RAISE EXCEPTION 'synthetic success save failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_private_success BEFORE UPDATE ON mcp_private_credentials FOR EACH ROW EXECUTE FUNCTION reject_private_success();").execute(f.state.store().pool()).await.unwrap();
+    let id = f.conversation().await;
+    let url = format!("/v1/conversations/{id}/turns");
+    assert_eq!(
+        call(&f.app, "POST", &url, &f.key, Some(f.turn(false)))
+            .await
+            .0,
+        503
+    );
+    let pending = f.private_state().await;
+    assert!(pending["pending"].is_string());
+    assert_eq!(pending["credential"]["refresh_token"], "b".repeat(64));
+    assert_eq!(f.model_calls().await, 0);
+    sqlx::raw_sql("DROP TRIGGER reject_private_success ON mcp_private_credentials")
+        .execute(f.state.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&f.app, "POST", &url, &f.key, Some(f.turn(false)))
+            .await
+            .0,
+        200
+    );
+    assert!(f.private_state().await["pending"].is_null());
+    assert_eq!(
+        f.mcp
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|r| r.url.path() == "/api/v1/oauth/token")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn private_renewal_uses_shared_admission_to_preserve_query_capacity() {
+    let f = Fixture::with_pool_size("normal", 4).await;
+    f.install_private().await;
+    let id = f.conversation().await;
+    let held = request(
+        &f.app,
+        "POST",
+        &format!("/v1/conversations/{id}/turns"),
+        &f.key,
+        Some(f.turn(true)),
+    )
+    .await;
+    assert_eq!(held.status(), 200);
+    let other = f.conversation().await;
+    let status = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        request(
+            &f.app,
+            "POST",
+            &format!("/v1/conversations/{other}/turns"),
+            &f.key,
+            Some(f.turn(true)),
+        ),
+    )
+    .await
+    .expect("admission must not wait for an occupied pool")
+    .status();
+    assert_eq!(status, 503);
+    assert_eq!(call(&f.app, "GET", "/readyz", ADMIN, None).await.0, 200);
+    assert_eq!(f.model_calls().await, 0);
+    drop(held);
+}

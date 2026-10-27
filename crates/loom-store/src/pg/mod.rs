@@ -7,6 +7,8 @@ mod conversation;
 mod credential;
 mod key;
 mod mcp;
+mod mcp_private;
+pub use mcp_private::McpCredentialLease;
 mod outbox;
 mod pending_tool_call;
 mod pricing;

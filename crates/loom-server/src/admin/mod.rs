@@ -55,6 +55,10 @@ pub fn router() -> Router<AppState> {
             put(mcp::put_mcp_server).delete(mcp::delete_mcp_server),
         )
         .route(
+            "/admin/tenants/{id}/mcp-servers/{name}/private-credential",
+            put(mcp::put_private_credential),
+        )
+        .route(
             "/admin/tenants/{id}/budget",
             put(budget::put_tenant_budget).delete(budget::delete_tenant_budget),
         )
