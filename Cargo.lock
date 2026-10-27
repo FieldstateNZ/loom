@@ -1617,6 +1617,7 @@ dependencies = [
  "opentelemetry_sdk",
  "rand 0.8.6",
  "reqwest 0.12.28",
+ "reqwest 0.13.5",
  "rust_decimal",
  "rustls",
  "serde",

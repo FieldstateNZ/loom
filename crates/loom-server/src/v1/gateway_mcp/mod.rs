@@ -39,7 +39,7 @@ struct TaskPolicy {
 }
 
 pub(super) struct Prepared {
-    pub(super) client: MemoryClient,
+    pub(super) client: crate::private_mcp::LeasedClient,
     pub(super) fingerprint: String,
     pub(super) category: Option<TaskCategory>,
     pub(super) request: GatewayMcpRequest,
@@ -131,13 +131,7 @@ pub(super) async fn prepare(
     let mut requested = request.allowed_tools.clone();
     requested.sort();
     requested.dedup();
-    let token = crate::provider::decrypt_mcp_token(state, tenant, &registered.name, &registered)?
-        .ok_or_else(|| {
-        ApiError::unprocessable(
-            "gateway_mcp_policy",
-            "private memory requires an assistant credential",
-        )
-    })?;
+    let (token, lease) = crate::private_mcp::authorization(state, &registered).await?;
     let client = if request.propose_tasks {
         MemoryClient::connect_tasks(
             &registered.url,
@@ -185,7 +179,10 @@ pub(super) async fn prepare(
             .map_err(|_| ApiError::internal())?,
     ));
     Ok(Prepared {
-        client,
+        client: crate::private_mcp::LeasedClient {
+            client,
+            _lease: lease,
+        },
         fingerprint,
         category,
         request: request.clone(),
@@ -211,7 +208,7 @@ pub(super) async fn receipt_client(
     request: &GatewayMcpRequest,
     registration_id: Uuid,
     endpoint_hash: &str,
-) -> Result<MemoryClient, ApiError> {
+) -> Result<crate::private_mcp::LeasedClient, ApiError> {
     let server = state
         .store()
         .get_mcp_server(tenant, &request.name)
@@ -236,9 +233,8 @@ pub(super) async fn receipt_client(
             "task reconciliation identity or policy changed",
         ));
     }
-    let token = crate::provider::decrypt_mcp_token(state, tenant, &server.name, &server)?
-        .ok_or_else(|| ApiError::unavailable("task connection is unavailable"))?;
-    MemoryClient::connect_receipts(
+    let (token, lease) = crate::private_mcp::authorization(state, &server).await?;
+    let client = MemoryClient::connect_receipts(
         &server.url,
         &token,
         policy.gateway.binding,
@@ -249,6 +245,10 @@ pub(super) async fn receipt_client(
         ApiError::unavailable(
             "task reconciliation identity, permission or connection verification failed",
         )
+    })?;
+    Ok(crate::private_mcp::LeasedClient {
+        client,
+        _lease: lease,
     })
 }
 

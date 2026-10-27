@@ -168,3 +168,21 @@ pub(super) async fn delete_mcp_server(
         Err(ApiError::not_found("mcp server not found"))
     }
 }
+
+/// Installs a private renewable pair once. No plaintext is ever returned.
+pub(super) async fn put_private_credential(
+    State(state): State<AppState>,
+    Path((tenant, name)): Path<(Uuid, String)>,
+    extract::Json(input): extract::Json<crate::private_mcp::Install>,
+) -> Result<impl IntoResponse, ApiError> {
+    let server = state
+        .store()
+        .get_mcp_server(tenant, &name)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::not_found("MCP server not registered"))?;
+    crate::private_mcp::install(&state, &server, input).await?;
+    Ok(Json(
+        serde_json::json!({"installed":true,"private_credential_version":1}),
+    ))
+}

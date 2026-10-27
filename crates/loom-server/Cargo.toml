@@ -59,6 +59,7 @@ utoipa = { workspace = true, features = ["decimal"] }
 
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 rustls = { workspace = true }
+reqwest-mcp = { workspace = true }
 
 # --- crypto / secrets ---
 aes-gcm = { workspace = true }

@@ -93,3 +93,148 @@ async fn mcp_server_upsert_get_list_delete_and_tenant_isolation() {
         .is_none());
     assert!(!store.delete_mcp_server(tenant.id, "github").await.unwrap());
 }
+
+#[tokio::test]
+async fn private_mcp_leases_serialize_replicas_fence_static_replacement_and_cascade_erasure() {
+    let (_pg, store) = common::setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new("private-mcp", "Private"))
+        .await
+        .unwrap();
+    let other = store
+        .create_tenant(NewTenant::new("private-mcp-other", "Other"))
+        .await
+        .unwrap();
+    let registration = NewMcpServer {
+        tenant_id: tenant.id,
+        name: "lucidbrain".into(),
+        url: "https://memory.invalid/mcp".into(),
+        encrypted_token: None,
+        nonce: None,
+        tool_configuration: None,
+    };
+    store.upsert_mcp_server(registration.clone()).await.unwrap();
+    let mut lease = store
+        .lease_mcp_credential(tenant.id, "lucidbrain", true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .lease_mcp_credential(tenant.id, "lucidbrain", false)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .lease_mcp_credential(tenant.id, "lucidbrain", true)
+        .await
+        .unwrap()
+        .is_none());
+    let separate = store
+        .lease_mcp_credential(other.id, "lucidbrain", true)
+        .await
+        .unwrap()
+        .unwrap();
+    separate.release().await.unwrap();
+    assert_eq!(
+        lease
+            .save(None, b"opaque ciphertext", &[1; 12])
+            .await
+            .unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        lease
+            .save(None, b"not a replacement", &[2; 12])
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        lease
+            .save(Some(9), b"wrong generation", &[2; 12])
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        lease
+            .save(Some(1), b"next ciphertext", &[2; 12])
+            .await
+            .unwrap(),
+        Some(2)
+    );
+    assert!(store
+        .has_private_mcp_credential(tenant.id, "lucidbrain")
+        .await
+        .unwrap());
+    assert!(!store
+        .has_private_mcp_credential(other.id, "lucidbrain")
+        .await
+        .unwrap());
+    lease.release().await.unwrap();
+    let mut shared = store
+        .lease_mcp_credential(tenant.id, "lucidbrain", false)
+        .await
+        .unwrap()
+        .unwrap();
+    let another = store
+        .lease_mcp_credential(tenant.id, "lucidbrain", false)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(shared
+        .save(Some(2), b"shared writer forbidden", &[3; 12])
+        .await
+        .is_err());
+    assert_eq!(shared.load().await.unwrap().unwrap().0, 2);
+    assert!(store
+        .delete_mcp_server(tenant.id, "lucidbrain")
+        .await
+        .is_err());
+    shared.release().await.unwrap();
+    another.release().await.unwrap();
+    assert!(store.upsert_mcp_server(registration).await.is_err());
+    assert!(store
+        .delete_mcp_server(tenant.id, "lucidbrain")
+        .await
+        .unwrap());
+    assert!(!store
+        .has_private_mcp_credential(tenant.id, "lucidbrain")
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn completed_registration_and_lease_release_allow_immediate_exclusive_reacquisition() {
+    let (_pg, store) = common::setup().await;
+    let tenant = store
+        .create_tenant(NewTenant::new(
+            "private-release-ack",
+            "Release acknowledgement",
+        ))
+        .await
+        .unwrap();
+    let registration = NewMcpServer {
+        tenant_id: tenant.id,
+        name: "lucidbrain".into(),
+        url: "https://memory.invalid/mcp".into(),
+        encrypted_token: None,
+        nonce: None,
+        tool_configuration: None,
+    };
+    for _ in 0..64 {
+        store.upsert_mcp_server(registration.clone()).await.unwrap();
+        let lease = store
+            .lease_mcp_credential(tenant.id, "lucidbrain", true)
+            .await
+            .unwrap()
+            .expect("a completed registration must release its remote lock");
+        lease.release().await.unwrap();
+        let lease = store
+            .lease_mcp_credential(tenant.id, "lucidbrain", true)
+            .await
+            .unwrap()
+            .expect("release must await PostgreSQL unlock acknowledgement");
+        lease.release().await.unwrap();
+    }
+}

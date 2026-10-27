@@ -55,6 +55,10 @@ pub fn router() -> Router<AppState> {
             put(mcp::put_mcp_server).delete(mcp::delete_mcp_server),
         )
         .route(
+            "/admin/tenants/{id}/mcp-servers/{name}/private-credential",
+            put(mcp::put_private_credential),
+        )
+        .route(
             "/admin/tenants/{id}/mcp-servers/{name}/preflight",
             post(mcp::preflight).layer(axum::extract::DefaultBodyLimit::max(2048)),
         )
