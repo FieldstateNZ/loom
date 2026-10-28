@@ -60,7 +60,9 @@ practical database hosting/cost and existing-iPhone acceptance remain separate.
 No paid provider request or AWS change is part of these checks.
 
 The signer dependencies are pinned. AWS transitive versions in `Cargo.lock`
-retain compatibility with the repository's Rust 1.94.0 container toolchain:
+declare an MSRV no higher than Rust 1.94.0:
 runtime-api 1.12.3, types 1.4.9, async 1.2.14 and runtime-api-macros 1.0.0.
-Updating them must preserve that compiler requirement; a newer local compiler
-alone does not establish the deployment build's compatibility.
+The immutable `rust:1.94-bookworm` image used for the ARM64 release build reports
+Rust/Cargo 1.94.1. The dependency floor above is conservative; the actual
+container build, rather than the tag shorthand or local Mac compiler, establishes
+deployment compiler compatibility. Preserve this check when updating dependencies.

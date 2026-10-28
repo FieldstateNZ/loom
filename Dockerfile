@@ -24,23 +24,33 @@ ENV RUSTUP_TOOLCHAIN=${RUST_VERSION} \
 # second line of defence for local `docker build .` invocations.
 COPY . .
 
-# Build only the server binary in release mode. `--locked` refuses to proceed
+# Build the server and separate Lambda runtime in release mode. `--locked` refuses to proceed
 # if Cargo.lock would need to change, so the dependency graph is exactly the
 # committed one.
 RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     rustc --version && cargo --version \
- && cargo build --release --locked -p loom-server \
- && cp target/release/loom-server /usr/local/bin/loom-server
+ && cargo build --release --locked -p loom-server --bin loom-server --bin loom-lambda \
+ && cp target/release/loom-server /usr/local/bin/loom-server \
+ && cp target/release/loom-lambda /usr/local/bin/loom-lambda
 
 # ---- runtime ----------------------------------------------------------------
 # Final stage: the server binary, the OS CA bundle, and an unprivileged user.
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime-base
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --user-group --home /nonexistent --shell /usr/sbin/nologin loom
 
+# Explicit opt-in target: the official Rust Runtime API loop, no HTTP listener,
+# health poller or server entrypoint. AWS injects its Runtime API and role env.
+FROM runtime-base AS lambda
+COPY --from=builder /usr/local/bin/loom-lambda /var/runtime/bootstrap
+USER loom
+ENTRYPOINT ["/var/runtime/bootstrap"]
+
+# Keep the ordinary server as the final/default image target.
+FROM runtime-base AS runtime
 COPY --from=builder /usr/local/bin/loom-server /usr/local/bin/loom-server
 
 USER loom
