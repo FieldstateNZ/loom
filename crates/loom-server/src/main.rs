@@ -124,11 +124,12 @@ async fn migrate_only() -> ExitCode {
 async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
 
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.database_max_connections)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&config.database_url)
-        .await?;
+    let pool = loom_server::database::runtime_pool_options(
+        config.database_max_connections,
+        config.request_driven,
+    )
+    .connect(&config.database_url)
+    .await?;
     let store = PgStore::new(pool);
 
     if config.run_migrations {

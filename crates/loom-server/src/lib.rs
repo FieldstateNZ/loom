@@ -57,6 +57,7 @@ pub mod batch;
 pub mod budget;
 pub mod config;
 pub mod crypto;
+pub mod database;
 pub mod error;
 pub mod extract;
 pub mod keys;

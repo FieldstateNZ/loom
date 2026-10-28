@@ -24,6 +24,8 @@ mod env_keys {
     pub const DATABASE_URL: &str = "DATABASE_URL";
     /// Runtime pool bound (migration-only commands always use one connection).
     pub const DATABASE_MAX_CONNECTIONS: &str = "LOOM_DATABASE_MAX_CONNECTIONS";
+    /// Opt in to request-driven startup and close-on-release database connections.
+    pub const REQUEST_DRIVEN: &str = "LOOM_REQUEST_DRIVEN";
     /// Bearer token guarding the `/admin` API.
     pub const ROOT_ADMIN_TOKEN: &str = "LOOM_ROOT_ADMIN_TOKEN";
     /// 32-byte AES-256-GCM key, hex-encoded (64 hex chars).
@@ -50,6 +52,8 @@ pub struct Config {
     pub database_url: String,
     /// Runtime database connection budget, including held conversation locks.
     pub database_max_connections: u32,
+    /// Disable startup writes/workers and discard connections on release.
+    pub request_driven: bool,
     /// Whether to apply database migrations on startup.
     pub run_migrations: bool,
     /// How often the batch poll worker advances active jobs. Zero disables the
@@ -74,6 +78,7 @@ impl Config {
     ///
     /// # Optional variables
     ///
+    /// - `LOOM_REQUEST_DRIVEN` (`true`/`1`: no startup writes/workers, close DB connections on release)
     /// - `LOOM_BIND_ADDR` (default `0.0.0.0:8080`)
     /// - `LOOM_DATABASE_MAX_CONNECTIONS` (default `10`, range `2..=64`)
     /// - `LOOM_KEY_PEPPER` (default: derived deterministically from the
@@ -96,8 +101,11 @@ impl Config {
                 })?;
 
         let database_url = required(env_keys::DATABASE_URL)?;
-        let database_max_connections =
-            parse_pool_limit(optional(env_keys::DATABASE_MAX_CONNECTIONS))?;
+        let request_driven = parse_request_driven(optional(env_keys::REQUEST_DRIVEN))?;
+        let database_max_connections = parse_pool_limit(
+            optional(env_keys::DATABASE_MAX_CONNECTIONS)
+                .or_else(|| request_driven.then(|| "2".to_owned())),
+        )?;
 
         let root_admin_token = required(env_keys::ROOT_ADMIN_TOKEN)?;
         if root_admin_token.is_empty() {
@@ -119,7 +127,7 @@ impl Config {
                 v.to_ascii_lowercase().as_str(),
                 "false" | "0" | "no" | "off"
             ),
-            None => true,
+            None => !request_driven,
         };
 
         let batch_poll_interval = match optional(env_keys::BATCH_POLL_INTERVAL_SECS) {
@@ -130,13 +138,17 @@ impl Config {
                 })?;
                 Duration::from_secs(secs)
             }
+            None if request_driven => Duration::ZERO,
             None => Duration::from_secs(DEFAULT_BATCH_POLL_INTERVAL_SECS),
         };
+
+        validate_request_driven(request_driven, run_migrations, batch_poll_interval)?;
 
         Ok(Self {
             bind_addr,
             database_url,
             database_max_connections,
+            request_driven,
             run_migrations,
             batch_poll_interval,
             root_admin_token,
@@ -170,6 +182,7 @@ impl std::fmt::Debug for Config {
             .field("bind_addr", &self.bind_addr)
             .field("database_url", &"<redacted>")
             .field("database_max_connections", &self.database_max_connections)
+            .field("request_driven", &self.request_driven)
             .field("run_migrations", &self.run_migrations)
             .field("batch_poll_interval", &self.batch_poll_interval)
             .field("root_admin_token", &"<redacted>")
@@ -177,6 +190,31 @@ impl std::fmt::Debug for Config {
             .field("key_pepper", &"<redacted>")
             .finish()
     }
+}
+
+fn parse_request_driven(value: Option<String>) -> Result<bool, ConfigError> {
+    match value.as_deref() {
+        None | Some("false" | "0") => Ok(false),
+        Some("true" | "1") => Ok(true),
+        _ => Err(ConfigError::Malformed {
+            name: env_keys::REQUEST_DRIVEN,
+            detail: "expected true/false or 1/0".into(),
+        }),
+    }
+}
+
+fn validate_request_driven(
+    enabled: bool,
+    migrations: bool,
+    poll: Duration,
+) -> Result<(), ConfigError> {
+    if enabled && (migrations || !poll.is_zero()) {
+        return Err(ConfigError::Malformed {
+            name: env_keys::REQUEST_DRIVEN,
+            detail: "requires startup migrations and batch polling disabled".into(),
+        });
+    }
+    Ok(())
 }
 
 fn parse_pool_limit(value: Option<String>) -> Result<u32, ConfigError> {
@@ -195,6 +233,21 @@ fn parse_pool_limit(value: Option<String>) -> Result<u32, ConfigError> {
 
 #[cfg(test)]
 mod pool_tests {
+    #[test]
+    fn request_driven_mode_rejects_background_writes_and_unknown_values() {
+        use super::{parse_request_driven, validate_request_driven};
+        use std::time::Duration;
+        assert!(!parse_request_driven(None).unwrap());
+        assert!(parse_request_driven(Some("true".into())).unwrap());
+        assert!(parse_request_driven(Some("1".into())).unwrap());
+        assert!(!parse_request_driven(Some("false".into())).unwrap());
+        assert!(parse_request_driven(Some("yes".into())).is_err());
+        assert!(validate_request_driven(true, false, Duration::ZERO).is_ok());
+        assert!(validate_request_driven(true, true, Duration::ZERO).is_err());
+        assert!(validate_request_driven(true, false, Duration::from_secs(1)).is_err());
+        assert!(validate_request_driven(false, true, Duration::from_secs(5)).is_ok());
+    }
+
     #[test]
     fn pool_budget_is_bounded_and_keeps_database_work_capacity() {
         assert_eq!(super::parse_pool_limit(None).unwrap(), 10);
