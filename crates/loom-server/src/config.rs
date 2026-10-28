@@ -90,6 +90,23 @@ impl Config {
     /// Returns [`ConfigError`] if a required variable is missing or any value
     /// is malformed.
     pub fn from_env() -> Result<Self, ConfigError> {
+        Self::from_reader(std::env::var)
+    }
+
+    // A per-startup lookup overlays validated secrets without mutating global
+    // process state, which is unsafe after the Tokio runtime has started.
+    pub(crate) fn from_reader(
+        read: impl Fn(&'static str) -> Result<String, std::env::VarError>,
+    ) -> Result<Self, ConfigError> {
+        let required = |name| match read(name) {
+            Ok(value) => Ok(value),
+            Err(std::env::VarError::NotPresent) => Err(ConfigError::Missing(name)),
+            Err(std::env::VarError::NotUnicode(_)) => Err(ConfigError::Malformed {
+                name,
+                detail: "value is not valid UTF-8".to_owned(),
+            }),
+        };
+        let optional = |name| read(name).ok().filter(|v| !v.is_empty());
         let bind_addr_raw =
             optional(env_keys::BIND_ADDR).unwrap_or_else(|| DEFAULT_BIND_ADDR.to_owned());
         let bind_addr =
@@ -272,23 +289,6 @@ fn parse_encryption_key(raw: &str) -> Result<[u8; 32], ConfigError> {
             name: env_keys::ENCRYPTION_KEY,
             detail: format!("must decode to exactly 32 bytes, got {}", v.len()),
         })
-}
-
-/// Reads a required environment variable, mapping absence to a typed error.
-fn required(name: &'static str) -> Result<String, ConfigError> {
-    match std::env::var(name) {
-        Ok(v) => Ok(v),
-        Err(std::env::VarError::NotPresent) => Err(ConfigError::Missing(name)),
-        Err(std::env::VarError::NotUnicode(_)) => Err(ConfigError::Malformed {
-            name,
-            detail: "value is not valid UTF-8".to_owned(),
-        }),
-    }
-}
-
-/// Reads an optional environment variable, treating non-Unicode as absent.
-fn optional(name: &'static str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
 /// An error encountered while loading [`Config`] from the environment.

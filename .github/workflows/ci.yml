@@ -127,6 +127,8 @@ jobs:
             --file "$RUNNER_TEMP/loom-context/Dockerfile" \
             --tag loom-lambda:ci "$RUNNER_TEMP/loom-context"
           python3 deploy/ci/inspect_lambda_image.py loom-lambda:ci --expected-arch amd64 | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 deploy/ci/inspect_lambda_image.py loom-lambda:ci --expected-arch amd64 --bootstrap | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 deploy/ci/inspect_lambda_image.py loom-lambda:ci --expected-arch amd64 --bootstrap-reject | tee -a "$GITHUB_STEP_SUMMARY"
 
   pg-compat:
     name: postgres compatibility (${{ matrix.label }})

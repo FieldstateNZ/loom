@@ -1,19 +1,23 @@
-//! AWS custom runtime entry point. Package as bootstrap for provided.al2023.
+//! AWS custom runtime entry point; use the matching packaged container runtime.
 #![forbid(unsafe_code)]
 
 use loom_server::{
     lambda::{LambdaGateway, LambdaPolicy},
-    Config,
+    lambda_bootstrap,
 };
 use std::{convert::Infallible, process::ExitCode};
 
 #[tokio::main]
 async fn main() -> ExitCode {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let gateway = Config::from_env().ok().and_then(|config| {
-        LambdaPolicy::from_env()
-            .ok()
-            .and_then(|policy| LambdaGateway::new(&config, policy).ok())
+    let policy = LambdaPolicy::from_env().ok();
+    let loaded = if policy.is_some() {
+        lambda_bootstrap::load_config().await.ok()
+    } else {
+        None
+    };
+    let gateway = loaded.as_ref().and_then(|loaded| {
+        policy.and_then(|policy| LambdaGateway::new(loaded.config(), policy).ok())
     });
     let Some(gateway) = gateway else {
         // Configuration errors can contain DSNs/secrets; do not print them.
