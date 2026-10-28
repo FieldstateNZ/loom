@@ -5,9 +5,10 @@ use std::{ops::Deref, time::Duration};
 
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
+use loom_mcp::http::PrivateHttpClient;
 use loom_mcp::{Binding, MemoryClient};
 use loom_store::{McpCredentialLease, McpServer, McpServerStore};
-use reqwest_mcp::{Client, Url};
+use reqwest_mcp::Url;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -169,17 +170,8 @@ fn safe_endpoint(server: &McpServer) -> Result<Url, ApiError> {
     }
     Ok(url)
 }
-fn http() -> Result<Client, ApiError> {
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    }
-    Client::builder()
-        .redirect(reqwest_mcp::redirect::Policy::none())
-        .retry(reqwest_mcp::retry::never())
-        .connect_timeout(Duration::from_secs(3))
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|_| unavailable())
+fn http(server: &McpServer) -> Result<PrivateHttpClient, ApiError> {
+    PrivateHttpClient::new(&safe_endpoint(server)?).map_err(|_| unavailable())
 }
 async fn bounded_json<T: DeserializeOwned>(response: reqwest_mcp::Response) -> Result<T, ApiError> {
     if !response.status().is_success()
@@ -300,7 +292,7 @@ pub(crate) async fn install(
         return Err(unavailable());
     }
     let context: serde_json::Value = bounded_json(
-        http()?
+        http(server)?
             .get(
                 safe_endpoint(server)?
                     .join("/mcp/context")
@@ -446,7 +438,7 @@ pub(crate) async fn authorization(
                 id
             }
         };
-        let response = http()?.post(safe_endpoint(server)?.join("/api/v1/oauth/token").map_err(|_| unavailable())?)
+        let response = http(server)?.post(safe_endpoint(server)?.join("/api/v1/oauth/token").map_err(|_| unavailable())?)
             .json(&serde_json::json!({"grant_type":GRANT,"client_id":value.credential.client_id,"credential_id":value.credential.binding.credential_id,"operation_id":operation,"refresh_token":value.credential.refresh_token}))
             .send().await.map_err(|_| unavailable())?;
         let renewal: Renewal = bounded_json(response).await?;

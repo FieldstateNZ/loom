@@ -194,8 +194,11 @@ Generate an encryption key with `openssl rand -hex 32`.
 
 The separate [`loom-lambda` entry point](docs/aws/loom-lambda.md) reuses the
 gateway with the request-driven database profile and a bounded private Function
-URL surface. Local runtime and PostgreSQL checks cover its cleanup barrier;
-AWS caller signing, deployment/networking and ARM64 packaging remain unqualified.
+URL surface. Local runtime and PostgreSQL checks cover its cleanup barrier.
+The [private MCP transport](docs/aws/private-mcp-signing.md) signs context,
+MCP and token-renewal calls with the execution role; component wire checks pass.
+Complete signed-hop, AWS deployment/networking and ARM64 packaging qualification
+remain separate work.
 
 ### Observability
 
