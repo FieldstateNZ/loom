@@ -119,6 +119,14 @@ jobs:
         run: |
           echo "source commit: $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
           bash deploy/ci/inspect_image.sh loom-server:ci Dockerfile | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build and inspect separate Lambda image (local only)
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: |
+          docker build --target lambda \
+            --file "$RUNNER_TEMP/loom-context/Dockerfile" \
+            --tag loom-lambda:ci "$RUNNER_TEMP/loom-context"
+          python3 deploy/ci/inspect_lambda_image.py loom-lambda:ci --expected-arch amd64 | tee -a "$GITHUB_STEP_SUMMARY"
 
   pg-compat:
     name: postgres compatibility (${{ matrix.label }})

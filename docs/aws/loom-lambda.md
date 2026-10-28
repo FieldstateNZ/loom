@@ -1,11 +1,31 @@
 # Private Loom Lambda entry point
 
 `cargo build --locked --release -p loom-server --bin loom-lambda` builds the
-native entry point using AWS's `lambda_http` 1.3.2 runtime. Package a compatible
-Linux binary as `bootstrap` for `provided.al2023`. The current local Mac build
-is not a qualified ARM64 deployment artifact. This change provisions no AWS
-resources and replaces neither the ordinary HTTP server nor explicit migration
-and provisioning jobs.
+native entry point using AWS's `lambda_http` 1.3.2 runtime. The Dockerfile's
+explicit `lambda` target packages `/var/runtime/bootstrap` with its matching
+pinned Debian runtime and CA bundle. The final/default target remains the
+ordinary server image. Do not copy this Debian-linked binary into a different
+OS such as `provided.al2023`: a ZIP deployment needs a separately compatible
+toolchain/build. This change provisions no AWS resources and replaces neither
+the ordinary HTTP server nor explicit migration and provisioning jobs.
+
+Build only from committed source, selecting the deployment architecture:
+
+```sh
+bash deploy/ci/docker_context.sh HEAD /tmp/owned-loom-context
+docker build --platform linux/arm64 --target lambda -t loom-lambda:local /tmp/owned-loom-context
+python3 deploy/ci/inspect_lambda_image.py loom-lambda:local --expected-arch arm64
+```
+
+The image inspector checks the actual Linux binary as UID 10001 on a read-only
+filesystem, its CA bundle, fail-closed configuration, and two successive events
+through the official Runtime API loop. The owned peer and runtime run on an
+isolated internal Docker network; no host port is published. Liveness succeeds
+and the admin route is refused without any database connection. The peer is a
+local synthetic AWS envelope, not IAM verification, and no model is called.
+This is ABI/startup/container evidence, not a cloud conversation or full memory
+test. Cleanup removes only the inspector's uniquely named containers/network.
+CI adds the same check for Linux AMD64 and never pushes these images.
 
 Require `LOOM_REQUEST_DRIVEN=true`, normal database/encryption/key configuration,
 `LOOM_LAMBDA_ACCOUNT_ID`, `AWS_REGION` and `LOOM_LAMBDA_CALLER_ROLE_ARNS` (a finite
