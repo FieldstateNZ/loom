@@ -93,3 +93,87 @@ complete Tandem memory, live inference or iPhone acceptance evidence.
 References: [AWS Rust runtime](https://github.com/aws/aws-lambda-rust-runtime),
 [Function URL events](https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html),
 [IAM conditions](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html).
+
+## Encrypted startup settings (opt in)
+
+The native Lambda entrypoint can load one explicitly pinned SSM SecureString
+before constructing its gateway or opening PostgreSQL connections. The ordinary
+server, migration job and existing environment-based Lambda path are unchanged.
+The caller policy is checked first. No global environment variable is mutated
+after Tokio starts; validated secrets overlay a private configuration lookup.
+
+Set only these non-secret references alongside the existing caller-role/pool
+settings (the account/path/version here are synthetic):
+
+```text
+LOOM_BOOTSTRAP_PARAMETER_ARN=arn:aws:ssm:ap-southeast-2:123456789012:parameter/tandem/example/loom-runtime
+LOOM_BOOTSTRAP_PARAMETER_VERSION=7
+LOOM_LAMBDA_ACCOUNT_ID=123456789012
+AWS_REGION=ap-southeast-2
+LOOM_REQUEST_DRIVEN=true
+```
+
+The full ARN must match the configured account/region under `/tandem/`; versions
+are explicit positive integers rather than movable labels. A partial reference,
+non-Unicode value, or pre-existing `DATABASE_URL`, `LOOM_ROOT_ADMIN_TOKEN`,
+`LOOM_ENCRYPTION_KEY` or `LOOM_KEY_PEPPER` causes refusal in this mode. This avoids
+silently mixing credential sources. Missing ARN/version together retains the
+established environment path.
+
+The SecureString JSON is at most4096 UTF-8 bytes and has exactly these fields:
+
+| Field | Value |
+| --- | --- |
+| `schema_version` | `1` |
+| `kind` | `loom-private-lambda` |
+| `database_url` | Existing restricted runtime PostgreSQL DSN with user/password/database, no URL query or fragment |
+| `database_ca_pem` | One PEM CA trust certificate; never its private key |
+| `database_ca_sha256` | SHA256 of the exact PEM bytes |
+| `root_admin_token` | Existing random admin token,32–256 bytes without NUL/CR/LF |
+| `encryption_key` | Existing64-hex credential-encryption key; no replacement/minting |
+| `key_pepper` | Required explicit choice: `{"mode":"derived"}` preserves the existing binary derivation, or `{"mode":"explicit","value":"EXISTING_VALUE"}` preserves an existing text pepper |
+
+The existing official AWS signer is shared with the private MCP client. It
+retains its TRACE suppression and sensitive-header markings. Each request uses
+only injected execution-role credentials, the fixed regional HTTPS dual-stack
+SSM hostname and exact `GetParameter` bytes with `WithDecryption:true`. No
+profile/metadata/SSO lookup, endpoint override, proxy, redirect or retry is used.
+The whole DNS/TLS/response read is bounded to six seconds, including streaming
+response limits. Metadata ARN/name/type/version and the strict document must
+match. Errors expose no upstream object, parameter value, DSN or key.
+
+The certificate fingerprint and PEM trust-anchor parsing are checked before
+writing a new sandbox-private directory0700/file0600. SQLx receives only
+`sslmode=verify-full` and that root-certificate path, preserving chain/hostname
+verification. Its file guard stays alive for the runtime and removes owned
+files on normal teardown; sandbox retirement also destroys `/tmp`. No startup
+migration, polling or request budget changes are introduced. Warm invocations
+reuse the pinned configuration, rather than rotating encryption keys beneath
+existing data. Deploy a newly pinned version only through explicit operator
+identity/recovery checks and runtime replacement.
+
+Operator publication and least-privilege deployment remain work: runtime IAM
+should permit `ssm:GetParameter` on the exact parameter ARN and any required
+decryption for its key, with no parameter writes/history/path enumeration.
+Never put the JSON, synthetic test configuration or real service keys in Git,
+arguments, build contexts, logs or public CI artefacts.
+
+Local evidence: [loom-lambda-bootstrap-evidence.json](loom-lambda-bootstrap-evidence.json).
+The complete Rust workspace passes287 tests with two paid-provider tests ignored;
+rustfmt and warnings-denied clippy pass. A clean functional-source ARM64 image
+passes three actual Runtime API modes: existing environment, one independently
+HMAC-verified TLS SSM handoff followed by200/404, and substituted-version exit
+before invocation/database work. UID10001, read-only root and zero DB connections
+hold. All owned fixture resources are removed. CI runs the same three modes on
+AMD64. An initial local full run hit a PostgreSQL container SSL-startup failure
+before application setup; its isolated recheck and complete two-thread run pass.
+No production TLS relaxation/retry was introduced.
+
+Separately, the existing Tandem/native Loom/new LucidBrain handler flow passes
+four TLS/cleanup guards and14 memory checks with28 production migrations and
+simulated inference. That flow uses existing environment settings, not SSM
+bootstrap. Neither local proof qualifies real AWS IAM/KMS, private cloud database
+routing, combined encrypted-startup memory or the iPhone. Those remain the next
+deployment acceptance work. No paid host, provider test or phone update is made.
+
+SSM contract: [GetParameter](https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_GetParameter.html).
