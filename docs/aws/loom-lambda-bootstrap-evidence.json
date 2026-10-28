@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-28T09:30:14.973696+00:00",
+  "functional_source": "ad2a104d66b6d72183f2b1038fa98f7a57b13910",
+  "rust_workspace_tests_passed": 287,
+  "paid_provider_tests_ignored": 2,
+  "test_parallelism": 2,
+  "initial_test_observation": "First full run failed one existing conversation test during PostgreSQL SSL startup before application setup; isolated rerun passed, then complete workspace passed at two test threads. No TLS downgrade or production retry was added.",
+  "rustfmt_passed": true,
+  "clippy_warnings_denied_passed": true,
+  "image_build": {
+    "source": "Clean git archive of functional_source",
+    "architecture": "linux/arm64",
+    "compiler": "rustc1.94.1 observed from immutable builder",
+    "image_id": "sha256:6bb9478a688b338731acf5d986c8586902c0ec77cab807b0ba423d504017d123"
+  },
+  "images": {
+    "legacy": {
+      "passed": true,
+      "image_id": "sha256:6bb9478a688b338731acf5d986c8586902c0ec77cab807b0ba423d504017d123",
+      "architecture": "arm64",
+      "os": "linux",
+      "uid": 10001,
+      "read_only": true,
+      "internal_network": true,
+      "ca_bundle": true,
+      "runtime_api_responses": 2,
+      "statuses": [
+        200,
+        404
+      ],
+      "encrypted_bootstrap": false,
+      "bootstrap_reads": 0,
+      "startup_rejected": false,
+      "database_connections": 0,
+      "live_ai": false,
+      "aws_calls": false
+    },
+    "accepted": {
+      "passed": true,
+      "image_id": "sha256:6bb9478a688b338731acf5d986c8586902c0ec77cab807b0ba423d504017d123",
+      "architecture": "arm64",
+      "os": "linux",
+      "uid": 10001,
+      "read_only": true,
+      "internal_network": true,
+      "ca_bundle": true,
+      "runtime_api_responses": 2,
+      "statuses": [
+        200,
+        404
+      ],
+      "encrypted_bootstrap": true,
+      "bootstrap_reads": 1,
+      "startup_rejected": false,
+      "database_connections": 0,
+      "live_ai": false,
+      "aws_calls": false
+    },
+    "refused": {
+      "passed": true,
+      "image_id": "sha256:6bb9478a688b338731acf5d986c8586902c0ec77cab807b0ba423d504017d123",
+      "architecture": "arm64",
+      "os": "linux",
+      "uid": 10001,
+      "read_only": true,
+      "internal_network": true,
+      "ca_bundle": true,
+      "runtime_api_responses": 0,
+      "statuses": [],
+      "encrypted_bootstrap": true,
+      "bootstrap_reads": 1,
+      "startup_rejected": true,
+      "database_connections": 0,
+      "live_ai": false,
+      "aws_calls": false
+    }
+  },
+  "shared_signer": "Existing official aws-sigv4 implementation extracted; MCP wire/HMAC/TRACE tests retained and pass. Local SSM TLS peer independently verifies full HMAC.",
+  "existing_environment_memory_regression": {
+    "passed": true,
+    "verified_at": "2026-10-28T09:27:35.598Z",
+    "postgres_image": "sha256:7e46093c86558e3ea85ff6dd6167580b52d87fd2dd5927368dfdc57248f578f2",
+    "guards": [
+      "Changed cluster marker refused before DDL",
+      "Wrong TLS trust refused without downgrade",
+      "Cleanup refuses changed cluster/database owner/role tag, then completes after original identities are restored",
+      "Only owned databases/roles removed; unrelated synthetic database/role preserved"
+    ],
+    "combined": {
+      "passed": true,
+      "tandem_loom_sigv4": true,
+      "signed_gateway_requests": 8,
+      "aws_sigv4_receiver_simulated": true,
+      "loom_lambda_handler": true,
+      "request_driven_enabled": true,
+      "lucidbrain_lambda_handler": true,
+      "lambda_iam_simulated": true,
+      "claude_model": "claude-sonnet-5",
+      "verified_at": "2026-10-28T09:27:31.098Z",
+      "tandem_source_sha256": {
+        "Scripts/lib/account-setup.mjs": "10232b697745c48748dda7d2680d739899379535496b48f895955e2f655084e3",
+        "Scripts/lib/private-file.mjs": "ab4d49f66f1c8043af15f409707c20ac8b591219bb0d84e571ccc169c28a9fbc",
+        "Scripts/prepare-account.mjs": "5501d88d7a5e94f7f87f44b9fc04ddd2394ccf8bd6f0707c4de4a3aaba7c5c66",
+        "Scripts/test-account-setup-integration.mjs": "6f46df5e85968b9df72375b922aae3de8351f18f13be906869ffd5b57375ad3c",
+        "Scripts/lib/external-test-database.mjs": "53e756331f04d15fb68c4c72f7f95895bdcfc35440494d521340cc2e7b6dbe73",
+        "Scripts/lib/lambda-simulator.mjs": "2b89c1d3f935eae5842425ee8c06d8d3152320bc02ce25149be1d7a0a861d3ca",
+        "Scripts/lib/loom-lambda-simulator.mjs": "e888f4f4d26f90188890faea2d42b786ecaa56300f6a1f78abf1c06d172c719d",
+        "backend/server.mjs": "9d5c3cfb684d1485429f70ac028c64944ab547e776c35121e7f806000725dbe3",
+        "backend/src/runtime.mjs": "1aa67c94d38b418ecd609cf80551f372d5bd9586731ee7603232bb7532114135",
+        "backend/src/loom.mjs": "065eb19a535d4b4faec068b24a74a93c79f9f42d078f66f9d749871d7efe23c0",
+        "backend/src/lambda-transport.mjs": "2549861f9f43658ec37bec7ff64a5ce00a1e2f3bd65fb5e1e4dd26f2513311d7",
+        "Scripts/lib/sigv4-fixture.mjs": "63e1dc93196ee033c7a3e0ef3eddf064920a32a593b077cec4b81005d7e26507"
+      },
+      "loom_commit": "ad2a104d66b6d72183f2b1038fa98f7a57b13910",
+      "lucidbrain_commit": "890cbdb12fad1d5bb8453bf406345d3b727be770",
+      "checks": [
+        "A valid actual primary receipt cannot mask an expired token registered in Loom; actual credential preflight refuses before private output/publication and without inference",
+        "A valid actual primary receipt cannot mask an revoked token registered in Loom; actual credential preflight refuses before private output/publication and without inference",
+        "A valid actual primary receipt cannot mask an other-owner token registered in Loom; actual credential preflight refuses before private output/publication and without inference",
+        "Actual MCP external-account attestation rejects a relabeled receipt even for another enabled Cognito subject with its own real dedicated Loom tenant/key",
+        "Actual full production schema/operator job supplies the account receipt; preflight verifies dedicated real Loom tenant/key, exact private registry and actual scoped MCP context without inference",
+        "A simulated lost SSM create reply recovers by reading the exact SecureString; private manifest fits the existing runtime and no overwrite/retry mutation is used",
+        "Both actual services release all runtime PostgreSQL sessions before local SIGSTOP/SIGCONT; readiness reconnects after thaw without inference or schema writes",
+        "A user-requested preference is created through Tandem \u2192 Loom \u2192 scoped LucidBrain, then recalled in a fresh conversation; no preference is seeded",
+        "Actual MCP replays, including concurrent replays, retain one memory and its ID; changed details, caller provenance, missing host operation and revoked credentials cannot save another memory",
+        "The generated private file drives actual Tandem HTTP/SQLite \u2192 Loom/PostgreSQL \u2192 scoped production LucidBrain memory; Claude replies are simulated and MCP secrets never reach the model",
+        "A disabled Cognito user or actual revoked Loom key prevents another account handoff",
+        "The production private LucidBrain Lambda export in two isolated Node sandboxes handles actual scoped MCP context/save/recall/concurrent replay through synthetic Function URL events with exact bearer/binding headers and closes database clients before returning",
+        "Actual native Loom Lambda binaries in two isolated sandboxes run the official Rust Runtime API loop for Tandem conversation/save/fresh-recall through production LucidBrain Lambda; provisioning stays on a separate HTTP operator surface, and all native workers suspend/resume only after database quiescence",
+        "Every Tandem gateway conversation request uses the production SDK SigV4 adapter; an independent local receiver verifies the exact HTTP body, host, temporary credential token and application Bearer before invoking native Loom Lambda"
+      ],
+      "model_requests": 4,
+      "memory_writes_enabled": true,
+      "private_renewal_enabled": false,
+      "voice_worker_enabled": false,
+      "voice_models_simulated": false,
+      "account_bootstrap_enabled": false,
+      "live_ai_used": false,
+      "not_verified": [
+        "Actual Cognito/STS/SSM credentials and IAM",
+        "AWS deployment/private network",
+        "Recoverable Loom tenant/key creation",
+        "Automatic OAuth refresh/replacement/recovery",
+        "Actual iPhone and live voice",
+        "Actual SSM tunnel and remote-host identity; loopback TLS alone does not establish hosting"
+      ],
+      "production_migrations": 28,
+      "aws_api_calls_made": false,
+      "database_hosting_verified": false,
+      "database_transport": "external_loopback_tls",
+      "external_database_cleanup_verified": true,
+      "operator_http_timings": [
+        {
+          "path": "/v1/whoami",
+          "status": 200,
+          "ms": 135
+        },
+        {
+          "path": "/admin/tenants/:id",
+          "status": 200,
+          "ms": 46
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers",
+          "status": 200,
+          "ms": 50
+        },
+        {
+          "path": "/v1/mcp-servers",
+          "status": 200,
+          "ms": 192
+        },
+        {
+          "path": "/mcp/context",
+          "status": 200,
+          "ms": 119
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers/lucidbrain/preflight",
+          "status": 200,
+          "ms": 777
+        },
+        {
+          "path": "/v1/whoami",
+          "status": 200,
+          "ms": 133
+        },
+        {
+          "path": "/admin/tenants/:id",
+          "status": 200,
+          "ms": 48
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers",
+          "status": 200,
+          "ms": 53
+        },
+        {
+          "path": "/v1/mcp-servers",
+          "status": 200,
+          "ms": 187
+        },
+        {
+          "path": "/mcp/context",
+          "status": 200,
+          "ms": 64
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers/lucidbrain/preflight",
+          "status": 503,
+          "ms": 239
+        },
+        {
+          "path": "/v1/whoami",
+          "status": 200,
+          "ms": 134
+        },
+        {
+          "path": "/admin/tenants/:id",
+          "status": 200,
+          "ms": 46
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers",
+          "status": 200,
+          "ms": 52
+        },
+        {
+          "path": "/v1/mcp-servers",
+          "status": 200,
+          "ms": 193
+        },
+        {
+          "path": "/mcp/context",
+          "status": 200,
+          "ms": 71
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers/lucidbrain/preflight",
+          "status": 503,
+          "ms": 211
+        },
+        {
+          "path": "/v1/whoami",
+          "status": 200,
+          "ms": 133
+        },
+        {
+          "path": "/admin/tenants/:id",
+          "status": 200,
+          "ms": 46
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers",
+          "status": 200,
+          "ms": 49
+        },
+        {
+          "path": "/v1/mcp-servers",
+          "status": 200,
+          "ms": 187
+        },
+        {
+          "path": "/mcp/context",
+          "status": 200,
+          "ms": 61
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers/lucidbrain/preflight",
+          "status": 503,
+          "ms": 244
+        },
+        {
+          "path": "/v1/whoami",
+          "status": 200,
+          "ms": 137
+        },
+        {
+          "path": "/admin/tenants/:id",
+          "status": 200,
+          "ms": 46
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers",
+          "status": 200,
+          "ms": 49
+        },
+        {
+          "path": "/v1/mcp-servers",
+          "status": 200,
+          "ms": 195
+        },
+        {
+          "path": "/mcp/context",
+          "status": 200,
+          "ms": 62
+        },
+        {
+          "path": "/admin/tenants/:id/mcp-servers/lucidbrain/preflight",
+          "status": 200,
+          "ms": 690
+        },
+        {
+          "path": "/v1/whoami",
+          "status": 401,
+          "ms": 45
+        }
+      ]
+    },
+    "scope": "Actual local TLS database and production service handlers; no real SSM/AWS hosting, OS-inclusive small-host capacity, paid inference or phone qualification."
+  },
+  "combined_encrypted_startup_and_memory_qualified": false,
+  "actual_aws_deployed": false,
+  "live_ai": false,
+  "limits": [
+    "SSM/Runtime API/IAM peers controlled locally; actual AWS IAM/KMS unqualified",
+    "Encrypted startup package checks use health/denied admin paths and zero DB connections",
+    "14-case actual-service memory flow uses existing environment settings, separately from encrypted startup",
+    "Actual AWS private Lambda-to-PostgreSQL path, least-privilege deployment and phone acceptance remain"
+  ],
+  "runtime_source_sha256": {
+    "crates/loom-mcp/src/aws.rs": "db8220f660e246ef266c04c48a047639436a803e9c476e2aa85b6f507916c0ed",
+    "crates/loom-mcp/src/http.rs": "38255429b1b65f9b834668a7b3e70d67a4de07b7f7caa73aba89f69a60d0b350",
+    "crates/loom-server/src/lambda_bootstrap.rs": "badf2d6760aff1cc88ba3545bbd69ca19183e20cc83359a79957e92a0e1ae511",
+    "crates/loom-server/src/config.rs": "8be6d806cff74ac81eb3ea3da213a9e1464d08bc3fcef135854be38516abf8ec",
+    "crates/loom-server/src/bin/loom-lambda.rs": "8e8f32fca262d1b28c34e019f517ed0719257ca18b0be34b0ddaf0adb167a9e1",
+    "Cargo.lock": "518440a5e738e9876470a1a0943b334ad5ed838da91ad1d8016a63eac1c4a7f4",
+    "Dockerfile": "9c8f4227474e71547085c2a9a410270991af03f1b438d4dc9545fd8d8f3da5f3",
+    "deploy/ci/inspect_lambda_image.py": "d34cf1d6c9579d79f571c898d861009cc3a9a8715beacf7279ad6757bdfa40b9",
+    "deploy/ci/lambda_runtime_peer.mjs": "78206c03d826aa87a703f1afa4264c1bd22fabc63be08ad3a249cf84a2ae298e"
+  },
+  "mac_binaries": {
+    "server_sha256": "f85e87fd3aad446fc2a97e7773c2190f46c27c7af6caa3a7d09677ba790e6072",
+    "runtime_sha256": "a12d7da8a757296e1f264f5bd2f6f9794bd881b5d45cd8ddd79c492e4ae8c3c0"
+  }
+}

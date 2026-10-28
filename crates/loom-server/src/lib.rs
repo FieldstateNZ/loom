@@ -62,6 +62,7 @@ pub mod error;
 pub mod extract;
 pub mod keys;
 pub mod lambda;
+pub mod lambda_bootstrap;
 mod private_mcp;
 pub mod provider;
 pub mod rate_limit;

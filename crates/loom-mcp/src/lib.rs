@@ -28,6 +28,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 mod arguments;
+pub mod aws;
 pub mod http;
 mod tasks;
 use http::PrivateHttpClient;
