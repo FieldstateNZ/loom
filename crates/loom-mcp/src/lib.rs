@@ -10,7 +10,7 @@ use futures::StreamExt;
 use loom_core::ToolDefinition;
 use reqwest_mcp::{
     header::{HeaderMap, HeaderValue},
-    Client, Url,
+    Url,
 };
 use rmcp::{
     model::{
@@ -28,7 +28,9 @@ use serde_json::Value;
 use uuid::Uuid;
 
 mod arguments;
+pub mod http;
 mod tasks;
+use http::PrivateHttpClient;
 pub use tasks::{CaptureReceipt, TaskCategory, TaskInput};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -109,7 +111,7 @@ pub fn is_memory_read(name: &str) -> bool {
 /// Dropping the connection cancels its service; no tool request is retried.
 pub struct MemoryClient {
     mode: Mode,
-    http: Client,
+    http: PrivateHttpClient,
     context_url: Url,
     headers: HeaderMap,
     binding: Binding,
@@ -251,19 +253,7 @@ impl MemoryClient {
                 HeaderValue::from_str(&id.to_string()).map_err(|_| Error::Configuration)?,
             );
         }
-        // reqwest's no-provider feature requires explicit initialization. Keep
-        // any process-selected provider; otherwise use the same ring backend
-        // as Loom's existing HTTP clients. A concurrent initializer is safe.
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        }
-        let http = Client::builder()
-            .redirect(reqwest_mcp::redirect::Policy::none())
-            .retry(reqwest_mcp::retry::never())
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|_| Error::Configuration)?;
+        let http = PrivateHttpClient::new(&endpoint)?;
         let mut context_url = endpoint.clone();
         context_url.set_path(&format!("{}/context", endpoint.path()));
         let policy = attest(&http, &context_url, &headers, &binding, mode).await?;
@@ -446,7 +436,7 @@ impl MemoryClient {
 }
 
 async fn attest(
-    http: &Client,
+    http: &PrivateHttpClient,
     url: &Url,
     headers: &HeaderMap,
     binding: &Binding,
