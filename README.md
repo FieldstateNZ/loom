@@ -192,6 +192,11 @@ with a clear diagnostic if one is missing or malformed.
 
 Generate an encryption key with `openssl rand -hex 32`.
 
+The separate [`loom-lambda` entry point](docs/aws/loom-lambda.md) reuses the
+gateway with the request-driven database profile and a bounded private Function
+URL surface. Local runtime and PostgreSQL checks cover its cleanup barrier;
+AWS caller signing, deployment/networking and ARM64 packaging remain unqualified.
+
 ### Observability
 
 Loom sits in the middle of every request, so it is instrumented from day one with

@@ -284,7 +284,8 @@ impl Drop for SseState {
             return;
         };
         self.finalized = true;
-        handle.spawn(settle_stream_turn(
+        let cleanup = self.state.track_cleanup();
+        let settlement = settle_stream_turn(
             self.state.clone(),
             self.attribution.clone(),
             self.persist,
@@ -293,7 +294,11 @@ impl Drop for SseState {
             self.accumulator.message(),
             self.accumulator.stop_reason_label(),
             self.recorded_cost,
-        ));
+        );
+        handle.spawn(async move {
+            settlement.await;
+            cleanup.complete();
+        });
     }
 }
 

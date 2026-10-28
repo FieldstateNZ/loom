@@ -1,6 +1,9 @@
 //! Shared application state handed to every request handler.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
 
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -34,6 +37,8 @@ struct Inner {
     store: PgStore,
     /// Hold at most half the work pool in long-lived conversation transactions.
     conversation_slots: Arc<Semaphore>,
+    cleanup_tasks: Arc<AtomicUsize>,
+    cleanup_failed: Arc<AtomicBool>,
     crypto: Crypto,
     hasher: KeyHasher,
     root_admin_token: String,
@@ -64,6 +69,8 @@ impl AppState {
             inner: Arc::new(Inner {
                 store,
                 conversation_slots,
+                cleanup_tasks: Arc::new(AtomicUsize::new(0)),
+                cleanup_failed: Arc::new(AtomicBool::new(false)),
                 crypto,
                 hasher,
                 root_admin_token,
@@ -89,6 +96,8 @@ impl AppState {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
                 conversation_slots: self.inner.conversation_slots.clone(),
+                cleanup_tasks: self.inner.cleanup_tasks.clone(),
+                cleanup_failed: self.inner.cleanup_failed.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -113,6 +122,8 @@ impl AppState {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
                 conversation_slots: self.inner.conversation_slots.clone(),
+                cleanup_tasks: self.inner.cleanup_tasks.clone(),
+                cleanup_failed: self.inner.cleanup_failed.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -137,6 +148,8 @@ impl AppState {
             inner: Arc::new(Inner {
                 store: self.inner.store.clone(),
                 conversation_slots: self.inner.conversation_slots.clone(),
+                cleanup_tasks: self.inner.cleanup_tasks.clone(),
+                cleanup_failed: self.inner.cleanup_failed.clone(),
                 crypto: self.inner.crypto.clone(),
                 hasher: self.inner.hasher.clone(),
                 root_admin_token: self.inner.root_admin_token.clone(),
@@ -186,6 +199,27 @@ impl AppState {
                     "conversation capacity is busy; try again when an active turn finishes",
                 )
             })
+    }
+
+    /// Whether this process has released all request-owned database work.
+    /// Only meaningful with the request-driven pool policy. This is a local
+    /// lifecycle barrier, not a distributed admission or spending limit.
+    #[must_use]
+    pub fn request_work_idle(&self) -> bool {
+        !self.inner.cleanup_failed.load(Ordering::SeqCst)
+            && self.inner.cleanup_tasks.load(Ordering::SeqCst) == 0
+            && self.inner.conversation_slots.available_permits()
+                == (self.store().pool().options().get_max_connections() / 2) as usize
+            && self.store().pool().size() == 0
+    }
+
+    pub(crate) fn track_cleanup(&self) -> CleanupGuard {
+        self.inner.cleanup_tasks.fetch_add(1, Ordering::SeqCst);
+        CleanupGuard {
+            tasks: self.inner.cleanup_tasks.clone(),
+            failed: self.inner.cleanup_failed.clone(),
+            complete: false,
+        }
     }
 
     /// The credential encryptor.
@@ -285,5 +319,27 @@ impl std::fmt::Debug for AppState {
             .field("hasher", &self.inner.hasher)
             .field("root_admin_token", &"<redacted>")
             .finish()
+    }
+}
+
+/// Registered synchronously before spawning, so a not-yet-polled cleanup task
+/// cannot be mistaken for an idle invocation. Aborted/panicking tasks poison
+/// quiescence; a Lambda process must then retire instead of freezing.
+pub(crate) struct CleanupGuard {
+    tasks: Arc<AtomicUsize>,
+    failed: Arc<AtomicBool>,
+    complete: bool,
+}
+impl CleanupGuard {
+    pub(crate) fn complete(mut self) {
+        self.complete = true;
+    }
+}
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.failed.store(true, Ordering::SeqCst);
+        }
+        self.tasks.fetch_sub(1, Ordering::SeqCst);
     }
 }
