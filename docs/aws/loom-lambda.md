@@ -27,6 +27,13 @@ This is ABI/startup/container evidence, not a cloud conversation or full memory
 test. Cleanup removes only the inspector's uniquely named containers/network.
 CI adds the same check for Linux AMD64 and never pushes these images.
 
+The local ARM64 release build and image inspection pass with the pinned base's
+Rust/Cargo 1.94.1. Both successive events complete as expected (200 liveness,
+404 admin refusal), with zero database connections. This qualifies the ARM64
+container's ABI and bounded initialization/runtime loop; memory conversations,
+signed downstream requests and actual AWS freeze/thaw still need their own
+deployment-scope evidence. The image is not a compatible Amazon Linux ZIP binary.
+
 Require `LOOM_REQUEST_DRIVEN=true`, normal database/encryption/key configuration,
 `LOOM_LAMBDA_ACCOUNT_ID`, `AWS_REGION` and `LOOM_LAMBDA_CALLER_ROLE_ARNS` (a finite
 JSON array of same-account role ARNs without role paths). Pool capacity must be
