@@ -60,7 +60,10 @@ pub fn router() -> Router<AppState> {
             "/v1/conversations/{id}",
             get(conversations::get_conversation).delete(conversations::delete_conversation),
         )
-        .route("/v1/conversations/{id}/turns", post(turns::create_turn))
+        .route(
+            "/v1/conversations/{id}/turns",
+            post(turns::create_turn).layer(axum::extract::DefaultBodyLimit::max(5 * 1024 * 1024)),
+        )
         .route("/v1/conversations/{id}/actions", get(actions::list))
         .route(
             "/v1/conversations/{id}/actions/{action}/decision",

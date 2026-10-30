@@ -115,6 +115,20 @@ async fn function_url_metadata_and_routes_fail_closed_without_opening_database()
         gateway.handle(event(huge)).await.status(),
         StatusCode::PAYLOAD_TOO_LARGE
     );
+    let conversation = format!("/v1/conversations/{}", Uuid::new_v4());
+    let turns = format!("{conversation}/turns");
+    for (method, path, limit) in [
+        ("POST", turns.as_str(), MAX_TURN_REQUEST),
+        ("POST", "/v1/conversations", MAX_REQUEST),
+        ("DELETE", conversation.as_str(), MAX_REQUEST),
+    ] {
+        let mut huge = envelope(method, path, json!(null));
+        huge["body"] = json!("x".repeat(limit + 1));
+        assert_eq!(
+            gateway.handle(event(huge)).await.status(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
     let mut short = event(envelope("GET", "/readyz", json!(null)));
     let mut ctx = short.lambda_context_ref().unwrap().clone();
     ctx.deadline = 1;
@@ -180,6 +194,31 @@ async fn buffered_bytes_preserve_sse_and_only_application_authorization() {
             .await
             .status(),
         StatusCode::BAD_GATEWAY
+    );
+}
+
+#[tokio::test]
+async fn a_five_mib_turn_passes_the_size_gate_whole() {
+    let mut gateway = LambdaGateway::from_state(state(), policy());
+    gateway.schema.set(()).unwrap(); // This boundary-only test performs no SQL.
+    gateway.router = Router::new().route(
+        "/v1/conversations/{id}/turns",
+        axum::routing::post(|request: Request<AxumBody>| async move {
+            let body = to_bytes(request.into_body(), usize::MAX).await.unwrap();
+            body.len().to_string()
+        }),
+    );
+    let mut e = envelope(
+        "POST",
+        &format!("/v1/conversations/{}/turns", Uuid::new_v4()),
+        json!(null),
+    );
+    e["body"] = json!("x".repeat(MAX_TURN_REQUEST));
+    let response = gateway.handle(event(e)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.body().as_ref(),
+        MAX_TURN_REQUEST.to_string().as_bytes()
     );
 }
 

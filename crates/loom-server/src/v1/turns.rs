@@ -32,6 +32,7 @@ use super::turn_response::TurnResponse;
             (loom_provider::TurnEvent = "text/event-stream"),
         )),
         (status = 404, description = "No such conversation for this tenant", body = Object),
+        (status = 413, description = "Request body over 5 MiB (`payload_too_large`)", body = Object),
         (status = 422, description = "Capability unsupported or provider not configured", body = Object),
     ),
     security(("virtual_key" = []))
@@ -40,7 +41,7 @@ pub(super) async fn create_turn(
     State(state): State<AppState>,
     ctx: TenantContext,
     Path(id): Path<uuid::Uuid>,
-    crate::extract::Json(req): crate::extract::Json<TurnRequest>,
+    crate::extract::TurnJson(req): crate::extract::TurnJson,
 ) -> Result<Response, ApiError> {
     if req.content.is_empty() {
         return Err(ApiError::bad_request("content must not be empty"));
@@ -62,26 +63,25 @@ pub(super) async fn create_turn(
             return Err(ApiError::conflict("this private memory conversation requires its verified binding and a completed prior run"));
         }
     }
-    let gateway = if let Some(request) = req.gateway_mcp.as_ref() {
+    let (gateway, live_turn, stored_turn) = if let Some(request) = req.gateway_mcp.as_ref() {
         if prior_runtime.is_none() && !conversation.messages.is_empty() {
             return Err(ApiError::conflict(
                 "start a new conversation to enable private memory execution",
             ));
         }
-        if req
-            .content
-            .iter()
-            .any(|p| !matches!(p, loom_core::ContentPart::Text { .. }))
-        {
-            return Err(ApiError::bad_request(
-                "private memory turns accept user text, not caller-supplied tool results",
-            ));
-        }
-        Some(super::gateway_mcp::prepare(&state, ctx.tenant_id, request, &mut options).await?)
+        // Before prepare, so a refused photo makes no MCP call either.
+        let media = super::gateway_mcp::media::split(&req.content, &conversation.messages)?;
+        let prepared =
+            super::gateway_mcp::prepare(&state, ctx.tenant_id, request, &mut options).await?;
+        (
+            Some((prepared, media.photos > 0)),
+            Message::new(Role::User, media.live),
+            Message::new(Role::User, media.stored),
+        )
     } else {
-        None
+        let user_turn = Message::new(Role::User, req.content);
+        (None, user_turn.clone(), user_turn)
     };
-    let user_turn = Message::new(Role::User, req.content);
 
     // Resolve named MCP server references to their URL + decrypted token
     // *before* persisting the user turn, so an unconfigured server fails fast
@@ -94,7 +94,8 @@ pub(super) async fn create_turn(
     let provider = state
         .resolve_provider(ctx.tenant_id, &conversation.binding.provider)
         .await?;
-    conversation.messages.push(user_turn.clone());
+    // Negotiation and every gateway round see the photos; history keeps notes.
+    conversation.messages.push(live_turn);
     negotiate(
         provider.as_ref(),
         &conversation,
@@ -106,7 +107,7 @@ pub(super) async fn create_turn(
     // persisting the user turn, so a blocked request leaves history untouched).
     let warning = enforce_limits(&state, &ctx).await?;
 
-    if let Some(prepared) = gateway.as_ref() {
+    if let Some((prepared, _)) = gateway.as_ref() {
         super::gateway_mcp::pin(&state, ctx.tenant_id, id, prepared).await?;
         // Written before the user turn and inference: crashes, cancellation and
         // unknown upstream outcomes remain durably fenced across replicas.
@@ -116,12 +117,12 @@ pub(super) async fn create_turn(
     // Persist the user turn now that the request is known to be runnable.
     state
         .store()
-        .append_message(ctx.tenant_id, id, &user_turn)
+        .append_message(ctx.tenant_id, id, &stored_turn)
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::not_found("conversation not found"))?;
 
-    let response = if let Some(prepared) = gateway {
+    let response = if let Some((prepared, media_turn)) = gateway {
         super::gateway_mcp::execute(
             provider,
             &state,
@@ -131,6 +132,7 @@ pub(super) async fn create_turn(
             ctx,
             warning,
             prepared,
+            media_turn,
         )
         .await?
     } else {

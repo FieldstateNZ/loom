@@ -968,6 +968,12 @@ export interface components {
             gateway_action_version: number;
             /**
              * Format: int32
+             * @description Version 1 accepts up to three base64 JPEG photos on a `gateway_mcp`
+             *     turn, for that request only, and refuses blank text.
+             */
+            gateway_media_version: number;
+            /**
+             * Format: int32
              * @description Version 1 supports the explicit, identity-bound `gateway_mcp` read path.
              *     Older servers omit this field; clients must refuse silent downgrade.
              */
@@ -1949,6 +1955,15 @@ export interface operations {
             };
             /** @description No such conversation for this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Request body over 5 MiB (`payload_too_large`) */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

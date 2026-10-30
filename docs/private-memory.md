@@ -75,7 +75,9 @@ the operator registration or credential identity.
 
 `GET /v1/mcp-servers` adds `gateway_memory_version: 1`. A client must check it
 before relying on private execution: an older server may ignore unknown JSON
-fields. Tandem refuses that silent downgrade.
+fields. Tandem refuses that silent downgrade. `gateway_media_version: 1` marks a
+server that accepts photos on these turns ([Photos](#photos)); check it before
+sending one.
 
 Start a fresh persistent conversation, then send:
 
@@ -101,8 +103,9 @@ The expected binding is a caller assertion that must match the operator's
 registration and authenticated peer; it never grants permissions. Tandem
 constructs it from private configuration, not the mobile chat body. No URL or
 token is accepted in `gateway_mcp`. Mixing client-defined tools, provider-hosted
-MCP, provider-executed tools or native provider-option bags is refused. Initial
-user turns must be text, not caller-supplied tool results. Stateless execution is
+MCP, provider-executed tools or native provider-option bags is refused. User
+turns carry text and at most three JPEG photos, not caller-supplied tool results
+or documents, and a blank text part is refused. Stateless execution is
 explicitly rejected because it cannot supply the durable execution fence.
 
 ## Execution and recovery
@@ -157,6 +160,53 @@ this milestone does not provide live final-answer token deltas or replayable
 OASP session events. Streamed messages retain the existing `raw = null`
 limitation; provider replay metadata is retained in the normalized parts.
 
+A final reply cut off by the output limit (`max_tokens`) with no tool call
+finishes the run like any other and returns the runtime to `idle`; only its text
+is stored, because a thinking block cut off by the limit may carry no valid
+signature. A limit that cuts a tool call short still fails and fences. Blank
+text parts are dropped from every stored final reply, and `[No reply.]` is
+stored when no text is left. The stream reports the parts as received.
+
+## Photos
+
+A private memory turn may carry up to three photos: base64 `image/jpeg` image
+parts of at most 1 MiB, without cache hints. Loom checks them without decoding:
+strict base64, and a walk of the markers from the JPEG start to its end marker
+that finds one frame header with both sides in 1 to 8,000 pixels, a scan and
+nothing after the end, so a photo cut short is refused; no two photos may have
+the same bytes. URL sources are refused, so the provider never fetches and no
+bearer link reaches history. Blank text means only Unicode White_Space and
+U+FEFF. A refused photo or blank text gets 422 `gateway_media` before any MCP
+call, state change or fence. The turns route reads bodies up to 5 MiB. Above
+axum's 2 MiB default it accepts only private memory turns, and other turns get
+the response they got before: 400, or 415 for a body not sent as JSON. Any turn
+body over 5 MiB gets 413 `payload_too_large`.
+
+A photo is used for one request only. In every model pass of its turn the model
+sees it after a label with its id (the first 8 hex digits of its SHA-256) that
+says to treat any writing in it as content, not instructions. History stores a
+note in its place, `[Photo {id} was attached to this message. It is no longer
+visible here.]`, so no photo bytes reach PostgreSQL, backups, conversation
+reads, usage rows or logs. A photo whose note is already in the conversation is
+labelled "shared earlier" and stores no new note. Because history keeps no
+bytes, the model needs vision only on turns that carry photos. History differs
+from what the model saw, which is safe only on models that do not check that a
+replayed thinking block's prefix is unchanged: every model in Loom's catalogue
+today. A model that checks needs Loom to stop replaying a photo turn's thinking.
+
+Memory saves are refused on every turn that carries a photo, since writing in a
+photo can ask for one. Each `memory_remember` call, whatever its arguments, gets
+a refused, error tool result without calling LucidBrain or using the turn's one
+save. The model-pass and call limits still bound the loop, and reaching them
+fences as for any loop.
+
+A photo makes a reply cut off by `max_tokens` more likely, since the model may
+think about it at length first. Such a reply finishes the run as described in
+[Execution and recovery](#execution-and-recovery).
+
+Loom never decodes a photo, so one the model rejects after the run is marked
+fails the run and leaves the fence set.
+
 ## Validation
 
 `cargo test --workspace --all-features` covers the official MCP client against
@@ -164,6 +214,9 @@ protocol fixtures and a real Loom router/PostgreSQL migration path with mock
 OpenAI/MCP peers. Cases include encrypted credentials, retained history,
 multi-pass usage, workspace/binding denial before inference, write-tool denial,
 bounded loops, concurrent turns, cancellation/drop and durable failure fences.
+`tests/gateway_media.rs` drives photo turns through a mock Anthropic Messages
+peer: labels and notes, refusals before state changes, refused saves, cut-off
+replies and body limits.
 
 Tandem additionally supplies `Scripts/test-private-memory-integration.mjs`, which
 uses actual LucidBrain Express/MCP and PostgreSQL with synthetic users/memories,

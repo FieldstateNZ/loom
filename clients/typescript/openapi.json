@@ -795,6 +795,16 @@
               }
             }
           },
+          "413": {
+            "description": "Request body over 5 MiB (`payload_too_large`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Capability unsupported or provider not configured",
             "content": {
@@ -2134,13 +2144,20 @@
           "servers",
           "gateway_memory_version",
           "gateway_memory_write_version",
-          "gateway_action_version"
+          "gateway_action_version",
+          "gateway_media_version"
         ],
         "properties": {
           "gateway_action_version": {
             "type": "integer",
             "format": "int32",
             "description": "Version 1 provides durable proposals, digest-bound decisions, explicit\ndispatch/retry and read-only reconciliation. Inference cannot approve.",
+            "minimum": 0
+          },
+          "gateway_media_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Version 1 accepts up to three base64 JPEG photos on a `gateway_mcp`\nturn, for that request only, and refuses blank text.",
             "minimum": 0
           },
           "gateway_memory_version": {
