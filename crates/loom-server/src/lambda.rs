@@ -23,6 +23,8 @@ use uuid::Uuid;
 use crate::{build_router, AppState, Config};
 
 const MAX_REQUEST: usize = 64 * 1024;
+/// Photos on a private memory turn. Other routes keep [`MAX_REQUEST`].
+const MAX_TURN_REQUEST: usize = 5 * 1024 * 1024;
 const MAX_RESPONSE: usize = 256 * 1024;
 
 /// Finite same-account IAM callers admitted to this private HTTP surface.
@@ -243,7 +245,14 @@ impl LambdaGateway {
         if !allowed_route(request.method(), &path) {
             return failure(StatusCode::NOT_FOUND);
         }
-        if request.body().as_ref().len() > MAX_REQUEST {
+        // Decoded bytes. Past `allowed_route`, the only POST path ending in
+        // `/turns` is a conversation's turns route.
+        let limit = if request.method() == Method::POST && path.ends_with("/turns") {
+            MAX_TURN_REQUEST
+        } else {
+            MAX_REQUEST
+        };
+        if request.body().as_ref().len() > limit {
             return failure(StatusCode::PAYLOAD_TOO_LARGE);
         }
         let now = SystemTime::now()

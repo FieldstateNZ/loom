@@ -62,12 +62,17 @@ are excluded. Canonical UUID paths prevent alternate encoded routing.
 
 ## Response and cleanup
 
-Requests are limited to 64 KiB and responses to 256 KiB. The adapter consumes
-the existing router's full response inside an 18-second work budget and buffers
-SSE bytes without translating them. It therefore supports bounded current turns,
-not continuous voice streaming. Large history needs pagination before expanding
-this private limit. The Lambda deadline bounds work and reserves two seconds for
-cleanup, with an additional 100 ms margin before the runtime deadline.
+Requests are limited to 64 KiB, except 5 MiB for `POST …/turns` so that photos
+fit, and responses to 256 KiB. The gate measures decoded bytes. 5 MiB is Loom's
+cap, not an end-to-end guarantee: AWS does not document that an
+`application/json` body stays unencoded in the event, and a 5 MiB body sent
+base64-encoded would exceed the 6 MB Function URL request limit. The adapter
+consumes the existing router's full response inside an 18-second work budget
+and buffers SSE bytes without translating them. It therefore supports bounded
+current turns, not continuous voice streaming. Large history needs pagination
+before expanding this private limit. The Lambda deadline bounds work and
+reserves two seconds for cleanup, with an additional 100 ms margin before the
+runtime deadline.
 
 One sandbox admits one invocation. Its supervisor keeps admission even if the
 caller drops its future. A work timeout drops the real router/body future and

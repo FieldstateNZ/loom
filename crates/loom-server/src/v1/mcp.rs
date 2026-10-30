@@ -30,6 +30,9 @@ pub(super) struct McpServerList {
     /// Version 1 provides durable proposals, digest-bound decisions, explicit
     /// dispatch/retry and read-only reconciliation. Inference cannot approve.
     gateway_action_version: u32,
+    /// Version 1 accepts up to three base64 JPEG photos on a `gateway_mcp`
+    /// turn, for that request only, and refuses blank text.
+    gateway_media_version: u32,
 }
 
 /// `GET /v1/mcp-servers` — lists the names of MCP servers registered for the
@@ -62,5 +65,6 @@ pub(super) async fn list_mcp_servers(
         gateway_memory_version: 1,
         gateway_memory_write_version: 1,
         gateway_action_version: 1,
+        gateway_media_version: 1,
     }))
 }

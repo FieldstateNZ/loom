@@ -47,8 +47,11 @@ struct Run {
     pending: VecDeque<(String, String, Value)>,
     proposed: bool,
     remembered: bool,
+    media_turn: bool,
 }
 
+/// `media_turn` is true when the live user turn carries a photo, including
+/// one shared earlier.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn execute(
     provider: Arc<dyn Provider>,
@@ -59,6 +62,7 @@ pub(crate) async fn execute(
     ctx: TenantContext,
     warning: Option<BudgetWarning>,
     prepared: Prepared,
+    media_turn: bool,
 ) -> Result<Response, ApiError> {
     let attribution = UsageAttribution {
         tenant_id: ctx.tenant_id,
@@ -98,6 +102,7 @@ pub(crate) async fn execute(
         pending: VecDeque::new(),
         proposed: false,
         remembered: false,
+        media_turn,
     };
     let mut response = if streaming {
         run.events
@@ -222,6 +227,10 @@ impl Run {
                     json!({"status":"requires_application_approval","action_id":data["id"],"created":false}),
                     false,
                 )
+            } else if name == "memory_remember" && self.media_turn {
+                // Writing in a photo can ask for a save. Every save on a photo
+                // turn is refused without using the turn's one save.
+                (json!({"status":"refused","reason":"photo_attached"}), true)
             } else if name == "memory_remember" {
                 self.remembered = true;
                 let operation = hex::encode(sha2::Sha256::digest(
@@ -312,15 +321,20 @@ impl Run {
             })
             .collect();
         if calls.is_empty() {
+            // A reply cut off by the output limit finishes the run too, so it
+            // leaves no fence. A cut-off tool call still fails below.
             if !matches!(
                 stop,
-                StopReason::EndTurn | StopReason::StopSequence | StopReason::Refusal
+                StopReason::EndTurn
+                    | StopReason::StopSequence
+                    | StopReason::Refusal
+                    | StopReason::MaxTokens
             ) {
                 return Err(ApiError::unavailable(
                     "private memory model response did not finish successfully",
                 ));
             }
-            self.append(message.clone()).await?;
+            self.append(stored_reply(&message, &stop)).await?;
             mark(
                 &self.state,
                 self.ctx.tenant_id,
@@ -348,12 +362,13 @@ impl Run {
                 "only one task may be proposed in a turn",
             ));
         }
-        if calls
-            .iter()
-            .filter(|(_, name, _)| name == "memory_remember")
-            .count()
-            + usize::from(self.remembered)
-            > 1
+        if !self.media_turn
+            && calls
+                .iter()
+                .filter(|(_, name, _)| name == "memory_remember")
+                .count()
+                + usize::from(self.remembered)
+                > 1
         {
             return Err(ApiError::unprocessable(
                 "gateway_memory_limit",
@@ -373,6 +388,11 @@ impl Run {
                     "gateway_mcp_tool",
                     "model requested an unoffered or duplicate tool call",
                 ));
+            }
+            // A save on a photo turn never runs, so it gets the refused result
+            // whatever its arguments, rather than failing the run.
+            if self.media_turn && name == "memory_remember" {
+                continue;
             }
             self.prepared.client.validate(name, input).map_err(|_| {
                 ApiError::unprocessable(
@@ -414,6 +434,26 @@ impl Run {
             Value::Null,
         ));
     }
+}
+
+/// The stored copy of a final reply; the stream still reports it as received.
+/// Blank text is never replayed, and "[No reply.]" stands in when no text is
+/// left. A reply cut off by `max_tokens` keeps only its text, because a
+/// thinking block cut off by the limit may carry no valid signature.
+fn stored_reply(message: &Message, stop: &StopReason) -> Message {
+    let mut stored = message.clone();
+    stored.content.retain(|part| match part {
+        ContentPart::Text { text, .. } => !super::media::blank(text),
+        _ => *stop != StopReason::MaxTokens,
+    });
+    if !stored
+        .content
+        .iter()
+        .any(|part| matches!(part, ContentPart::Text { .. }))
+    {
+        stored.content.push(ContentPart::text("[No reply.]"));
+    }
+    stored
 }
 
 fn add_usage(total: &mut Usage, usage: &Usage) {
